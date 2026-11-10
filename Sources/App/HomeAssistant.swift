@@ -22,7 +22,7 @@ enum Entity {
     static let destination = "input_text.volttime_destination"
     static let active = "input_boolean.volttime_active"
     static let answered = "input_boolean.volttime_answered"
-    static let notifyService = "ridhuans_iphone_15_pro"
+    static let notifyService = "mobile_app_ridhuans_iphone_15_pro"
 }
 
 enum Keychain {

@@ -25,7 +25,7 @@
 #   sensor.ultra_rouge_battery_level_tessie                battery %
 #   number.ultra_rouge_charge_limit_tessie                 charge limit
 #   switch.ultra_rouge_charge_2                            start / stop charging
-#   notify.ridhuans_iphone_15_pro                          iPhone (Home Assistant app)
+#   notify.mobile_app_ridhuans_iphone_15_pro                          iPhone (Home Assistant app)
 #   input_select.tesla_charging_mode                       Off / Routine / Excess Solar / Fast
 #       -> if your charging-mode entity has another name, change it in the 3 places marked MODE.
 #          (If the entity does not exist at all, VoltTime simply always runs.)
@@ -190,7 +190,7 @@ automation:
       # Hold the car straight away with the current limit, so it doesn't start charging at peak rate.
       - action: script.volttime_plan
         response_variable: plan
-      - action: notify.ridhuans_iphone_15_pro
+      - action: notify.mobile_app_ridhuans_iphone_15_pro
         data:
           title: "🔌 Where are you going tomorrow?"
           message: >-
@@ -245,7 +245,7 @@ automation:
         response_variable: plan
         data:
           limit: "{{ pick }}"
-      - action: notify.ridhuans_iphone_15_pro
+      - action: notify.mobile_app_ridhuans_iphone_15_pro
         data:
           title: "⚡ {{ trigger.id }} · limit {{ pick }}%"
           message: >-
@@ -304,7 +304,7 @@ automation:
         response_variable: plan
         data:
           limit: 73
-      - action: notify.ridhuans_iphone_15_pro
+      - action: notify.mobile_app_ridhuans_iphone_15_pro
         data:
           title: "⚡ No answer – GPS 73%"
           message: >-
