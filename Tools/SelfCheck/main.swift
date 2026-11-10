@@ -34,6 +34,16 @@ check("ha weekday peak guard", plan(tue, 10, 100), "597 10:00 PM")
 check("ha saturday no guard", plan(date(2026, 11, 14, 19, 30), 10, 100), "597 7:33 PM")
 check("ha after midnight", plan(date(2026, 11, 11, 2, 0), 40, 73), "219 2:02 AM")
 
+// Simulate: 63% → 100% leaving 7:00 AM → 4h 06m, start 2:39 AM (15 min buffer) / 2:54 AM (no buffer)
+let sim = HomeMath.calculate(HomeInputs(startSoc: 63, endSoc: 100, amps: 32, volts: 240, efficiencyPct: 93, capacityKWh: 79, tariff: 0.4981))
+check("sim duration", Fmt.longDuration(sim.minutes), "4h 06m")
+let sim15 = HomeMath.simulatedStart(leaveMinutes: 7 * 60, chargeMinutes: sim.minutes, bufferMinutes: 15)
+check("sim start 15", "\(Fmt.clock(minutes: sim15.minutes)) \(sim15.daysBefore)", "2:39 AM 0")
+let sim0 = HomeMath.simulatedStart(leaveMinutes: 7 * 60, chargeMinutes: sim.minutes, bufferMinutes: 0)
+check("sim start 0", "\(Fmt.clock(minutes: sim0.minutes)) \(sim0.daysBefore)", "2:54 AM 0")
+let simLong = HomeMath.simulatedStart(leaveMinutes: 7 * 60, chargeMinutes: 597, bufferMinutes: 15)
+check("sim previous evening", "\(Fmt.clock(minutes: simLong.minutes)) \(simLong.daysBefore)", "8:48 PM 1")
+
 // Public: 20% → 80%, 250 kW, RM 1.07/kWh → 25 mins, RM 56.35
 if case let .ok(minutes, cost, _, _) = PublicMath.estimate(start: 20, end: 80, maxKW: 250, rate: 1.07, perMinute: false) {
     check("public time", Fmt.shortDuration(minutes), "25 mins")

@@ -73,6 +73,14 @@ enum HomeMath {
         let secs = calendar.component(.second, from: s)
         return s.addingTimeInterval(-Double(secs))
     }
+
+    /// Simulation only (nothing is scheduled): the clock time charging has to start so that it ends
+    /// `bufferMinutes` before `leaveMinutes`. `daysBefore` is 1 when the start falls on the previous day.
+    static func simulatedStart(leaveMinutes: Int, chargeMinutes: Int, bufferMinutes: Int) -> (minutes: Int, daysBefore: Int) {
+        let total = leaveMinutes - chargeMinutes - bufferMinutes
+        let daysBefore = total >= 0 ? 0 : (-total + 1439) / 1440
+        return (((total % 1440) + 1440) % 1440, daysBefore)
+    }
 }
 
 // MARK: - Public (DC fast charging)

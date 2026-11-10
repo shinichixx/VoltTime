@@ -11,7 +11,7 @@ struct VoltTimeApp: App {
 }
 
 enum AppTab {
-    case home, publicCharging
+    case home, simulate, publicCharging
 }
 
 struct ContentView: View {
@@ -27,6 +27,7 @@ struct ContentView: View {
                 Group {
                     switch tab {
                     case .home: HomeView(model: home, showSettings: $showSettings)
+                    case .simulate: SimulateView(model: home, showSettings: $showSettings)
                     case .publicCharging: PublicView(showSettings: $showSettings)
                     }
                 }
@@ -75,6 +76,7 @@ struct BottomBar: View {
     var body: some View {
         HStack(spacing: 0) {
             item(.home, "Home", "house.fill")
+            item(.simulate, "Simulate", "wand.and.stars")
             item(.publicCharging, "Public", "ev.charger.fill")
         }
         .padding(.top, 6)
