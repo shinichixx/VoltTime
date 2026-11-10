@@ -16,7 +16,7 @@
 #         homeassistant:
 #           packages: !include_dir_named packages
 #   - Copy this file to /config/packages/volttime.yaml
-#   - secrets.yaml:   tessie_auth: "Bearer YOUR_TESSIE_TOKEN"
+#   - secrets.yaml: uses your existing tessie_bearer ("Bearer YOUR_TESSIE_TOKEN")
 #   - Restart Home Assistant (needed once for rest_command and the new helpers).
 #   - In the Tesla app, delete the old 12:15am charge schedule (and any Tessie charging schedule).
 #
@@ -103,7 +103,7 @@ rest_command:
       https://api.tessie.com/LRW3F7EJ1TC940720/command/add_charge_schedule?id=1110&days_of_week=All&enabled={{ enabled }}&start_enabled=true&end_enabled=false&one_time=true&start_time={{ start_time }}&lat={{ state_attr('zone.home', 'latitude') }}&lon={{ state_attr('zone.home', 'longitude') }}&wait_for_completion=true
     method: post
     headers:
-      Authorization: !secret tessie_auth
+      authorization: !secret tessie_bearer
     timeout: 90
 
 script:
