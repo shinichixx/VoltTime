@@ -1,12 +1,11 @@
 import SwiftUI
-import UIKit
 
 struct HomeView: View {
     @ObservedObject var model: HomeModel
     @Binding var showSettings: Bool
+    @Binding var showSimulate: Bool
     @FocusState private var focus: String?
     @State private var showAdvanced = false
-    @State private var copied = false
 
     var body: some View {
         let r = model.result
@@ -30,6 +29,7 @@ struct HomeView: View {
                     startCard(r, start)
                     tripCard
                     planCard(r)
+                    simulateCard
                     costCard(r)
                     advancedCard(r)
                 }
@@ -39,6 +39,10 @@ struct HomeView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)
+        }
+        .navigationDestination(isPresented: $showSimulate) {
+            SimulateView(model: model) { showSimulate = false }
+                .toolbar(.hidden, for: .navigationBar)
         }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -73,17 +77,6 @@ struct HomeView: View {
                         }
                     }
                     Spacer()
-                    Button {
-                        UIPasteboard.general.string = "Tesla Charge Start: \(Fmt.clock(start, calendar: .current)) (\(dayLabel(start))) for ready time \(Fmt.clock(minutes: model.readyMinutes))."
-                        copied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { copied = false }
-                    } label: {
-                        Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(Theme.field).clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
                 }
                 HStack(spacing: 8) {
                     Figure(label: "Duration", value: Fmt.longDuration(r.minutes))
@@ -242,6 +235,27 @@ struct HomeView: View {
             .font(.system(size: 10.5))
             .foregroundStyle(.secondary)
         }
+    }
+
+    // MARK: Simulate entry
+
+    private var simulateCard: some View {
+        Button { showSimulate = true } label: {
+            Card {
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 9).fill(Theme.purple).frame(width: 30, height: 30)
+                        .overlay(Image(systemName: "wand.and.stars").foregroundStyle(.white).font(.system(size: 14, weight: .semibold)))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Simulate").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.purple)
+                        Text("When to start for any % by any time · nothing sent to the car")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .bold)).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Cost

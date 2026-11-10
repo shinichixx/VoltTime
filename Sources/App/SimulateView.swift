@@ -4,7 +4,7 @@ import SwiftUI
 /// Uses the charger settings from the Home tab. Nothing here is sent to the car or Home Assistant.
 struct SimulateView: View {
     @ObservedObject var model: HomeModel
-    @Binding var showSettings: Bool
+    let onBack: () -> Void
     @AppStorage("sim.leave") private var leaveMinutes = 7 * 60
     @AppStorage("sim.target") private var target = 100.0
     @AppStorage("sim.buffer") private var bufferMinutes = 15
@@ -20,10 +20,7 @@ struct SimulateView: View {
         let r = result
         let sim = HomeMath.simulatedStart(leaveMinutes: leaveMinutes, chargeMinutes: r.minutes, bufferMinutes: bufferMinutes)
         VStack(spacing: 0) {
-            AppHeader(color: Theme.purple, icon: "wand.and.stars", title: "Simulation",
-                      subtitle: "Nothing is sent to the car") {
-                HeaderButton(systemName: "gearshape.fill") { showSettings = true }
-            }
+            header
             ScrollView {
                 VStack(spacing: 12) {
                     resultCard(r, sim)
@@ -45,6 +42,30 @@ struct SimulateView: View {
                 seeded = true
             }
         }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Button(action: onBack) {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left").font(.system(size: 15, weight: .bold))
+                    Text("Home").font(.system(size: 15, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(Color.white.opacity(0.22))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("Simulation").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                Text("Nothing is sent to the car").font(.system(size: 10.5)).foregroundStyle(Color.white.opacity(0.85))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Theme.purple.ignoresSafeArea(edges: .top))
     }
 
     // MARK: Result

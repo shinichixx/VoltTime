@@ -11,7 +11,7 @@ struct VoltTimeApp: App {
 }
 
 enum AppTab {
-    case home, simulate, publicCharging
+    case home, publicCharging
 }
 
 struct ContentView: View {
@@ -19,6 +19,7 @@ struct ContentView: View {
     @StateObject private var home = HomeModel()
     @State private var tab: AppTab = .home
     @State private var showSettings = false
+    @State private var showSimulate = false
     @State private var keyboardUp = false
 
     var body: some View {
@@ -26,8 +27,7 @@ struct ContentView: View {
             NavigationStack {
                 Group {
                     switch tab {
-                    case .home: HomeView(model: home, showSettings: $showSettings)
-                    case .simulate: SimulateView(model: home, showSettings: $showSettings)
+                    case .home: HomeView(model: home, showSettings: $showSettings, showSimulate: $showSimulate)
                     case .publicCharging: PublicView(showSettings: $showSettings)
                     }
                 }
@@ -35,7 +35,7 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             if !keyboardUp {
-                BottomBar(tab: $tab)
+                BottomBar(tab: $tab) { showSimulate = false }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { n in
@@ -57,6 +57,7 @@ struct ContentView: View {
         .onOpenURL { url in
             // volttime://limit (notification "Others…") or volttime://home
             tab = .home
+            showSimulate = false
             if url.host == "limit" {
                 showSettings = false
                 home.showLimitSheet = true
@@ -72,11 +73,11 @@ struct ContentView: View {
 
 struct BottomBar: View {
     @Binding var tab: AppTab
+    var onTap: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 0) {
             item(.home, "Home", "house.fill")
-            item(.simulate, "Simulate", "wand.and.stars")
             item(.publicCharging, "Public", "ev.charger.fill")
         }
         .padding(.top, 6)
@@ -86,7 +87,7 @@ struct BottomBar: View {
     }
 
     private func item(_ t: AppTab, _ title: String, _ icon: String) -> some View {
-        Button { tab = t } label: {
+        Button { onTap(); tab = t } label: {
             VStack(spacing: 3) {
                 Image(systemName: icon).font(.system(size: 20)).frame(height: 24)
                 Text(title).font(.caption2.weight(tab == t ? .bold : .regular))
