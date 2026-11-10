@@ -1,0 +1,70 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read build number
+        id: ver
+        run: |
+          BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION' project.yml | sed -E 's/[^0-9]//g')
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "Build $BUILD"
+
+      - name: Self-check (maths matches the web pages and Home Assistant)
+        run: |
+          swiftc -O Sources/Core/ChargeMath.swift Tools/SelfCheck/main.swift -o /tmp/selfcheck
+          /tmp/selfcheck
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project VoltTime.xcodeproj \
+            -scheme VoltTime \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 || true
+          grep -E "error:|BUILD (SUCCEEDED|FAILED)" build.log | head -n 80 || true
+          grep -E "error:" build.log | sort -u | head -n 40 | while IFS= read -r line; do echo "::error::$line"; done
+          test -d build/Build/Products/Release-iphoneos/VoltTime.app
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/VoltTime.app Payload/
+          zip -qry "VoltTime_build${{ steps.ver.outputs.build }}.ipa" Payload
+          ls -lh *.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VoltTime_build${{ steps.ver.outputs.build }}
+          path: VoltTime_build${{ steps.ver.outputs.build }}.ipa
+
+      - name: Publish release with the IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ steps.ver.outputs.build }}"
+          gh release delete "$TAG" -y --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" "VoltTime_build${{ steps.ver.outputs.build }}.ipa" \
+            --title "VoltTime build ${{ steps.ver.outputs.build }}" \
+            --notes "Unsigned IPA for sideloading (AltStore / Sideloadly)."

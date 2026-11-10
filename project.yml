@@ -1,0 +1,40 @@
+name: VoltTime
+options:
+  bundleIdPrefix: com.ridhuan
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  VoltTime:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: VoltTime
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        CFBundleURLTypes:
+          - CFBundleURLName: com.ridhuan.volttime
+            CFBundleURLSchemes:
+              - volttime
+        NSLocalNetworkUsageDescription: Connects to Home Assistant on your network to read the car's battery and set tonight's charge.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ridhuan.volttime
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: Sources/Info.plist
+        CODE_SIGN_STYLE: Manual

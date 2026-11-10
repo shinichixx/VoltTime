@@ -1,0 +1,409 @@
+# =====================================================================================
+# VoltTime – Home Assistant package
+#
+# What it does (Saturday to Wednesday nights, only while the charging mode is Routine):
+#   1. From 7pm, every time Ultra Rouge is plugged in (or at 7pm if it is already plugged in),
+#      your iPhone asks "Where are you going tomorrow?"  GPS = 73 %, TSET = 63 %, Others = VoltTime slider.
+#   2. The answer sets the charge limit straight away. No answer by 11pm = GPS 73 %.
+#   3. The start time is worked out (battery now -> limit, at the VoltTime amps / volts / efficiency /
+#      battery size, finishing by the ready time minus the buffer) and written into the car as a
+#      ONE-TIME Tesla charge schedule through Tessie, so the car waits and then starts by itself.
+#      Weekday nights never start before 10pm (TNB peak ends at 10pm).
+#   4. Five minutes after the start time, if the car is still not charging, Home Assistant starts it.
+#
+# Install
+#   - configuration.yaml must load packages:
+#         homeassistant:
+#           packages: !include_dir_named packages
+#   - Copy this file to /config/packages/volttime.yaml
+#   - secrets.yaml:   tessie_auth: "Bearer YOUR_TESSIE_TOKEN"
+#   - Restart Home Assistant (needed once for rest_command and the new helpers).
+#   - In the Tesla app, delete the old 12:15am charge schedule (and any Tessie charging schedule).
+#
+# Entities this package relies on (yours):
+#   binary_sensor.tesla_wall_connector_vehicle_connected   plugged in
+#   sensor.ultra_rouge_battery_level_tessie                battery %
+#   number.ultra_rouge_charge_limit_tessie                 charge limit
+#   switch.ultra_rouge_charge_2                            start / stop charging
+#   notify.ridhuans_iphone_15_pro                          iPhone (Home Assistant app)
+#   input_select.tesla_charging_mode                       Off / Routine / Excess Solar / Fast
+#       -> if your charging-mode entity has another name, change it in the 3 places marked MODE.
+#          (If the entity does not exist at all, VoltTime simply always runs.)
+# =====================================================================================
+
+input_datetime:
+  volttime_ready_time:
+    name: VoltTime ready time
+    icon: mdi:clock-check-outline
+    has_date: false
+    has_time: true
+  volttime_start:
+    name: VoltTime scheduled start
+    icon: mdi:ev-station
+    has_date: true
+    has_time: true
+
+input_number:
+  volttime_buffer:
+    name: VoltTime buffer
+    icon: mdi:timer-sand
+    min: 0
+    max: 60
+    step: 5
+    unit_of_measurement: min
+    mode: box
+  volttime_amps:
+    name: VoltTime amps
+    min: 6
+    max: 48
+    step: 1
+    unit_of_measurement: A
+    mode: box
+  volttime_voltage:
+    name: VoltTime voltage
+    min: 100
+    max: 480
+    step: 1
+    unit_of_measurement: V
+    mode: box
+  volttime_efficiency:
+    name: VoltTime efficiency
+    min: 50
+    max: 100
+    step: 0.5
+    unit_of_measurement: "%"
+    mode: box
+  volttime_capacity:
+    name: VoltTime battery capacity
+    min: 40
+    max: 150
+    step: 0.1
+    unit_of_measurement: kWh
+    mode: box
+
+input_text:
+  volttime_destination:
+    name: VoltTime destination
+    icon: mdi:map-marker-outline
+    max: 30
+
+input_boolean:
+  volttime_active:
+    name: VoltTime tonight active
+    icon: mdi:car-clock
+  volttime_answered:
+    name: VoltTime answered tonight
+  volttime_seeded:
+    name: VoltTime defaults set
+
+rest_command:
+  # Creates / updates ONE Tesla charge schedule (id 1110) owned by VoltTime: one-time, start only.
+  volttime_tessie_schedule:
+    url: >-
+      https://api.tessie.com/LRW3F7EJ1TC940720/command/add_charge_schedule?id=1110&days_of_week=All&enabled={{ enabled }}&start_enabled=true&end_enabled=false&one_time=true&start_time={{ start_time }}&lat={{ state_attr('zone.home', 'latitude') }}&lon={{ state_attr('zone.home', 'longitude') }}&wait_for_completion=true
+    method: post
+    headers:
+      Authorization: !secret tessie_auth
+    timeout: 90
+
+script:
+  volttime_plan:
+    alias: VoltTime – plan tonight's charge
+    icon: mdi:calculator-variant-outline
+    mode: queued
+    max: 5
+    fields:
+      limit:
+        name: Charge limit
+        description: Limit to plan for. Leave empty to use the car's current charge limit.
+        example: 73
+    sequence:
+      - variables:
+          soc: "{{ states('sensor.ultra_rouge_battery_level_tessie') | float(0) }}"
+          target: >-
+            {% if limit is defined and limit not in [none, ''] %}{{ limit | float(0) }}{% else %}{{ states('number.ultra_rouge_charge_limit_tessie') | float(0) }}{% endif %}
+          kw: >-
+            {{ states('input_number.volttime_amps') | float(32) * states('input_number.volttime_voltage') | float(240) / 1000
+               * states('input_number.volttime_efficiency') | float(93) / 100 }}
+          minutes: >-
+            {% set need = [target | float(0) - soc | float(0), 0] | max %}
+            {{ (need / 100 * states('input_number.volttime_capacity') | float(79) / (kw | float(7.14)) * 60) | round(0) | int }}
+          ready: >-
+            {% set t = today_at(states('input_datetime.volttime_ready_time')) %}
+            {{ (t if t > now() else t + timedelta(days=1)).isoformat() }}
+          start: >-
+            {% set s = as_datetime(ready) - timedelta(minutes=(minutes | int) + (states('input_number.volttime_buffer') | float(15) | int)) %}
+            {% set earliest = now() + timedelta(minutes=2) %}
+            {% if s < earliest %}{% set s = earliest %}{% endif %}
+            {% if s.weekday() < 5 and 14 <= s.hour < 22 %}{% set s = s.replace(hour=22, minute=0) %}{% endif %}
+            {{ s.replace(second=0, microsecond=0).isoformat() }}
+          start_minute: "{{ as_datetime(start).hour * 60 + as_datetime(start).minute }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.volttime_start
+        data:
+          timestamp: "{{ as_timestamp(start) }}"
+      - action: rest_command.volttime_tessie_schedule
+        continue_on_error: true
+        response_variable: tessie
+        data:
+          enabled: "{{ 'true' if (minutes | int) > 0 else 'false' }}"
+          start_time: "{{ start_minute }}"
+      - variables:
+          result:
+            start: "{{ start }}"
+            start_text: "{{ as_datetime(start).strftime('%-I:%M %p') }}"
+            minutes: "{{ minutes }}"
+            soc: "{{ soc }}"
+            limit: "{{ target }}"
+            tessie_ok: >-
+              {{ tessie is defined and tessie.status is defined and tessie.status == 200
+                 and (tessie.content.result | default(false) if tessie.content is mapping else false) }}
+      - stop: Planned
+        response_variable: result
+
+automation:
+  # ---------------------------------------------------------------- ask at plug-in
+  - id: volttime_ask
+    alias: VoltTime – ask where I'm going tomorrow
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.tesla_wall_connector_vehicle_connected
+        from: "off"
+        to: "on"
+      - trigger: time
+        at: "19:00:00"
+    conditions:
+      - condition: time
+        after: "18:59:59"
+        weekday: [sat, sun, mon, tue, wed]
+      - condition: state
+        entity_id: binary_sensor.tesla_wall_connector_vehicle_connected
+        state: "on"
+      - condition: template # MODE
+        value_template: "{{ states('input_select.tesla_charging_mode') in ['Routine', 'unknown'] }}"
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.volttime_active
+      # Hold the car straight away with the current limit, so it doesn't start charging at peak rate.
+      - action: script.volttime_plan
+        response_variable: plan
+      - action: notify.ridhuans_iphone_15_pro
+        data:
+          title: "🔌 Where are you going tomorrow?"
+          message: >-
+            Ultra Rouge is at {{ plan.soc | float(0) | round(0) | int }}%.
+            {% if is_state('input_boolean.volttime_answered', 'on') %}Tonight: {{ states('input_text.volttime_destination') }} · {{ plan.limit | float(0) | round(0) | int }}%, starts {{ plan.start_text }}.{% else %}Pick a limit; no answer by 11pm = GPS 73%.{% endif %}
+          data:
+            tag: volttime_ask
+            url: volttime://home
+            actions:
+              - action: VOLTTIME_GPS
+                title: "GPS · 73%"
+              - action: VOLTTIME_TSET
+                title: "TSET · 63%"
+              - action: VOLTTIME_OTHERS
+                title: "Others…"
+                uri: volttime://limit
+
+  # ---------------------------------------------------------------- GPS / TSET buttons
+  - id: volttime_answer
+    alias: VoltTime – set limit from notification
+    mode: restart
+    triggers:
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: VOLTTIME_GPS
+        id: GPS
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: VOLTTIME_TSET
+        id: TSET
+    actions:
+      - variables:
+          pick: "{{ 73 if trigger.id == 'GPS' else 63 }}"
+      - action: number.set_value
+        target:
+          entity_id: number.ultra_rouge_charge_limit_tessie
+        data:
+          value: "{{ pick }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.volttime_destination
+        data:
+          value: "{{ trigger.id }}"
+      - action: input_boolean.turn_on
+        target:
+          entity_id:
+            - input_boolean.volttime_answered
+            - input_boolean.volttime_active
+      - action: script.volttime_plan
+        response_variable: plan
+        data:
+          limit: "{{ pick }}"
+      - action: notify.ridhuans_iphone_15_pro
+        data:
+          title: "⚡ {{ trigger.id }} · limit {{ pick }}%"
+          message: >-
+            {% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }} ({{ (plan.minutes | int) // 60 }}h {{ '%02d' | format((plan.minutes | int) % 60) }}m).{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% – no charging needed.{% endif %}{% if not plan.tessie_ok %} ⚠️ Tessie did not confirm the schedule; Home Assistant will start it.{% endif %}
+          data:
+            tag: volttime_ask
+            url: volttime://home
+
+  # ---------------------------------------------------------------- limit changed elsewhere (VoltTime slider, Tesla app)
+  - id: volttime_limit_changed
+    alias: VoltTime – re-plan when the charge limit changes
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: number.ultra_rouge_charge_limit_tessie
+        for: "00:00:20"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.volttime_active
+        state: "on"
+      - condition: template
+        value_template: "{{ trigger.to_state.state not in ['unknown', 'unavailable'] }}"
+    actions:
+      - action: script.volttime_plan
+
+  # ---------------------------------------------------------------- 11pm default
+  - id: volttime_default
+    alias: VoltTime – no answer by 11pm = GPS 73%
+    mode: single
+    triggers:
+      - trigger: time
+        at: "23:00:00"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.volttime_active
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.volttime_answered
+        state: "off"
+    actions:
+      - action: number.set_value
+        target:
+          entity_id: number.ultra_rouge_charge_limit_tessie
+        data:
+          value: 73
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.volttime_destination
+        data:
+          value: GPS (default)
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.volttime_answered
+      - action: script.volttime_plan
+        response_variable: plan
+        data:
+          limit: 73
+      - action: notify.ridhuans_iphone_15_pro
+        data:
+          title: "⚡ No answer – GPS 73%"
+          message: >-
+            {% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }}.{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% – no charging needed.{% endif %}
+          data:
+            tag: volttime_ask
+            url: volttime://home
+
+  # ---------------------------------------------------------------- safety net at start time
+  - id: volttime_start_backup
+    alias: VoltTime – make sure charging started
+    mode: restart
+    triggers:
+      - trigger: time
+        at: input_datetime.volttime_start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.volttime_active
+        state: "on"
+      - condition: template # MODE
+        value_template: "{{ states('input_select.tesla_charging_mode') in ['Routine', 'unknown'] }}"
+    actions:
+      - delay: "00:05:00"
+      - condition: state
+        entity_id: binary_sensor.tesla_wall_connector_vehicle_connected
+        state: "on"
+      - condition: template # MODE
+        value_template: "{{ states('input_select.tesla_charging_mode') in ['Routine', 'unknown'] }}"
+      - condition: template
+        value_template: >-
+          {{ states('sensor.ultra_rouge_battery_level_tessie') | float(100)
+             < states('number.ultra_rouge_charge_limit_tessie') | float(0) - 1 }}
+      - condition: state
+        entity_id: switch.ultra_rouge_charge_2
+        state: "off"
+      - action: switch.turn_on
+        target:
+          entity_id: switch.ultra_rouge_charge_2
+
+  # ---------------------------------------------------------------- morning reset
+  - id: volttime_reset
+    alias: VoltTime – reset in the morning
+    triggers:
+      - trigger: time
+        at: "07:00:00"
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.volttime_active
+            - input_boolean.volttime_answered
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.volttime_destination
+        data:
+          value: ""
+
+  # ---------------------------------------------------------------- first-time defaults
+  - id: volttime_seed
+    alias: VoltTime – set default values once
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: automation_reloaded
+    conditions:
+      - condition: state
+        entity_id: input_boolean.volttime_seeded
+        state: "off"
+    actions:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.volttime_ready_time
+        data:
+          time: "05:45:00"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.volttime_buffer
+        data:
+          value: 15
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.volttime_amps
+        data:
+          value: 32
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.volttime_voltage
+        data:
+          value: 240
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.volttime_efficiency
+        data:
+          value: 93
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.volttime_capacity
+        data:
+          value: 79
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.volttime_seeded
