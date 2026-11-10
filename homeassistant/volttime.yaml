@@ -170,8 +170,8 @@ automation:
     triggers:
       - trigger: state
         entity_id: binary_sensor.tesla_wall_connector_vehicle_connected
-        from: "off"
         to: "on"
+        for: "00:00:30"
       - trigger: time
         at: "19:00:00"
     conditions:
