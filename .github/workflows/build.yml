@@ -3,6 +3,9 @@ name: Build unsigned IPA
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "homeassistant/**"
+      - "README.md"
   workflow_dispatch:
 
 permissions:

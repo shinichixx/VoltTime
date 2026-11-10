@@ -261,6 +261,7 @@ automation:
     triggers:
       - trigger: state
         entity_id: number.ultra_rouge_charge_limit_tessie
+        to: ~
         for: "00:00:20"
     conditions:
       - condition: state
