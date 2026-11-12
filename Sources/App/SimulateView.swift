@@ -26,7 +26,7 @@ struct SimulateView: View {
                     resultCard(r, sim)
                     inputCard(r)
                     costCard(r)
-                    Text("Uses the charger settings from the Home tab (\(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)% · \(model.capacity.plain) kWh). The last few percent up to 100% charge slower than this estimate, so keep some buffer when the target is 100%.")
+                    Text("Uses the charger settings from the Home tab (\(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)% · \(model.capacity.plain) kWh). Charging to 100% adds about 10 min for the slow last 1% (the car ramps the current down from 99%).")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .padding(.horizontal, 4)
                 }

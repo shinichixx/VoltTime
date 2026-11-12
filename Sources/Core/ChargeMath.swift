@@ -22,13 +22,19 @@ struct HomeResult {
     let packKWh: Double
     let wallKWh: Double
     let cost: Double
-    /// Charging duration rounded to whole minutes (as the web page does).
+    /// Charging duration rounded to whole minutes, including the slow top-off to 100 %.
     let minutes: Int
+    /// Extra minutes for the 99 → 100 % top-off (part of `minutes`).
+    let taperMinutes: Int
     /// Seconds per 1 % of battery.
     let secondsPerPct: Int
 }
 
 enum HomeMath {
+    /// Measured 12 Nov 2026 (41 → 100 %, 32 A): 99 → 100 % took 17 min while every other 1 % took ~6.6 min,
+    /// because the car ramps the current down (30 → 5 A) for the last percent. Extra minutes per % above 99.
+    static let topOffExtraMinutesPerPct = 10.0
+
     static func calculate(_ i: HomeInputs) -> HomeResult {
         let amps = max(1, i.amps)
         let volts = max(1, i.volts)
@@ -42,10 +48,12 @@ enum HomeMath {
         let pack = delta / 100 * cap
         let wall = pack / (eff / 100)
         let hours = net > 0 ? pack / net : 0
-        let minutes = Int((hours * 60).rounded())
+        let taperPct = max(0, min(i.endSoc, 100) - max(i.startSoc, 99))
+        let taper = taperPct * topOffExtraMinutesPerPct
+        let minutes = Int((hours * 60 + taper).rounded())
         let pace = delta > 0 ? Int((hours * 3600 / delta).rounded()) : 0
         return HomeResult(deltaPct: delta, grossKW: gross, netKW: net, packKWh: pack, wallKWh: wall,
-                          cost: wall * tariff, minutes: minutes, secondsPerPct: pace)
+                          cost: wall * tariff, minutes: minutes, taperMinutes: Int(taper.rounded()), secondsPerPct: pace)
     }
 
     /// Next ready time (hour:minute) after `now`.
