@@ -31,7 +31,7 @@ func plan(_ now: Date, _ soc: Double, _ lim: Double) -> String {
 }
 check("ha 20→73", plan(tue, 20, 73), "352 11:38 PM")
 check("ha weekday peak guard", plan(tue, 10, 100), "607 10:00 PM")
-check("ha saturday no guard", plan(date(2026, 11, 14, 19, 30), 10, 100), "607 7:23 PM")
+check("ha saturday no guard", plan(date(2026, 11, 14, 19, 30), 10, 100), "607 7:32 PM")  // would be 7:23 PM, already past → now + 2 min
 check("ha after midnight", plan(date(2026, 11, 11, 2, 0), 40, 73), "219 2:02 AM")
 
 // Simulate: 63% → 100% leaving 7:00 AM → 4h 16m (incl. 10 min top-off), start 2:29 AM (15 min buffer) / 2:44 AM (no buffer)
