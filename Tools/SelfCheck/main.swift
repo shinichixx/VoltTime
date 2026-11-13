@@ -30,23 +30,23 @@ func plan(_ now: Date, _ soc: Double, _ lim: Double) -> String {
     return "\(r.minutes) " + Fmt.clock(st, calendar: cal)
 }
 check("ha 20→73", plan(tue, 20, 73), "352 11:38 PM")
-check("ha weekday peak guard", plan(tue, 10, 100), "607 10:00 PM")
-check("ha saturday no guard", plan(date(2026, 11, 14, 19, 30), 10, 100), "607 7:32 PM")  // would be 7:23 PM, already past → now + 2 min
+check("ha weekday peak guard", plan(tue, 10, 100), "622 10:00 PM")
+check("ha saturday no guard", plan(date(2026, 11, 14, 19, 30), 10, 100), "622 7:32 PM")  // would be 7:08 PM, already past → now + 2 min
 check("ha after midnight", plan(date(2026, 11, 11, 2, 0), 40, 73), "219 2:02 AM")
 
-// Simulate: 63% → 100% leaving 7:00 AM → 4h 16m (incl. 10 min top-off), start 2:29 AM (15 min buffer) / 2:44 AM (no buffer)
+// Simulate: 63% → 100% leaving 7:00 AM → 4h 31m (incl. 25 min top-off), start 2:14 AM (15 min buffer) / 2:29 AM (no buffer)
 let sim = HomeMath.calculate(HomeInputs(startSoc: 63, endSoc: 100, amps: 32, volts: 240, efficiencyPct: 93, capacityKWh: 79, tariff: 0.4981))
-check("sim duration", Fmt.longDuration(sim.minutes), "4h 16m")
+check("sim duration", Fmt.longDuration(sim.minutes), "4h 31m")
 let sim15 = HomeMath.simulatedStart(leaveMinutes: 7 * 60, chargeMinutes: sim.minutes, bufferMinutes: 15)
-check("sim start 15", "\(Fmt.clock(minutes: sim15.minutes)) \(sim15.daysBefore)", "2:29 AM 0")
+check("sim start 15", "\(Fmt.clock(minutes: sim15.minutes)) \(sim15.daysBefore)", "2:14 AM 0")
 let sim0 = HomeMath.simulatedStart(leaveMinutes: 7 * 60, chargeMinutes: sim.minutes, bufferMinutes: 0)
-check("sim start 0", "\(Fmt.clock(minutes: sim0.minutes)) \(sim0.daysBefore)", "2:44 AM 0")
-// 12 Nov 2026 real charge: 41% → 100%, ready 7:00, 5 min buffer → 6h 42m, start 12:13 AM
+check("sim start 0", "\(Fmt.clock(minutes: sim0.minutes)) \(sim0.daysBefore)", "2:29 AM 0")
+// 12 Nov 2026 real charge: 41% → 100%, ready 7:00, 5 min buffer → 6h 57m, start 11:58 PM the night before
 // (old maths said 6h 32m / 12:23 AM and the car actually finished at 7:04)
 let nov12 = HomeMath.calculate(HomeInputs(startSoc: 41, endSoc: 100, amps: 32, volts: 240, efficiencyPct: 93, capacityKWh: 79, tariff: 0))
-check("nov12 duration", Fmt.longDuration(nov12.minutes), "6h 42m")
+check("nov12 duration", Fmt.longDuration(nov12.minutes), "6h 57m")
 let nov12Start = HomeMath.simulatedStart(leaveMinutes: 7 * 60, chargeMinutes: nov12.minutes, bufferMinutes: 5)
-check("nov12 start", Fmt.clock(minutes: nov12Start.minutes), "12:13 AM")
+check("nov12 start", "\(Fmt.clock(minutes: nov12Start.minutes)) \(nov12Start.daysBefore)", "11:58 PM 1")
 check("no top-off below 100", "\(HomeMath.calculate(HomeInputs(startSoc: 20, endSoc: 73, amps: 32, volts: 240, efficiencyPct: 93, capacityKWh: 79, tariff: 0)).taperMinutes)", "0")
 let simLong = HomeMath.simulatedStart(leaveMinutes: 7 * 60, chargeMinutes: 597, bufferMinutes: 15)
 check("sim previous evening", "\(Fmt.clock(minutes: simLong.minutes)) \(simLong.daysBefore)", "8:48 PM 1")

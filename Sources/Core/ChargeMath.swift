@@ -31,9 +31,10 @@ struct HomeResult {
 }
 
 enum HomeMath {
-    /// Measured 12 Nov 2026 (41 → 100 %, 32 A): 99 → 100 % took 17 min while every other 1 % took ~6.6 min,
-    /// because the car ramps the current down (30 → 5 A) for the last percent. Extra minutes per % above 99.
-    static let topOffExtraMinutesPerPct = 10.0
+    /// From the car first showing 99 % to charge complete, four 100 % charges took 29, 31, 19 and 33 min
+    /// (1 Oct, 15 Oct, 12 Nov night, 12 Nov afternoon) while every other 1 % takes ~6.6 min. Battery temperature
+    /// did not explain the spread. Budget the typical ~31 min: 25 extra minutes per % above 99.
+    static let topOffExtraMinutesPerPct = 25.0
 
     static func calculate(_ i: HomeInputs) -> HomeResult {
         let amps = max(1, i.amps)

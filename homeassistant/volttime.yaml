@@ -127,8 +127,8 @@ script:
                * states('input_number.volttime_efficiency') | float(93) / 100 }}
           minutes: >-
             {% set need = [target | float(0) - soc | float(0), 0] | max %}
-            {# 99 -> 100 % is slow (current ramps down): ~10 extra minutes, measured 12 Nov 2026 #}
-            {% set topoff = [([target | float(0), 100] | min) - ([soc | float(0), 99] | max), 0] | max * 10 %}
+            {# 99 -> 100 % is slow (current ramps down): 99 % to complete took 29/31/19/33 min in four logged charges -> 25 extra minutes #}
+            {% set topoff = [([target | float(0), 100] | min) - ([soc | float(0), 99] | max), 0] | max * 25 %}
             {{ (need / 100 * states('input_number.volttime_capacity') | float(79) / (kw | float(7.14)) * 60 + topoff) | round(0) | int }}
           ready: >-
             {% set t = today_at(states('input_datetime.volttime_ready_time')) %}
