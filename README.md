@@ -8,6 +8,7 @@ Dark, Tesla-app style. Two pages, swiped left and right (no tab bar):
 
 - **My Home** – the "Home IM2 Kuantan" page (was the Tesla dashboard in Home Assistant): scenario photo with live
   Model 3 / Solar / Home / Grid power, Exporting / Importing / Self-powered, and three rows:
+  - Tap the **Model 3** figure – charging current slider (5–32 A) and Start / Stop charging, sent straight to the car.
   - **Energy** – today's power chart and totals.
   - **Impact** – self-powered % today.
   - **Settings** – *Charging mode* (Off / Routine / Excess Solar / Fast, sets `input_select.tesla_charging_mode`;

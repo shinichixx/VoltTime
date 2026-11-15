@@ -57,6 +57,7 @@ struct ContentView: View {
                 case .settings: SettingsPage(home: home, myHome: myHome, path: $path)
                 case .chargeDetails: ChargeDetailsPage(model: home)
                 case .homeAssistant: HomeAssistantPage()
+                case .charge: ChargePage(model: myHome)
                 }
             }
         }

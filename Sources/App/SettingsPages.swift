@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Pages pushed from My Home.
 enum Route: Hashable {
-    case energy, settings, chargeDetails, homeAssistant
+    case energy, settings, chargeDetails, homeAssistant, charge
 }
 
 // MARK: - Shared dark building blocks

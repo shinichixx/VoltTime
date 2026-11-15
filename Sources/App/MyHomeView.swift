@@ -115,6 +115,9 @@ final class MyHomeModel: ObservableObject {
     @Published var soc: Double?
     @Published var connected = false
     @Published var charging = false
+    @Published var chargeAmps: Double?      // setting in the car (Tessie)
+    @Published var currentNow: Double?      // what the Wall Connector delivers now
+    @Published var chargeLimit: Double?
     @Published var scenario = 0
     @Published var dailyYield: Double?
     @Published var selfPowered: Double?
@@ -141,7 +144,8 @@ final class MyHomeModel: ObservableObject {
         }
         let s = await ha.states([Entity.solarPower, Entity.gridPower, Entity.carPower, Entity.battery, Entity.plugged,
                                  Entity.wallConnectorStatus, Entity.wallConnectorAmps, Entity.scenario, Entity.dailyYield,
-                                 Entity.selfPowered, Entity.importToday, Entity.exportToday, Entity.chargingMode])
+                                 Entity.selfPowered, Entity.importToday, Entity.exportToday, Entity.chargingMode,
+                                 Entity.chargeCurrent, Entity.limit])
         if s.isEmpty {
             message = "Can't reach Home Assistant. Check Tailscale, or the URL and token in Settings."
             return
@@ -153,6 +157,9 @@ final class MyHomeModel: ObservableObject {
         soc = s[Entity.battery]?.number
         connected = s[Entity.plugged]?.isOn ?? false
         charging = (s[Entity.wallConnectorStatus]?.state.lowercased() ?? "") == "charging"
+        chargeAmps = s[Entity.chargeCurrent]?.number
+        currentNow = s[Entity.wallConnectorAmps]?.number
+        chargeLimit = s[Entity.limit]?.number
         dailyYield = s[Entity.dailyYield]?.number
         importToday = s[Entity.importToday]?.number
         exportToday = s[Entity.exportToday]?.number
@@ -326,7 +333,17 @@ struct MyHomeView: View {
                 .padding(.leading, w * 0.07)
                 .padding(.top, 58)
 
-            anchored(x: w * 0.2901, y: labelY, bottom: true) { carLabel }
+            anchored(x: w * 0.2901, y: labelY, bottom: true) {
+                // Tap the Model 3 figure for quick amps and start / stop.
+                Button { path.append(.charge) } label: {
+                    carLabel
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, -8)
+            }
             anchored(x: w * 0.5064 + 12, y: labelY, bottom: true) {
                 FlowLabel(title: "SOLAR", value: Text("\(MyHomeModel.kw(model.solarW)) kW"))
             }

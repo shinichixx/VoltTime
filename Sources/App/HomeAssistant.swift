@@ -26,6 +26,7 @@ enum Entity {
 
     // My Home tab (was the "My Home" view of the Tesla dashboard in Home Assistant)
     static let chargingMode = "input_select.tesla_charging_mode"
+    static let chargeCurrent = "number.ultra_rouge_charge_current_tessie"
     static let solarPower = "sensor.inverter_active_power"
     static let gridPower = "sensor.grid_active_power"
     static let carPower = "sensor.tesla_wall_connector_tuya_meter_power"
