@@ -233,7 +233,8 @@ struct EnergyView: View {
                 RuleMark(x: .value("Selected", sel))
                     .foregroundStyle(Color.white.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                    .annotation(position: side(sel, r), alignment: .top, spacing: 8,
+                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         dayScrub(sel, r, step: step)
                     }
             }
@@ -331,7 +332,8 @@ struct EnergyView: View {
                 RuleMark(x: .value("Selected", hit.date, unit: unit))
                     .foregroundStyle(Color.white.opacity(0.12))
                     .lineStyle(StrokeStyle(lineWidth: byMonth ? 18 : 8))
-                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                    .annotation(position: side(sel, r), alignment: .top, spacing: 8,
+                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         scrubBox(hit.date.formatted(byMonth ? .dateTime.month(.wide).year() : .dateTime.weekday(.abbreviated).day().month(.abbreviated)),
                                  parts(hit.flow).map { ($0, kwh($0.kwh)) })
                     }
@@ -422,7 +424,7 @@ struct EnergyView: View {
                 AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.home), yEnd: .value("Hi", p.home + p.car), series: .value("F", "car"))
                     .foregroundStyle(EnergyColor.vehicle.opacity(0.28)).interpolationMethod(.monotone)
             }
-            // Lines on top: grey (supply top, export), yellow, blue, then red last so charging is never hidden.
+            // Lines on top: grey (supply top, export), yellow, red, then blue over red, so red only shows while charging.
             ForEach(points) { p in
                 LineMark(x: .value("Time", p.date), y: .value("V", p.solar + p.imp), series: .value("L", "supply"))
                     .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
@@ -436,18 +438,19 @@ struct EnergyView: View {
                     .foregroundStyle(EnergyColor.solar).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
             }
             ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", p.home), series: .value("L", "home"))
-                    .foregroundStyle(EnergyColor.home).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
                 LineMark(x: .value("Time", p.date), y: .value("V", p.home + p.car), series: .value("L", "used"))
                     .foregroundStyle(EnergyColor.vehicle).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", p.home), series: .value("L", "home"))
+                    .foregroundStyle(EnergyColor.home).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
             }
             if let sel = selection {
                 RuleMark(x: .value("Selected", sel))
                     .foregroundStyle(Color.white.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: .top, spacing: 4, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                    .annotation(position: side(sel, r), alignment: .top, spacing: 8,
+                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         allScrub(sel, r, step: step, unit: unit)
                     }
             }
@@ -515,7 +518,7 @@ struct EnergyView: View {
         let selfPowered = used > 0 ? "\(Int((max(0, min(1, 1 - f.imp / used)) * 100).rounded()))%" : "—"
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
             tile("sun.max.fill", EnergyColor.solar, "Solar", kwh(f.solar), "generated")
-            tile("house.fill", EnergyColor.home, "Home", kwh(f.house), "used, excl. car")
+            tile("house.fill", EnergyColor.home, "Home", kwh(f.house), "consumption without car")
             tile("car.side.fill", EnergyColor.vehicle, "Model 3", kwh(f.car), "charged at home")
             tile("leaf.fill", TeslaDark.exporting, "Self-powered", selfPowered, "of home + car")
             tile("arrow.down.circle.fill", EnergyColor.grid, "Grid import", kwh(f.imp), "from TNB")
@@ -537,6 +540,11 @@ struct EnergyView: View {
         .padding(.vertical, 9)
         .background(TeslaDark.card)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Scrub box goes beside the line, inside the graph: right of it in the first half, left of it after.
+    private func side(_ sel: Date, _ r: PeriodRange) -> AnnotationPosition {
+        sel.timeIntervalSince(r.start) > r.end.timeIntervalSince(r.start) * 0.55 ? .leading : .trailing
     }
 
     // MARK: Energy flow
