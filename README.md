@@ -9,7 +9,9 @@ Dark, Tesla-app style. Two pages, swiped left and right (no tab bar):
 - **My Home** – the "Home IM2 Kuantan" page (was the Tesla dashboard in Home Assistant): scenario photo with live
   Model 3 / Solar / Home / Grid power, Exporting / Importing / Self-powered, and three rows:
   - Tap the **Model 3** figure – charging current slider (5–32 A) and Start / Stop charging, sent straight to the car.
-  - **Energy** – today's power chart and totals.
+  - **Energy** – Tesla-style: Day / Week / Month / Year / Lifetime menu, Home / Solar / Vehicle / Grid bar at the bottom,
+    stacked areas for a day (tap and hold to scrub), bars for longer periods, Energy Flow rows. Past days' 15-minute
+    curves are kept on the phone (~2–3 KB a day).
   - **Impact** – Tesla-style cards for Day / Week / Month / Year / Lifetime: Self-Powered, Model 3 on solar (+ km on
     sunshine), CO₂ avoided (0.740 kg/kWh, Peninsular 2024) and tomorrow's solar forecast. Daily summaries from HA
     long-term statistics are kept on the phone (~20 KB a year); each refresh only re-reads the last day or two.

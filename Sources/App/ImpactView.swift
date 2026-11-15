@@ -23,18 +23,17 @@ struct ImpactView: View {
     @State private var offset = 0
     @State private var showInfo = false
 
-    private let cal = Calendar.current
     private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .month }
 
     static let solarColor = Color(red: 1, green: 0.8, blue: 0.2)
     static let gridColor = Color(red: 142 / 255, green: 142 / 255, blue: 147 / 255)
 
     var body: some View {
-        let r = range
+        let r = PeriodRange.make(period, offset: offset, firstDay: model.firstDay)
         let t = model.total(from: r.start, to: r.end)
         ScrollView {
             VStack(spacing: 10) {
-                periodBar(r)
+                PeriodBar(range: r, period: period, firstDay: model.firstDay, offset: $offset)
                 if model.days.isEmpty && model.loading {
                     VStack(spacing: 10) {
                         ProgressView().tint(.white)
@@ -60,68 +59,9 @@ struct ImpactView: View {
         .scrollIndicators(.hidden)
         .teslaPage("Impact")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Period", selection: Binding(get: { period }, set: { periodRaw = $0.rawValue; offset = 0 })) {
-                        ForEach(ImpactPeriod.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(period.rawValue).font(.system(size: 15))
-                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
-                    }
-                    .foregroundStyle(.white)
-                }
-            }
+            ToolbarItem(placement: .topBarTrailing) { PeriodMenu(periodRaw: $periodRaw, offset: $offset) }
         }
         .task { await model.refresh() }
-    }
-
-    // MARK: Period
-
-    private var range: (start: Date, end: Date, label: String) {
-        let now = Date()
-        guard let comp = period.component else {
-            let start = model.firstDay ?? cal.startOfDay(for: now)
-            let label = "Since " + start.formatted(.dateTime.month(.abbreviated).year())
-            return (start, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: now)) ?? now, label)
-        }
-        let shifted = cal.date(byAdding: comp, value: offset, to: now) ?? now
-        let interval = cal.dateInterval(of: comp, for: shifted) ?? DateInterval(start: cal.startOfDay(for: now), duration: 86400)
-        let label: String
-        switch period {
-        case .day:
-            if offset == 0 { label = "Today" }
-            else if offset == -1 { label = "Yesterday" }
-            else { label = interval.start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)) }
-        case .week:
-            let last = interval.end.addingTimeInterval(-1)
-            label = offset == 0 ? "This week" : "\(interval.start.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated)))"
-        case .month: label = interval.start.formatted(.dateTime.month(.wide).year())
-        case .year: label = interval.start.formatted(.dateTime.year())
-        case .lifetime: label = ""
-        }
-        return (interval.start, interval.end, label)
-    }
-
-    private func periodBar(_ r: (start: Date, end: Date, label: String)) -> some View {
-        let canBack = period != .lifetime && (model.firstDay.map { r.start > $0 } ?? false)
-        let canForward = period != .lifetime && offset < 0
-        return HStack {
-            Button { offset -= 1 } label: { Image(systemName: "chevron.left").padding(10) }
-                .disabled(!canBack)
-                .foregroundStyle(canBack ? TeslaDark.rowLabel : Color(white: 0.23))
-            Spacer()
-            Text(r.label).font(.system(size: 15, weight: .medium))
-            Spacer()
-            Button { offset += 1 } label: { Image(systemName: "chevron.right").padding(10) }
-                .disabled(!canForward)
-                .foregroundStyle(canForward ? TeslaDark.rowLabel : Color(white: 0.23))
-        }
-        .font(.system(size: 15, weight: .semibold))
-        .opacity(period == .lifetime ? 0.0001 : 1)
-        .overlay { if period == .lifetime { Text(r.label).font(.system(size: 15, weight: .medium)) } }
-        .buttonStyle(.plain)
     }
 
     // MARK: Cards
