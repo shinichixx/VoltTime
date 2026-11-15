@@ -4,7 +4,6 @@ import Charts
 /// Opened from the Energy row on My Home: today's power curves and totals, from Home Assistant history.
 struct EnergyTodayView: View {
     @ObservedObject var model: MyHomeModel
-    let onBack: () -> Void
 
     @State private var points: [PowerPoint] = []
     @State private var carKWh: Double?
@@ -18,9 +17,11 @@ struct EnergyTodayView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                        .font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                        .padding(.horizontal, 4)
                     chartCard
                     tiles
                     Text("Home excludes the car. Grid below zero is export. From Home Assistant history; refreshed when you open this page or pull down.")
@@ -34,32 +35,8 @@ struct EnergyTodayView: View {
             }
             .refreshable { await load() }
         }
-        .background(TeslaDark.bg.ignoresSafeArea())
+        .teslaPage("Energy")
         .task { await load() }
-    }
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Button(action: onBack) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left").font(.system(size: 15, weight: .bold))
-                    Text("My Home").font(.system(size: 15, weight: .semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(Color.white.opacity(0.12))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            Spacer()
-            VStack(alignment: .trailing, spacing: 1) {
-                Text("Energy").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                Text(Date().formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))
-                    .font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
     }
 
     // MARK: Chart

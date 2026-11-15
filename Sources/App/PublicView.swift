@@ -2,7 +2,6 @@ import SwiftUI
 
 /// Supercharger / public DC charger cost & time (port of Tesla-M3-Charger-Calculator).
 struct PublicView: View {
-    @Binding var showSettings: Bool
     @AppStorage("pub.current") private var current = "20"
     @AppStorage("pub.target") private var target = "80"
     @AppStorage("pub.speed") private var speed = "250"
@@ -15,10 +14,6 @@ struct PublicView: View {
         let outcome = PublicMath.estimate(start: parseNumber(current), end: parseNumber(target), maxKW: parseNumber(speed),
                                           rate: parseNumber(perMinute ? rateMin : rateKWh), perMinute: perMinute)
         VStack(spacing: 0) {
-            AppHeader(icon: "ev.charger.fill", title: "Tesla Model 3 LR RWD 2026",
-                      subtitle: "79 kWh · 90% efficiency") {
-                HeaderButton(systemName: "gearshape.fill") { showSettings = true }
-            }
             ScrollView {
                 VStack(spacing: 12) {
                     resultCard(outcome)
@@ -54,13 +49,13 @@ struct PublicView: View {
                             }
                         }
                     }
-                    Text("Time follows the Model 3 LR RWD charging curve (250 kW up to 20%, tapering to 56 kW at 80%). Cost per kWh includes 10% charging loss.")
+                    Text("Tesla Model 3 LR RWD 2026 · 79 kWh · 90% efficiency. Time follows the Model 3 LR RWD charging curve (250 kW up to 20%, tapering to 56 kW at 80%). Cost per kWh includes 10% charging loss.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .padding(.horizontal, 4)
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
-                .padding(.bottom, 24)
+                .padding(.bottom, 44)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)
@@ -100,12 +95,12 @@ struct PublicView: View {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("ESTIMATED TIME").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.teal).kerning(0.6)
-                            Text(Fmt.shortDuration(minutes)).font(.system(size: 34, weight: .heavy))
+                            Text(Fmt.shortDuration(minutes)).font(.system(size: 34, weight: .semibold))
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
                             Text("TOTAL COST").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.orange).kerning(0.6)
-                            Text(Fmt.rm(cost)).font(.system(size: 34, weight: .heavy)).foregroundStyle(Theme.orange)
+                            Text(Fmt.rm(cost)).font(.system(size: 34, weight: .semibold)).foregroundStyle(Theme.orange)
                                 .minimumScaleFactor(0.6).lineLimit(1)
                         }
                     }

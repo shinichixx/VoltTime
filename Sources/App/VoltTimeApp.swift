@@ -5,60 +5,40 @@ struct VoltTimeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .tint(Theme.teal)
+                .tint(.white)
+                .preferredColorScheme(.dark)
         }
     }
 }
 
-enum AppTab {
-    case myHome, home, publicCharging
-}
-
+/// Two pages, swiped left and right: My Home and Simulation. Everything else is pushed from My Home.
 struct ContentView: View {
     @Environment(\.scenePhase) private var phase
     @StateObject private var home = HomeModel()
     @StateObject private var myHome = MyHomeModel()
-    @State private var tab: AppTab = .myHome
-    @State private var showEnergy = false
-    @State private var showSettings = false
-    @State private var showSimulate = false
-    @State private var keyboardUp = false
+    @State private var path: [Route] = []
+    @State private var page = 0
 
     var body: some View {
-        VStack(spacing: 0) {
-            NavigationStack {
-                Group {
-                    switch tab {
-                    case .myHome: MyHomeView(model: myHome, showEnergy: $showEnergy)
-                    case .home: HomeView(model: home, showSettings: $showSettings, showSimulate: $showSimulate)
-                    case .publicCharging: PublicView(showSettings: $showSettings)
-                    }
+        NavigationStack(path: $path) {
+            TabView(selection: $page) {
+                MyHomeView(model: myHome, path: $path)
+                    .tag(0)
+                SimulationPage(home: home)
+                    .tag(1)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .never))
+            .background(TeslaDark.bg.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .energy: EnergyTodayView(model: myHome)
+                case .settings: SettingsPage(home: home, myHome: myHome, path: $path)
+                case .chargeDetails: ChargeDetailsPage(model: home)
+                case .homeAssistant: HomeAssistantPage()
                 }
-                .toolbar(.hidden, for: .navigationBar)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if !keyboardUp {
-                BottomBar(tab: $tab) {
-                    showSimulate = false
-                    showEnergy = false
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { n in
-            let h = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0
-            if h > 120 { keyboardUp = true }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardUp = false
-        }
-        .preferredColorScheme(tab == .myHome ? .dark : .light)
-        .sheet(isPresented: $showSettings, onDismiss: {
-            Task {
-                await home.refresh()
-                await myHome.refresh()
-            }
-        }) {
-            SettingsView()
         }
         .sheet(isPresented: $home.showLimitSheet) {
             LimitSheet(model: home)
@@ -66,14 +46,10 @@ struct ContentView: View {
                 .presentationDragIndicator(.visible)
         }
         .onOpenURL { url in
-            // volttime://limit (notification "Others…") or volttime://home
-            tab = .home
-            showSimulate = false
-            showEnergy = false
-            if url.host == "limit" {
-                showSettings = false
-                home.showLimitSheet = true
-            }
+            // volttime://limit (notification "Others…") or volttime://home -> My Home → Settings
+            page = 0
+            path = [.settings]
+            if url.host == "limit" { home.showLimitSheet = true }
             Task { await home.refresh() }
         }
         .task { await home.refresh() }
@@ -83,52 +59,13 @@ struct ContentView: View {
     }
 }
 
-struct BottomBar: View {
-    @Binding var tab: AppTab
-    var onTap: () -> Void = {}
-
-    /// The My Home page is dark like the Tesla app, so the bar goes dark with it.
-    private var dark: Bool { tab == .myHome }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            item(.myHome, "My Home", "bolt.house.fill")
-            item(.home, "Home", "house.fill")
-            item(.publicCharging, "Public", "ev.charger.fill")
-        }
-        .padding(.top, 6)
-        .padding(.bottom, 2)
-        .background(dark ? TeslaDark.bg : Color.white, ignoresSafeAreaEdges: .bottom)
-        .overlay(alignment: .top) { Rectangle().fill(dark ? Color.white.opacity(0.08) : Color.black.opacity(0.10)).frame(height: 0.5) }
-    }
-
-    private func color(_ t: AppTab) -> Color {
-        if dark { return tab == t ? .white : TeslaDark.dim }
-        return tab == t ? Theme.teal : Theme.tabInactive
-    }
-
-    private func item(_ t: AppTab, _ title: String, _ icon: String) -> some View {
-        Button { onTap(); tab = t } label: {
-            VStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 20)).frame(height: 24)
-                Text(title).font(.caption2.weight(tab == t ? .bold : .regular))
-            }
-            .foregroundStyle(color(t))
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
+struct HomeAssistantPage: View {
     @AppStorage(HAClient.urlKey) private var haURL = ""
     @State private var haToken = ""
     @State private var testResult: String?
     @State private var testing = false
 
     var body: some View {
-        NavigationStack {
             Form {
                 Section {
                     TextField("http://100.x.x.x:8123", text: $haURL)
@@ -159,9 +96,9 @@ struct SettingsView: View {
 
                 Section("How tonight's charge works") {
                     Label("Sat–Wed nights from 7pm, plugging in asks where you're going tomorrow.", systemImage: "bell.badge")
-                    Label("GPS = 73%, TSET = 63%, Others = slider here. No answer by 11pm = 73%.", systemImage: "mappin.and.ellipse")
+                    Label("GPS = 73%, TSET = 63%, Others = slider. No answer by 11pm = 73%.", systemImage: "mappin.and.ellipse")
                     Label("Home Assistant sets the car's own one-time charge schedule to the start time and starts it if needed.", systemImage: "clock.badge.checkmark")
-                    Label("Only in Routine mode. Change the mode on My Home → Settings.", systemImage: "slider.horizontal.3")
+                    Label("Only in Routine mode (Settings → Charging mode).", systemImage: "slider.horizontal.3")
                 }
                 .font(.footnote)
 
@@ -170,22 +107,10 @@ struct SettingsView: View {
                     LabeledContent("Version", value: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
                 }
             }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Theme.teal, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        Keychain.set(haToken.trimmingCharacters(in: .whitespacesAndNewlines), for: Keychain.homeAssistant)
-                        dismiss()
-                    }
-                }
-            }
+            .scrollContentBackground(.hidden)
+            .teslaPage("Home Assistant")
             .onAppear { haToken = Keychain.get(Keychain.homeAssistant) ?? "" }
-        }
-        .preferredColorScheme(.light)
+            .onDisappear { Keychain.set(haToken.trimmingCharacters(in: .whitespacesAndNewlines), for: Keychain.homeAssistant) }
     }
 
     private func test() async {

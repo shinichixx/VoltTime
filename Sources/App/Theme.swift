@@ -1,16 +1,18 @@
 import SwiftUI
 
-// Same palette and building blocks as Fleetly.
+// Dark, like the Tesla app (and the old Home Assistant Tesla dashboard).
 enum Theme {
-    static let teal = Color(red: 0.0, green: 0.588, blue: 0.655)
-    static let rouge = Color(red: 0.80, green: 0.09, blue: 0.15)
-    static let blue = Color(red: 0.13, green: 0.40, blue: 0.80)
-    static let orange = Color(red: 1.0, green: 0.596, blue: 0.0)
-    static let purple = Color(red: 0.404, green: 0.227, blue: 0.718)
-    static let green = Color(red: 0.180, green: 0.490, blue: 0.196)
-    static let background = Color(red: 0.945, green: 0.953, blue: 0.961)
+    /// Tesla blue, the main accent.
+    static let teal = Color(red: 0.243, green: 0.416, blue: 0.882)
+    static let rouge = Color(red: 0.93, green: 0.27, blue: 0.27)
+    static let blue = Color(red: 0.243, green: 0.416, blue: 0.882)
+    static let orange = Color(red: 1.0, green: 0.62, blue: 0.04)
+    static let purple = Color(red: 0.243, green: 0.416, blue: 0.882)
+    static let green = Color(red: 0.247, green: 0.725, blue: 0.314)
+    static let background = Color(red: 14 / 255, green: 14 / 255, blue: 16 / 255)
     static let tabInactive = Color(white: 0.45)
-    static let field = Color(red: 0.965, green: 0.969, blue: 0.976)
+    static let field = Color(white: 0.16)
+    static let card = Color(white: 0.11)
 }
 
 struct Card<Content: View>: View {
@@ -20,9 +22,8 @@ struct Card<Content: View>: View {
         content
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-            .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 

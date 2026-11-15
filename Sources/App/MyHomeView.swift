@@ -243,9 +243,8 @@ final class MyHomeModel: ObservableObject {
 
 struct MyHomeView: View {
     @ObservedObject var model: MyHomeModel
-    @Binding var showEnergy: Bool
+    @Binding var path: [Route]
     @Environment(\.scenePhase) private var phase
-    @State private var showModes = false
 
     var body: some View {
         GeometryReader { geo in
@@ -259,10 +258,6 @@ struct MyHomeView: View {
             .refreshable { await model.refresh() }
         }
         .background(TeslaDark.bg.ignoresSafeArea())
-        .navigationDestination(isPresented: $showEnergy) {
-            EnergyTodayView(model: model) { showEnergy = false }
-                .toolbar(.hidden, for: .navigationBar)
-        }
         .task(id: phase) {
             // Live while the page is on screen, like the HA card (every 5 s).
             guard phase == .active else { return }
@@ -385,18 +380,12 @@ struct MyHomeView: View {
         VStack(spacing: 0) {
             TeslaRow(icon: "chart.xyaxis.line", name: "Energy",
                      label: model.dailyYield.map { String(format: "%.1f kWh Generated Today", $0) } ?? "Generated Today") {
-                showEnergy = true
+                path.append(.energy)
             }
             TeslaRow(icon: "leaf", name: "Impact",
                      label: model.selfPowered.map { "\(Int($0.rounded()))% Self-Powered Today" } ?? "Self-Powered Today")
             TeslaRow(icon: "gearshape.fill", name: "Settings", label: "Charging: \(model.mode ?? "—")") {
-                withAnimation(.easeInOut(duration: 0.2)) { showModes.toggle() }
-            }
-            if showModes {
-                ForEach(model.modeOptions, id: \.self) { option in
-                    modeRow(ChargingMode.named(option))
-                }
-                .transition(.opacity)
+                path.append(.settings)
             }
             if let msg = model.message {
                 Text(msg)
@@ -406,40 +395,9 @@ struct MyHomeView: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 14)
             }
-            Spacer(minLength: 30)
+            Spacer(minLength: 44) // room for the page dots
         }
         .background(TeslaDark.bg)
-    }
-
-    private func modeRow(_ m: ChargingMode) -> some View {
-        let shown = model.pendingMode ?? model.mode
-        let selected = shown == m.option
-        return GeometryReader { g in
-            Button {
-                Task { await model.setMode(m.option) }
-            } label: {
-                HStack(alignment: .center, spacing: 0) {
-                    Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                        .font(.system(size: 20))
-                        .foregroundStyle(selected ? Color.white : TeslaDark.dim)
-                        .frame(width: 40, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(m.title).font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(selected ? Color.white : TeslaDark.rowLabel)
-                        Text(m.detail).font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
-                    }
-                    Spacer()
-                    if model.pendingMode == m.option { ProgressView().tint(.white).scaleEffect(0.8) }
-                }
-                .padding(.leading, g.size.width * 0.15)
-                .padding(.trailing, g.size.width * 0.07)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(model.pendingMode != nil)
-        }
-        .frame(height: 56)
     }
 }
 

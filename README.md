@@ -4,16 +4,19 @@ iPhone app for Ultra Rouge (Tesla Model 3 LR RWD) charging, built from
 [tesla-home-charge-planner](https://github.com/shinichixx/tesla-home-charge-planner) and
 [Tesla-M3-Charger-Calculator](https://github.com/shinichixx/Tesla-M3-Charger-Calculator).
 
+Dark, Tesla-app style. Two pages, swiped left and right (no tab bar):
+
 - **My Home** – the "Home IM2 Kuantan" page (was the Tesla dashboard in Home Assistant): scenario photo with live
-  Model 3 / Solar / Home / Grid power, Exporting / Importing / Self-powered, Energy (today's power chart and totals),
-  Impact (self-powered %), and Settings with the charging modes Off / Routine / Excess Solar / Fast
-  (sets `input_select.tesla_charging_mode`; the HA "Tesla Charging – Controller" automation still does the work).
+  Model 3 / Solar / Home / Grid power, Exporting / Importing / Self-powered, and three rows:
+  - **Energy** – today's power chart and totals.
+  - **Impact** – self-powered % today.
+  - **Settings** – *Charging mode* (Off / Routine / Excess Solar / Fast, sets `input_select.tesla_charging_mode`;
+    the HA "Tesla Charging – Controller" automation still does the work), *Charging start time* (Routine only:
+    location tomorrow GPS 73% / TSET 63% / Others, ready time, start time) → *Charge details* (duration, energy,
+    safety buffer, start %, cost, charger and battery parameters), and the Home Assistant connection.
   The 9 scenario photos are built in (`Sources/Photos`, JPEG at iPhone width, ~1 MB total).
-- **Home** – night charge planner. Reads battery and charge limit from Home Assistant, quick GPS 73% / TSET 63% / Others limits,
-  shows the start time Home Assistant scheduled in the car.
-- **Simulate** (section on Home, opens its own page) – what-if calculator: pick a start %, a target % and a leave time to see when charging would have to start.
-  Nothing is sent to the car or Home Assistant.
-- **Public** – Supercharger / public DC charger time and cost.
+- **Simulation** – *Home charging* (when to start for any % by any time) and *Public charging* (Supercharger / DC
+  time and cost). Nothing is sent to the car or Home Assistant.
 
 `homeassistant/volttime.yaml` is the Home Assistant package that asks "Where are you going tomorrow?" at plug-in,
 sets the limit, and writes a one-time Tesla charge schedule through Tessie.

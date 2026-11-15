@@ -4,7 +4,6 @@ import SwiftUI
 /// Uses the charger settings from the Home tab. Nothing here is sent to the car or Home Assistant.
 struct SimulateView: View {
     @ObservedObject var model: HomeModel
-    let onBack: () -> Void
     @AppStorage("sim.leave") private var leaveMinutes = 7 * 60
     @AppStorage("sim.target") private var target = 100.0
     @AppStorage("sim.buffer") private var bufferMinutes = 15
@@ -20,19 +19,18 @@ struct SimulateView: View {
         let r = result
         let sim = HomeMath.simulatedStart(leaveMinutes: leaveMinutes, chargeMinutes: r.minutes, bufferMinutes: bufferMinutes)
         VStack(spacing: 0) {
-            header
             ScrollView {
                 VStack(spacing: 12) {
                     resultCard(r, sim)
                     inputCard(r)
                     costCard(r)
-                    Text("Uses the charger settings from the Home tab (\(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)% · \(model.capacity.plain) kWh). Charging to 100% adds about 25 min for the slow last 1% (the car ramps the current down from 99%).")
+                    Text("Uses the charger settings from Settings → Charge details (\(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)% · \(model.capacity.plain) kWh). Charging to 100% adds about 25 min for the slow last 1% (the car ramps the current down from 99%).")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .padding(.horizontal, 4)
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
-                .padding(.bottom, 24)
+                .padding(.bottom, 44)
             }
             .background(Theme.background)
         }
@@ -44,30 +42,6 @@ struct SimulateView: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            Button(action: onBack) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left").font(.system(size: 15, weight: .bold))
-                    Text("Home").font(.system(size: 15, weight: .semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(Color.white.opacity(0.22))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            Spacer()
-            VStack(alignment: .trailing, spacing: 1) {
-                Text("Simulation").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                Text("Nothing is sent to the car").font(.system(size: 10.5)).foregroundStyle(Color.white.opacity(0.85))
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Theme.purple.ignoresSafeArea(edges: .top))
-    }
-
     // MARK: Result
 
     private func resultCard(_ r: HomeResult, _ sim: (minutes: Int, daysBefore: Int)) -> some View {
@@ -76,7 +50,7 @@ struct SimulateView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("START CHARGING AT").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.purple).kerning(0.6)
                     Text(r.minutes == 0 ? "—" : Fmt.clock(minutes: sim.minutes))
-                        .font(.system(size: 40, weight: .heavy)).foregroundStyle(.primary)
+                        .font(.system(size: 40, weight: .semibold)).foregroundStyle(.primary)
                         .minimumScaleFactor(0.6).lineLimit(1)
                     HStack(spacing: 8) {
                         if r.minutes > 0 { Badge(text: dayLabel(sim), color: Theme.purple) }
@@ -201,7 +175,7 @@ struct SimulateView: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(Fmt.rm(r.cost)).font(.system(size: 22, weight: .heavy)).foregroundStyle(Theme.green)
+                Text(Fmt.rm(r.cost)).font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.green)
             }
         }
     }
