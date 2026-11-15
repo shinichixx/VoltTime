@@ -300,6 +300,8 @@ struct MyHomeView: View {
             bg
             photo(width: w)
                 .offset(y: 30)
+            PowerFlowOverlay(model: model, width: w)   // moving pulses along the wires
+                .offset(y: 30)
             // Fade under the title (0–250 pt), then fade the bottom into the rows.
             LinearGradient(stops: [
                 .init(color: bg, location: 0),
