@@ -2,8 +2,12 @@
 # VoltTime – Home Assistant package
 #
 # What it does (Saturday to Wednesday nights, only while the charging mode is Routine):
-#   1. From 7pm, every time Ultra Rouge is plugged in (or at 7pm if it is already plugged in),
-#      your iPhone asks "Where are you going tomorrow?"  GPS = 73 %, TSET = 63 %, Others = VoltTime slider.
+#   1. At 7pm (if Ultra Rouge is plugged in) Home Assistant quietly plans the night. Your iPhone asks
+#      "Where are you going tomorrow?" at the reminder times you set in VoltTime (Settings → Charge details →
+#      Reminders, default 7pm) - only while the car is plugged in at home and you haven't answered - and when you
+#      plug in after 7pm.  GPS = 73 %, TSET = 63 %, Others = VoltTime slider. These are Time Sensitive and GPS / TSET
+#      work from the lock screen. (For banners that stay until you act: iPhone Settings → Notifications →
+#      Home Assistant → Banner Style → Persistent.)
 #   2. The answer sets the charge limit straight away. No answer by 11pm = GPS 73 %.
 #   3. The start time is worked out (battery now -> limit, at the VoltTime amps / volts / efficiency /
 #      battery size, finishing by the ready time minus the buffer) and written into the car as a
@@ -86,6 +90,10 @@ input_text:
     name: VoltTime destination
     icon: mdi:map-marker-outline
     max: 30
+  volttime_reminders:
+    name: VoltTime reminder times
+    icon: mdi:bell-ring-outline
+    max: 100
 
 input_boolean:
   volttime_active:
@@ -95,6 +103,9 @@ input_boolean:
     name: VoltTime answered tonight
   volttime_seeded:
     name: VoltTime defaults set
+  volttime_reminders_off:
+    name: VoltTime reminders off
+    icon: mdi:bell-off-outline
 
 rest_command:
   # Creates / updates ONE Tesla charge schedule (id 1110) owned by VoltTime: one-time, start only.
@@ -174,8 +185,10 @@ automation:
         entity_id: binary_sensor.tesla_wall_connector_vehicle_connected
         to: "on"
         for: "00:00:30"
+        id: plugged
       - trigger: time
         at: "19:00:00"
+        id: evening
     conditions:
       - condition: time
         after: "18:59:59"
@@ -192,23 +205,79 @@ automation:
       # Hold the car straight away with the current limit, so it doesn't start charging at peak rate.
       - action: script.volttime_plan
         response_variable: plan
+      # 7pm plans quietly (the reminders ask); plugging in after 7pm asks straight away.
+      - condition: template
+        value_template: "{{ trigger.id == 'plugged' }}"
       - action: notify.mobile_app_ridhuans_iphone_15_pro
         data:
-          title: "🔌 Where are you going tomorrow?"
+          title: >-
+            {% if is_state('input_boolean.volttime_answered', 'on') %}⚡ Tonight: {{ states('input_text.volttime_destination') }} · {{ plan.limit | float(0) | round(0) | int }}%{% else %}🔌 Where are you going tomorrow?{% endif %}
           message: >-
-            Ultra Rouge is at {{ plan.soc | float(0) | round(0) | int }}%.
-            {% if is_state('input_boolean.volttime_answered', 'on') %}Tonight: {{ states('input_text.volttime_destination') }} · {{ plan.limit | float(0) | round(0) | int }}%, starts {{ plan.start_text }}.{% else %}Pick a limit; no answer by 11pm = GPS 73%.{% endif %}
+            {% if is_state('input_boolean.volttime_answered', 'on') %}{% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }}. Ultra Rouge is at {{ plan.soc | float(0) | round(0) | int }}%.{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% · no charging needed tonight.{% endif %}{% else %}Ultra Rouge is at {{ plan.soc | float(0) | round(0) | int }}% and plugged in. No answer by 11 pm = GPS 73%.{% endif %}
           data:
             tag: volttime_ask
             url: volttime://home
-            actions:
+            push:
+              interruption-level: time-sensitive
+            actions: &volttime_actions
               - action: VOLTTIME_GPS
                 title: "GPS · 73%"
+                activationMode: background
+                authenticationRequired: false
               - action: VOLTTIME_TSET
                 title: "TSET · 63%"
+                activationMode: background
+                authenticationRequired: false
               - action: VOLTTIME_OTHERS
                 title: "Others…"
                 uri: volttime://limit
+
+  # ---------------------------------------------------------------- reminders (times set in VoltTime)
+  - id: volttime_remind
+    alias: VoltTime – reminders
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raw = states('input_text.volttime_reminders') %}
+          {% set times = (raw if raw not in ['', 'unknown', 'unavailable'] else '19:00').replace(' ', '').split(',') %}
+          {{ 17 <= now().hour < 23 and now().strftime('%H:%M') in times }}
+      - condition: time
+        weekday: [sat, sun, mon, tue, wed]
+      - condition: not
+        conditions:
+          - condition: state
+            entity_id: input_boolean.volttime_reminders_off
+            state: "on"
+      - condition: state
+        entity_id: binary_sensor.tesla_wall_connector_vehicle_connected
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.volttime_answered
+        state: "off"
+      - condition: template # MODE
+        value_template: "{{ states('input_select.tesla_charging_mode') in ['Routine', 'unknown'] }}"
+    actions:
+      - variables:
+          raw: "{{ states('input_text.volttime_reminders') }}"
+          times: "{{ (raw if raw not in ['', 'unknown', 'unavailable'] else '19:00').replace(' ', '').split(',') | sort }}"
+          first: "{{ now().strftime('%H:%M') == times[0] }}"
+          soc: "{{ states('sensor.ultra_rouge_battery_level_tessie') | float(0) | round(0) | int }}"
+      - action: notify.mobile_app_ridhuans_iphone_15_pro
+        data:
+          title: >-
+            {% if first %}🔌 Where are you going tomorrow?{% else %}⏰ Still need tomorrow’s limit{% endif %}
+          message: >-
+            {% if first %}Ultra Rouge is at {{ soc }}% and plugged in. No answer by 11 pm = GPS 73%.{% else %}Ultra Rouge is at {{ soc }}%. GPS 73% at 11 pm if no answer.{% endif %}
+          data:
+            tag: volttime_ask
+            url: volttime://home
+            push:
+              interruption-level: time-sensitive
+            actions: *volttime_actions
 
   # ---------------------------------------------------------------- GPS / TSET buttons
   - id: volttime_answer
@@ -249,9 +318,9 @@ automation:
           limit: "{{ pick }}"
       - action: notify.mobile_app_ridhuans_iphone_15_pro
         data:
-          title: "⚡ {{ trigger.id }} · limit {{ pick }}%"
+          title: "{{ '⚡' if plan.minutes | int > 0 else '✅' }} {{ trigger.id }} · limit {{ pick }}%"
           message: >-
-            {% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }} ({{ (plan.minutes | int) // 60 }}h {{ '%02d' | format((plan.minutes | int) % 60) }}m).{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% – no charging needed.{% endif %}{% if not plan.tessie_ok %} ⚠️ Tessie did not confirm the schedule; Home Assistant will start it.{% endif %}
+            {% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }} ({{ (plan.minutes | int) // 60 }}h {{ '%02d' | format((plan.minutes | int) % 60) }}m) · ready by {{ today_at(states('input_datetime.volttime_ready_time')).strftime('%-I:%M %p') }}.{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% · no charging needed tonight. Car schedule off.{% endif %}{% if not plan.tessie_ok %} ⚠️ Tessie did not confirm the schedule; Home Assistant will start it.{% endif %}
           data:
             tag: volttime_ask
             url: volttime://home

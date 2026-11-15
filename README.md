@@ -24,8 +24,11 @@ Dark, Tesla-app style. Two pages, swiped left and right (no tab bar):
 - **Simulation** – *Home charging* (when to start for any % by any time) and *Public charging* (Supercharger / DC
   time and cost). Nothing is sent to the car or Home Assistant.
 
-`homeassistant/volttime.yaml` is the Home Assistant package that asks "Where are you going tomorrow?" at plug-in,
-sets the limit, and writes a one-time Tesla charge schedule through Tessie.
+`homeassistant/volttime.yaml` is the Home Assistant package: at 7pm it quietly plans the night; it asks "Where are you
+going tomorrow?" (Time Sensitive, GPS / TSET work from the lock screen) at the reminder times set in VoltTime
+(Charge details → Reminders) only while the car is plugged in at home and unanswered, and when you plug in after 7pm;
+sets the limit and writes a one-time Tesla charge schedule through Tessie. When VoltTime is open on an unanswered
+charging night it shows the same question as a centre card.
 
 Every push to `main` builds an unsigned `VoltTime_buildN.ipa` and attaches it to a GitHub Release (bump
 `CURRENT_PROJECT_VERSION` in `project.yml` for a new build number).

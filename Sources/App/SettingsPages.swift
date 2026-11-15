@@ -19,6 +19,17 @@ extension View {
     }
 }
 
+/// Label whose icon has its own colour.
+struct TintedIconLabel: LabelStyle {
+    let color: Color
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon.foregroundStyle(color)
+            configuration.title
+        }
+    }
+}
+
 struct SectionCaption: View {
     let text: String
     var trailing: String = ""
@@ -193,16 +204,33 @@ struct SettingsPage: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("START TIME").font(.system(size: 11, weight: .semibold)).kerning(0.5).foregroundStyle(TeslaDark.dim)
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(r.minutes == 0 ? "—" : Fmt.clock(start, calendar: .current))
-                            .font(.system(size: 38, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .minimumScaleFactor(0.6).lineLimit(1)
-                        if r.minutes > 0 {
-                            Text(dayLabel(start)).font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                    if r.minutes == 0 && home.charging != true {
+                        // Battery already at or above tomorrow's limit.
+                        Text("Not needed")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundStyle(TeslaDark.labelGrey)
+                            .padding(.bottom, 2)
+                        Label("Already at \(Int((home.liveSoc ?? home.startSoc).rounded()))% · limit \(Int(home.limit.rounded()))%",
+                              systemImage: "battery.75percent")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(TeslaDark.labelGrey)
+                            .labelStyle(TintedIconLabel(color: TeslaDark.exporting))
+                        Label(home.active ? "Car schedule off for tonight" : "Nothing will be scheduled tonight", systemImage: "moon.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(TeslaDark.labelGrey)
+                            .labelStyle(TintedIconLabel(color: TeslaDark.rowLabel))
+                    } else {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text(r.minutes == 0 ? "—" : Fmt.clock(start, calendar: .current))
+                                .font(.system(size: 38, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .minimumScaleFactor(0.6).lineLimit(1)
+                            if r.minutes > 0 {
+                                Text(dayLabel(start)).font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                            }
                         }
+                        scheduleStatus
                     }
-                    scheduleStatus
                 }
 
                 Divider().overlay(Color.white.opacity(0.08))
@@ -234,7 +262,7 @@ struct SettingsPage: View {
             } else if !routine {
                 Image(systemName: "moon.zzz").foregroundStyle(TeslaDark.dim)
                 Text("Night plan paused").foregroundStyle(TeslaDark.rowLabel)
-            } else if home.active, let st = home.scheduledStart {
+            } else if home.active, home.result.minutes > 0, let st = home.scheduledStart {
                 Image(systemName: "checkmark.seal.fill").foregroundStyle(TeslaDark.chargingGreen)
                 Text("Set in the car for \(Fmt.clock(st, calendar: .current))").foregroundStyle(.white)
             } else {
@@ -296,6 +324,7 @@ struct ChargeDetailsPage: View {
         let r = model.result
         ScrollView {
             VStack(spacing: 12) {
+                remindersCard
                 Card {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 8) {
@@ -389,6 +418,77 @@ struct ChargeDetailsPage: View {
                 Button("Done") { focus = nil }
             }
         }
+    }
+
+    // MARK: Reminders
+
+    private var remindersCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("REMINDERS").font(.system(size: 11, weight: .semibold)).kerning(0.5).foregroundStyle(TeslaDark.dim)
+                    .padding(.bottom, 8)
+                Toggle(isOn: Binding(get: { model.remindersOn }, set: { model.setRemindersOn($0) })) {
+                    Text("Ask where I'm going tomorrow").font(.system(size: 14))
+                }
+                .tint(TeslaDark.chargingGreen)
+                if model.remindersOn {
+                    ForEach(Array(model.reminderTimes.enumerated()), id: \.offset) { i, t in
+                        Divider().overlay(Color.white.opacity(0.08)).padding(.vertical, 8)
+                        HStack {
+                            Button { model.removeReminder(at: i) } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundStyle(model.reminderTimes.count > 1 ? Theme.rouge : Color(white: 0.3))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(model.reminderTimes.count < 2)
+                            Text(ordinal(i + 1) + " reminder").font(.system(size: 14))
+                            Spacer()
+                            DatePicker("", selection: timeBinding(i, t), in: eveningRange, displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                        }
+                    }
+                    if model.reminderTimes.count < 6 {
+                        Divider().overlay(Color.white.opacity(0.08)).padding(.vertical, 8)
+                        Button { model.addReminder() } label: {
+                            Label("Add reminder", systemImage: "plus.circle.fill").font(.system(size: 14))
+                                .foregroundStyle(Theme.teal)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Text(model.remindersAvailable
+                     ? "Sent by Home Assistant on Sat–Wed nights, only while Ultra Rouge is plugged in at home and you haven't answered. Times between 5 pm and 10:59 pm."
+                     : "Update the VoltTime package in Home Assistant to use reminders.")
+                    .font(.system(size: 11)).foregroundStyle(model.remindersAvailable ? TeslaDark.rowLabel : TeslaDark.importing)
+                    .padding(.top, 10)
+            }
+        }
+    }
+
+    private func ordinal(_ n: Int) -> String {
+        switch n {
+        case 1: return "1st"
+        case 2: return "2nd"
+        case 3: return "3rd"
+        default: return "\(n)th"
+        }
+    }
+
+    private var eveningRange: ClosedRange<Date> {
+        let cal = Calendar.current
+        let a = cal.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
+        let b = cal.date(bySettingHour: 22, minute: 59, second: 0, of: Date()) ?? Date()
+        return a...b
+    }
+
+    private func timeBinding(_ i: Int, _ minutes: Int) -> Binding<Date> {
+        Binding(
+            get: { Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()) ?? Date() },
+            set: { d in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+                model.setReminder(at: i, minutes: (c.hour ?? 19) * 60 + (c.minute ?? 0))
+            }
+        )
     }
 
     private func batteryBar(_ r: HomeResult) -> some View {

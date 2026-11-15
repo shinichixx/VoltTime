@@ -64,6 +64,27 @@ struct ContentView: View {
                 }
             }
         }
+        .overlay {
+            // Tonight's question, if it's still open (Sat–Wed 7–11 pm, plugged in, Routine, not answered).
+            if home.shouldAsk && !home.showLimitSheet {
+                AskCard(model: home)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let t = home.toast {
+                Text(t)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 11)
+                    .background(Color(white: 0.17))
+                    .clipShape(Capsule())
+                    .padding(.bottom, 60)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: home.shouldAsk)
+        .animation(.easeInOut(duration: 0.25), value: home.toast)
         .sheet(isPresented: $home.showLimitSheet) {
             LimitSheet(model: home)
                 .presentationDetents([.height(380)])

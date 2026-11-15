@@ -25,6 +25,12 @@ final class HomeModel: ObservableObject {
     @Published var plugged: Bool?
     @Published var charging: Bool?
     @Published var chargingMode: String?
+    /// Reminder times (minutes after midnight), sent by Home Assistant only when the car is plugged in at home.
+    @Published var reminderTimes: [Int] = [19 * 60]
+    @Published var remindersOn = true
+    @Published var remindersAvailable = false
+    /// Short confirmation shown after answering in the app ("GPS · 73% · starts 1:23 AM").
+    @Published var toast: String?
     @Published var lastSync: Date?
     @Published var message: String?
     @Published var busy = false
@@ -103,7 +109,8 @@ final class HomeModel: ObservableObject {
         defer { busy = false }
         let s = await ha.states([Entity.battery, Entity.limit, Entity.plugged, Entity.charging, Entity.readyTime, Entity.start,
                                  Entity.buffer, Entity.amps, Entity.voltage, Entity.efficiency, Entity.capacity,
-                                 Entity.destination, Entity.active, Entity.answered, Entity.chargingMode])
+                                 Entity.destination, Entity.active, Entity.answered, Entity.chargingMode,
+                                 Entity.reminders, Entity.remindersOff])
         if s.isEmpty {
             message = "Can't reach Home Assistant. Check the URL and token in Settings (and Tailscale)."
             return
@@ -128,6 +135,11 @@ final class HomeModel: ObservableObject {
         plugged = s[Entity.plugged].flatMap { $0.isAvailable ? $0.isOn : nil }
         charging = s[Entity.charging].flatMap { $0.isAvailable ? $0.isOn : nil }
         chargingMode = s[Entity.chargingMode].flatMap { $0.isAvailable ? $0.state : nil }
+        remindersAvailable = s[Entity.reminders] != nil
+        if !savingReminders {
+            if let r = s[Entity.reminders] { reminderTimes = Self.parseReminders(r.state) }
+            if let off = s[Entity.remindersOff] { remindersOn = !off.isOn }
+        }
         lastSync = Date()
     }
 
@@ -153,6 +165,105 @@ final class HomeModel: ObservableObject {
         }
         try? await Task.sleep(nanoseconds: 1_500_000_000)
         await refresh()
+    }
+
+    // MARK: Reminders (Home Assistant sends them)
+
+    private var savingReminders = false
+    private var reminderTask: Task<Void, Never>?
+
+    static func parseReminders(_ s: String) -> [Int] {
+        let list = s.split(separator: ",").compactMap { HAClient.parseTimeOfDay(String($0).trimmingCharacters(in: .whitespaces)) }
+        return list.isEmpty ? [19 * 60] : Array(Set(list)).sorted()
+    }
+
+    static func reminderString(_ times: [Int]) -> String {
+        times.sorted().map { String(format: "%02d:%02d", $0 / 60, $0 % 60) }.joined(separator: ",")
+    }
+
+    func setReminder(at index: Int, minutes: Int) {
+        guard reminderTimes.indices.contains(index) else { return }
+        reminderTimes[index] = min(max(minutes, 17 * 60), 22 * 60 + 59)
+        saveReminders()
+    }
+
+    func addReminder() {
+        let last = reminderTimes.max() ?? 18 * 60 + 30
+        var t = min(last + 60, 22 * 60 + 30)
+        while reminderTimes.contains(t) && t > 17 * 60 { t -= 15 }
+        reminderTimes.append(t)
+        saveReminders()
+    }
+
+    func removeReminder(at index: Int) {
+        guard reminderTimes.count > 1, reminderTimes.indices.contains(index) else { return }
+        reminderTimes.remove(at: index)
+        saveReminders()
+    }
+
+    func setRemindersOn(_ on: Bool) {
+        remindersOn = on
+        saveReminders()
+    }
+
+    private func saveReminders() {
+        reminderTask?.cancel()
+        savingReminders = true
+        reminderTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled, let self else { return }
+            defer { self.savingReminders = false }
+            guard let ha = HAClient.configured() else { return }
+            do {
+                try await ha.setText(Entity.reminders, Self.reminderString(self.reminderTimes))
+                try await ha.call("input_boolean", self.remindersOn ? "turn_off" : "turn_on", ["entity_id": Entity.remindersOff])
+                self.message = nil
+            } catch {
+                self.message = "Couldn't save reminders to Home Assistant: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: Tonight's question (centre card)
+
+    @AppStorage("ask.dismissedNight") private var dismissedNight = ""
+
+    /// Evening key for "tonight" (dismissing the card hides it until tomorrow evening).
+    private var nightKey: String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
+    }
+
+    /// Sat–Wed, 7–11 pm, Routine, plugged in, not answered, not dismissed tonight.
+    var shouldAsk: Bool {
+        let cal = Calendar.current
+        let now = Date()
+        let hour = cal.component(.hour, from: now)
+        let weekday = cal.component(.weekday, from: now)   // 1 = Sunday … 7 = Saturday
+        guard haConfigured, (19..<23).contains(hour), [7, 1, 2, 3, 4].contains(weekday) else { return false }
+        guard (chargingMode ?? "Routine") == "Routine", plugged == true, !answered else { return false }
+        return dismissedNight != nightKey
+    }
+
+    func dismissAsk() {
+        objectWillChange.send()
+        dismissedNight = nightKey
+    }
+
+    /// GPS / TSET from the centre card: set and plan, then show a one-line result.
+    func answerFromCard(_ name: String, limit: Double) async {
+        await chooseTrip(name, limit: limit)
+        let r = result
+        if r.minutes == 0 {
+            toast = "\(name) · \(Int(limit))% · already at \(Int((liveSoc ?? startSoc).rounded()))%, no charging needed"
+        } else if let st = scheduledStart, active {
+            toast = "\(name) · \(Int(limit))% · starts \(Fmt.clock(st, calendar: .current))"
+        } else {
+            toast = "\(name) · \(Int(limit))% set"
+        }
+        try? await Task.sleep(nanoseconds: 3_500_000_000)
+        toast = nil
     }
 
     /// Push planner settings to HA a moment after the last edit, then re-plan tonight if active.

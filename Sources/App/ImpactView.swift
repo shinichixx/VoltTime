@@ -53,9 +53,9 @@ struct ImpactView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
-            .padding(.bottom, 40)
+            .padding(.bottom, 8)
         }
-        .scrollBounceBehavior(.basedOnSize)   // fixed page; only scrolls if it ever doesn't fit the screen
+        .scrollDisabled(true)   // fixed page, like the Tesla app
         .scrollIndicators(.hidden)
         .teslaPage("Impact")
         .toolbar {
