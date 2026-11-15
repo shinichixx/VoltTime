@@ -10,7 +10,9 @@ Dark, Tesla-app style. Two pages, swiped left and right (no tab bar):
   Model 3 / Solar / Home / Grid power, Exporting / Importing / Self-powered, and three rows:
   - Tap the **Model 3** figure – charging current slider (5–32 A) and Start / Stop charging, sent straight to the car.
   - **Energy** – today's power chart and totals.
-  - **Impact** – self-powered % today.
+  - **Impact** – Tesla-style cards for Day / Week / Month / Year / Lifetime: Self-Powered, Model 3 on solar (+ km on
+    sunshine), CO₂ avoided (0.740 kg/kWh, Peninsular 2024) and tomorrow's solar forecast. Daily summaries from HA
+    long-term statistics are kept on the phone (~20 KB a year); each refresh only re-reads the last day or two.
   - **Settings** – *Charging mode* (Off / Routine / Excess Solar / Fast, sets `input_select.tesla_charging_mode`;
     the HA "Tesla Charging – Controller" automation still does the work), *Charging start time* (Routine only:
     location tomorrow GPS 73% / TSET 63% / Others, ready time, start time) → *Charge details* (duration, energy,

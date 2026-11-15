@@ -423,7 +423,9 @@ struct MyHomeView: View {
                 path.append(.energy)
             }
             TeslaRow(icon: "leaf", name: "Impact",
-                     label: model.selfPowered.map { "\(Int($0.rounded()))% Self-Powered Today" } ?? "Self-Powered Today")
+                     label: model.selfPowered.map { "\(Int($0.rounded()))% Self-Powered Today" } ?? "Self-Powered Today") {
+                path.append(.impact)
+            }
             TeslaRow(icon: "gearshape.fill", name: "Settings", label: "Charging: \(model.mode ?? "—")") {
                 path.append(.settings)
             }

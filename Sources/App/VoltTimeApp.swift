@@ -16,6 +16,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var phase
     @StateObject private var home = HomeModel()
     @StateObject private var myHome = MyHomeModel()
+    @StateObject private var impact = ImpactModel()
     @State private var path: [Route] = []
     @State private var page = 0
 
@@ -59,6 +60,7 @@ struct ContentView: View {
                 case .chargeDetails: ChargeDetailsPage(model: home)
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
+                case .impact: ImpactView(model: impact, home: myHome)
                 }
             }
         }
@@ -74,7 +76,10 @@ struct ContentView: View {
             if url.host == "limit" { home.showLimitSheet = true }
             Task { await home.refresh() }
         }
-        .task { await home.refresh() }
+        .task {
+            await home.refresh()
+            await impact.refresh()   // tops up the saved daily energy so Impact opens instantly
+        }
         .onChange(of: phase) { _, p in
             if p == .active { Task { await home.refresh() } }
         }
