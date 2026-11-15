@@ -105,6 +105,10 @@ struct EnergyView: View {
                             .padding(.top, 8)
                         allTiles(total)
                             .padding(.top, 12)
+                        Text("Model 3 sits on top of Home (red line = everything used). Grid sits on top of Solar (grey line = everything supplied). Below 0 = solar exported to TNB.")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(Color(white: 0.36))
+                            .padding(.top, 10)
                     } else {
                         Text(comp.title).font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -371,63 +375,73 @@ struct EnergyView: View {
 
     private static let allNames = ["Solar", "Home", "Model 3", "Grid"]
     private static let allColors = [EnergyColor.solar, EnergyColor.home, EnergyColor.vehicle, EnergyColor.grid]
-    private static let fillOrder = ["Grid", "Home", "Model 3", "Solar"]
-    private static let lineOrder = ["Grid", "Home", "Solar", "Model 3"]
-
-    private static func color(_ part: String) -> Color {
-        allColors[allNames.firstIndex(of: part) ?? 3]
+    /// One time step on the All graph (kW for a day, kWh per day / month otherwise).
+    private struct StackPoint: Identifiable {
+        let date: Date
+        let home, car, solar, imp, exp: Double
+        var id: Double { date.timeIntervalSince1970 }
     }
 
-    private static func fillOpacity(_ part: String) -> Double {
-        switch part {
-        case "Grid": return 0.28
-        case "Model 3": return 0.22
-        case "Solar": return 0.20
-        default: return 0.18
-        }
-    }
-
-    /// Day: kW per slot. Longer periods: kWh per day / month. Grid is net (below zero = export).
-    private func allSeries(_ r: PeriodRange) -> (points: [ChartPoint], step: TimeInterval, unit: Calendar.Component?) {
-        var out: [ChartPoint] = []
-        func add(_ t: Date, _ f: EnergyFlow, _ k: Double) {
-            out.append(ChartPoint(date: t, part: "Solar", value: f.solar * k))
-            out.append(ChartPoint(date: t, part: "Home", value: f.house * k))
-            out.append(ChartPoint(date: t, part: "Model 3", value: f.car * k))
-            out.append(ChartPoint(date: t, part: "Grid", value: (f.imp - f.exp) * k))
+    private func allSeries(_ r: PeriodRange) -> (points: [StackPoint], step: TimeInterval, unit: Calendar.Component?) {
+        func point(_ t: Date, _ f: EnergyFlow, _ k: Double) -> StackPoint {
+            StackPoint(date: t, home: f.house * k, car: f.car * k, solar: f.solar * k, imp: f.imp * k, exp: f.exp * k)
         }
         if period == .day {
             guard let c = curve else { return ([], 900, nil) }
             let step = TimeInterval(c.minutes * 60)
             var last = c.count
             if cal.isDateInToday(r.start) { last = min(c.count, max(0, Int(Date().timeIntervalSince(r.start) / step))) }
-            for i in 0..<last { add(r.start.addingTimeInterval(Double(i) * step + step / 2), c.flow(i), 60.0 / Double(c.minutes)) }
-            return (out, step, nil)
+            let k = 60.0 / Double(c.minutes)
+            return ((0..<last).map { point(r.start.addingTimeInterval(Double($0) * step + step / 2), c.flow($0), k) }, step, nil)
         }
-        for b in buckets(r) { add(b.date, b.flow, 1) }
-        return (out, 0, axisUnit)
+        return (buckets(r).map { point($0.date, $0.flow, 1) }, 0, axisUnit)
     }
 
+    /// Stacked so the totals line up: Model 3 sits on Home (red top = everything used), grid import sits on Solar
+    /// (grey top = everything supplied); export is shown below zero.
     private func allChart(_ r: PeriodRange) -> some View {
         let (points, step, unit) = allSeries(r)
-        let byPart = Dictionary(grouping: points, by: \.part)
         return Chart {
-            // Faint fill under each line (grid below zero too), then the lines on top; red last so charging spikes show.
-            ForEach(Self.fillOrder, id: \.self) { part in
-                ForEach(byPart[part] ?? []) { p in
-                    AreaMark(x: .value("Time", p.date), yStart: .value("Base", 0.0), yEnd: .value("Value", p.value),
-                             series: .value("Fill", part))
-                        .foregroundStyle(Self.color(part).opacity(Self.fillOpacity(part)))
-                        .interpolationMethod(.monotone)
-                }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.solar), series: .value("F", "solar"))
+                    .foregroundStyle(EnergyColor.solar.opacity(0.22)).interpolationMethod(.monotone)
             }
-            ForEach(Self.lineOrder, id: \.self) { part in
-                ForEach(byPart[part] ?? []) { p in
-                    LineMark(x: .value("Time", p.date), y: .value("Value", p.value), series: .value("Series", part))
-                        .foregroundStyle(by: .value("Part", part))
-                        .lineStyle(StrokeStyle(lineWidth: 1.6, lineJoin: .round))
-                        .interpolationMethod(.monotone)
-                }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.solar), yEnd: .value("Hi", p.solar + p.imp), series: .value("F", "import"))
+                    .foregroundStyle(EnergyColor.grid.opacity(0.25)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.exp), series: .value("F", "export"))
+                    .foregroundStyle(EnergyColor.grid.opacity(0.3)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.home), series: .value("F", "home"))
+                    .foregroundStyle(EnergyColor.home.opacity(0.25)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.home), yEnd: .value("Hi", p.home + p.car), series: .value("F", "car"))
+                    .foregroundStyle(EnergyColor.vehicle.opacity(0.28)).interpolationMethod(.monotone)
+            }
+            // Lines on top: grey (supply top, export), yellow, blue, then red last so charging is never hidden.
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", p.solar + p.imp), series: .value("L", "supply"))
+                    .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", -p.exp), series: .value("L", "export"))
+                    .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", p.solar), series: .value("L", "solar"))
+                    .foregroundStyle(EnergyColor.solar).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", p.home), series: .value("L", "home"))
+                    .foregroundStyle(EnergyColor.home).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", p.home + p.car), series: .value("L", "used"))
+                    .foregroundStyle(EnergyColor.vehicle).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
             }
             if let sel = selection {
                 RuleMark(x: .value("Selected", sel))
@@ -438,13 +452,12 @@ struct EnergyView: View {
                     }
             }
         }
-        .chartForegroundStyleScale(domain: Self.allNames, range: Self.allColors)
         .chartLegend(.hidden)
         .chartXScale(domain: r.start...r.end)
         .chartXSelection(value: $selection)
         .chartXAxis {
             AxisMarks(values: .stride(by: period == .day ? .hour : axisUnit,
-                                      count: period == .day ? 6 : axisCount(points.count / 4))) { _ in
+                                      count: period == .day ? 6 : axisCount(points.count))) { _ in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
                 AxisValueLabel(format: period == .day ? Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)) : axisFormat)
             }
@@ -488,7 +501,7 @@ struct EnergyView: View {
 
     private var allLegend: some View {
         HStack(spacing: 14) {
-            ForEach(0..<4, id: \.self) { i in
+            ForEach([1, 2, 0, 3], id: \.self) { i in
                 HStack(spacing: 5) {
                     Circle().fill(Self.allColors[i]).frame(width: 8, height: 8)
                     Text(Self.allNames[i]).font(.system(size: 12)).foregroundStyle(TeslaDark.labelGrey)
