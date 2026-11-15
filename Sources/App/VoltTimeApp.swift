@@ -19,6 +19,26 @@ struct ContentView: View {
     @State private var path: [Route] = []
     @State private var page = 0
 
+    /// Page dots centred between the last row of text and the bottom edge of the screen
+    /// (35 pt up from the edge: on the iPhone 15 Pro the last line ends 70 pt above it).
+    private var pageDots: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 9) {
+                ForEach(0..<2, id: \.self) { i in
+                    Circle()
+                        .fill(page == i ? Color.white : Color(white: 0.45))
+                        .frame(width: 7.5, height: 7.5)
+                        .padding(4)
+                        .contentShape(Rectangle())
+                        .onTapGesture { withAnimation { page = i } }
+                }
+            }
+            .padding(.bottom, 35 - 7.5 / 2 - 4)
+        }
+        .ignoresSafeArea(edges: .bottom)
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             TabView(selection: $page) {
@@ -27,9 +47,9 @@ struct ContentView: View {
                 SimulationPage(home: home)
                     .tag(1)
             }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .never))
+            .tabViewStyle(.page(indexDisplayMode: .never))
             .background(TeslaDark.bg.ignoresSafeArea())
+            .overlay { pageDots }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Route.self) { route in
                 switch route {
