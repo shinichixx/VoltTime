@@ -56,7 +56,8 @@ struct ImpactView: View {
             .padding(.top, 4)
             .padding(.bottom, 40)
         }
-        .refreshable { await model.refresh(force: true) }
+        .scrollBounceBehavior(.basedOnSize)   // fixed page; only scrolls if it ever doesn't fit the screen
+        .scrollIndicators(.hidden)
         .teslaPage("Impact")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
