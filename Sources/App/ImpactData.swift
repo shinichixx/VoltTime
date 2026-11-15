@@ -184,10 +184,33 @@ final class ImpactModel: ObservableObject {
         }
     }
 
+    /// Tomorrow's solar forecast only moves a few % during the day, so it's read once a day (the first time the app
+    /// opens that day) and kept just for that day. No history of it is saved.
+    private func loadForecastIfToday() {
+        let d = UserDefaults.standard
+        guard d.string(forKey: "impact.forecastDay") == Self.keyFormatter.string(from: Date()) else {
+            forecastTomorrow = nil   // a new day (or never fetched): read it again
+            peakTomorrow = nil
+            return
+        }
+        if d.object(forKey: "impact.forecastKWh") != nil { forecastTomorrow = d.double(forKey: "impact.forecastKWh") }
+        if d.object(forKey: "impact.forecastPeak") != nil { peakTomorrow = Date(timeIntervalSince1970: d.double(forKey: "impact.forecastPeak")) }
+    }
+
     private func refreshLive(_ ha: HAClient) async {
-        let s = await ha.states([ImpactStat.forecastTomorrow, ImpactStat.peakTomorrow, ImpactStat.odometer, ImpactStat.lifetimeEnergy])
-        forecastTomorrow = s[ImpactStat.forecastTomorrow]?.number
-        peakTomorrow = s[ImpactStat.peakTomorrow].flatMap { HAClient.parseISO($0.state) }
+        loadForecastIfToday()
+        let needForecast = forecastTomorrow == nil
+        var ids = [ImpactStat.odometer, ImpactStat.lifetimeEnergy]
+        if needForecast { ids += [ImpactStat.forecastTomorrow, ImpactStat.peakTomorrow] }
+        let s = await ha.states(ids)
+        if needForecast, let kwh = s[ImpactStat.forecastTomorrow]?.number {
+            forecastTomorrow = kwh
+            peakTomorrow = s[ImpactStat.peakTomorrow].flatMap { HAClient.parseISO($0.state) }
+            let d = UserDefaults.standard
+            d.set(Self.keyFormatter.string(from: Date()), forKey: "impact.forecastDay")
+            d.set(kwh, forKey: "impact.forecastKWh")
+            if let p = peakTomorrow { d.set(p.timeIntervalSince1970, forKey: "impact.forecastPeak") } else { d.removeObject(forKey: "impact.forecastPeak") }
+        }
         if let km = s[ImpactStat.odometer]?.number, let kwh = s[ImpactStat.lifetimeEnergy]?.number, km > 100, kwh > 10 {
             kWhPerKm = kwh / km
         }
