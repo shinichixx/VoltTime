@@ -73,6 +73,7 @@ struct NavRow: View {
 struct ModeRow: View {
     @ObservedObject var model: MyHomeModel
     let mode: ChargingMode
+    var inset: CGFloat = 24
 
     var body: some View {
         let selected = (model.pendingMode ?? model.mode) == mode.option
@@ -92,8 +93,8 @@ struct ModeRow: View {
                 Spacer()
                 if model.pendingMode == mode.option { ProgressView().tint(.white).scaleEffect(0.8) }
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 11)
+            .padding(.horizontal, inset)
+            .padding(.vertical, 9)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -114,14 +115,19 @@ struct SettingsPage: View {
         ScrollView {
             VStack(spacing: 0) {
                 SectionCaption(text: "Charging mode")
-                ForEach(myHome.modeOptions, id: \.self) { option in
-                    ModeRow(model: myHome, mode: ChargingMode.named(option))
+                Card {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(myHome.modeOptions, id: \.self) { option in
+                            ModeRow(model: myHome, mode: ChargingMode.named(option), inset: 0)
+                        }
+                        if let msg = myHome.message ?? home.message {
+                            Text(msg).font(.system(size: 12)).foregroundStyle(TeslaDark.importing)
+                                .padding(.top, 6)
+                        }
+                    }
+                    .padding(.vertical, -4)
                 }
-                if let msg = myHome.message ?? home.message {
-                    Text(msg).font(.system(size: 12)).foregroundStyle(TeslaDark.importing)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24).padding(.top, 6)
-                }
+                .padding(.horizontal, 16)
 
                 SectionCaption(text: "Charging start time", trailing: "Routine")
                 startTimeCard
