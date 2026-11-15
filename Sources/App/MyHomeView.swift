@@ -126,6 +126,9 @@ final class MyHomeModel: ObservableObject {
     @Published var message: String?
     @Published var photo: UIImage?
     @Published var photoNumber = -1
+    /// The photo being faded out, kept fully visible underneath so the cross-fade never dips to dark.
+    @Published var previousPhoto: UIImage?
+    static let fadeSeconds = 1.0
     @Published var loaded = false
 
     private var downloading = Set<Int>()
@@ -182,20 +185,32 @@ final class MyHomeModel: ObservableObject {
     private func showPhoto(_ n: Int, ha: HAClient) async {
         if n != photoNumber || photo == nil {
             if let img = ScenarioPhotos.load(n) {
-                photo = img
-                photoNumber = n
+                crossFade(to: img, number: n)
             } else if !downloading.contains(n) {
                 downloading.insert(n)
                 defer { downloading.remove(n) }
                 if let d = try? await ScenarioPhotos.download(n, ha: ha), let img = ScenarioPhotos.decode(d), n == scenario {
-                    photo = img
-                    photoNumber = n
+                    crossFade(to: img, number: n)
                 }
             }
         }
         if !prefetched {
             prefetched = true
             Task { _ = await ScenarioPhotos.fetchMissing(ha: ha) }
+        }
+    }
+
+    /// New photo fades in on top of the old one, then the old one is dropped.
+    private func crossFade(to img: UIImage, number n: Int) {
+        previousPhoto = photo
+        withAnimation(.easeInOut(duration: Self.fadeSeconds)) {
+            photo = img
+            photoNumber = n
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((Self.fadeSeconds + 0.3) * 1_000_000_000))
+            guard let self, self.photoNumber == n else { return }
+            self.previousPhoto = nil
         }
     }
 
@@ -328,13 +343,21 @@ struct MyHomeView: View {
 
     @ViewBuilder private func photo(width w: CGFloat) -> some View {
         if let img = model.photo {
-            Image(uiImage: img)
-                .resizable()
-                .scaledToFit()
-                .frame(width: w)
-                .id(model.photoNumber)
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.6), value: model.photoNumber)
+            ZStack(alignment: .top) {
+                // Old scenario stays solid underneath while the new one fades in over it.
+                if let prev = model.previousPhoto {
+                    Image(uiImage: prev)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: w)
+                }
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: w)
+                    .id(model.photoNumber)
+                    .transition(.opacity)
+            }
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "house.fill").font(.system(size: 64)).foregroundStyle(Color.white.opacity(0.08))
