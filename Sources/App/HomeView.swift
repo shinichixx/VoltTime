@@ -95,6 +95,10 @@ struct HomeView: View {
                 if model.charging == true {
                     Image(systemName: "bolt.fill").foregroundStyle(Theme.green)
                     Text("Charging now").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.green)
+                } else if let mode = model.chargingMode, mode != "Routine" {
+                    Image(systemName: "pause.circle.fill").foregroundStyle(Theme.orange)
+                    Text("Charging mode: \(mode)").font(.system(size: 12, weight: .semibold))
+                    Text("night plan paused").font(.system(size: 11)).foregroundStyle(.secondary)
                 } else if model.active, let st = model.scheduledStart {
                     Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.green)
                     Text("Car schedule: \(Fmt.clock(st, calendar: .current))").font(.system(size: 12, weight: .semibold))

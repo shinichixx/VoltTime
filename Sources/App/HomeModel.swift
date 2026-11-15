@@ -24,6 +24,7 @@ final class HomeModel: ObservableObject {
     @Published var answered = false
     @Published var plugged: Bool?
     @Published var charging: Bool?
+    @Published var chargingMode: String?
     @Published var lastSync: Date?
     @Published var message: String?
     @Published var busy = false
@@ -102,7 +103,7 @@ final class HomeModel: ObservableObject {
         defer { busy = false }
         let s = await ha.states([Entity.battery, Entity.limit, Entity.plugged, Entity.charging, Entity.readyTime, Entity.start,
                                  Entity.buffer, Entity.amps, Entity.voltage, Entity.efficiency, Entity.capacity,
-                                 Entity.destination, Entity.active, Entity.answered])
+                                 Entity.destination, Entity.active, Entity.answered, Entity.chargingMode])
         if s.isEmpty {
             message = "Can't reach Home Assistant. Check the URL and token in Settings (and Tailscale)."
             return
@@ -126,6 +127,7 @@ final class HomeModel: ObservableObject {
         answered = s[Entity.answered]?.isOn ?? false
         plugged = s[Entity.plugged].flatMap { $0.isAvailable ? $0.isOn : nil }
         charging = s[Entity.charging].flatMap { $0.isAvailable ? $0.isOn : nil }
+        chargingMode = s[Entity.chargingMode].flatMap { $0.isAvailable ? $0.state : nil }
         lastSync = Date()
     }
 

@@ -23,6 +23,20 @@ enum Entity {
     static let active = "input_boolean.volttime_active"
     static let answered = "input_boolean.volttime_answered"
     static let notifyService = "mobile_app_ridhuans_iphone_15_pro"
+
+    // My Home tab (was the "My Home" view of the Tesla dashboard in Home Assistant)
+    static let chargingMode = "input_select.tesla_charging_mode"
+    static let solarPower = "sensor.inverter_active_power"
+    static let gridPower = "sensor.grid_active_power"
+    static let carPower = "sensor.tesla_wall_connector_tuya_meter_power"
+    static let carEnergy = "sensor.tesla_wall_connector_tuya_meter_energy"
+    static let wallConnectorStatus = "sensor.tesla_wall_connector_status"
+    static let wallConnectorAmps = "sensor.tesla_wall_connector_vehicle_current"
+    static let scenario = "sensor.tesla_home_scenario"
+    static let dailyYield = "sensor.inverter_daily_yield"
+    static let selfPowered = "sensor.self_powered_today"
+    static let importToday = "sensor.grid_import_today"
+    static let exportToday = "sensor.grid_export_today"
 }
 
 enum Keychain {
@@ -158,6 +172,49 @@ struct HAClient {
         var data: [String: Any] = [:]
         if let limit { data["limit"] = limit }
         try await call("script", "volttime_plan", data, timeout: 120)
+    }
+
+    /// Raw bytes of any path, e.g. "/local/tesla_home_scenario1.png" (files in /config/www).
+    func data(_ path: String, timeout: TimeInterval = 60) async throws -> Data {
+        try await send(path, timeout: timeout)
+    }
+
+    /// Numeric history since `start` for several entities: entity -> [(time, value)], oldest first.
+    func history(_ entities: [String], since start: Date) async throws -> [String: [(Date, Double)]] {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        f.timeZone = TimeZone(identifier: "UTC")
+        let path = "/api/history/period/\(f.string(from: start))?filter_entity_id=\(entities.joined(separator: ","))&minimal_response&no_attributes"
+        let data = try await send(path, timeout: 60)
+        guard let lists = try JSONSerialization.jsonObject(with: data) as? [[[String: Any]]] else {
+            throw APIError(message: "Unreadable history from Home Assistant")
+        }
+        var out: [String: [(Date, Double)]] = [:]
+        for list in lists {
+            guard let id = list.first?["entity_id"] as? String else { continue }
+            var pts: [(Date, Double)] = []
+            pts.reserveCapacity(list.count)
+            for item in list {
+                guard let s = item["state"] as? String, let v = Double(s),
+                      let t = (item["last_changed"] as? String).flatMap(HAClient.parseISO) else { continue }
+                pts.append((t, v))
+            }
+            out[id] = pts
+        }
+        return out
+    }
+
+    /// "2026-11-15T06:44:58.123456+00:00" (any number of fraction digits, or none).
+    static func parseISO(_ s: String) -> Date? {
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let d = plain.date(from: s) { return d }
+        if let r = s.range(of: #"\.\d+"#, options: .regularExpression) {
+            var t = s
+            t.removeSubrange(r)
+            return plain.date(from: t)
+        }
+        return nil
     }
 
     func clearAskNotification() async {
