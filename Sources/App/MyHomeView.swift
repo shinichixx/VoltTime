@@ -28,7 +28,7 @@ struct ChargingMode: Identifiable {
 
     static let all: [ChargingMode] = [
         ChargingMode(option: "Off", title: "Off ⛔️", detail: "No charging at all, until you change it"),
-        ChargingMode(option: "Routine", title: "Routine 🌙", detail: "Weekday nights at 32A, plus solar by day"),
+        ChargingMode(option: "Routine", title: "Routine 🗓️", detail: "Weekday nights at 32A, plus solar by day"),
         ChargingMode(option: "Excess Solar", title: "Excess Solar ☀️", detail: "Solar surplus only, never from the grid"),
         ChargingMode(option: "Fast", title: "Fast ⚡️", detail: "32A now, then back to Routine at the limit"),
     ]
