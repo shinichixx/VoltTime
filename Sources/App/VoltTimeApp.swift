@@ -24,7 +24,8 @@ struct ContentView: View {
     private var pageDots: some View {
         VStack {
             Spacer()
-            HStack(spacing: 9) {
+            // 16.5 pt centre to centre, like the iOS page dots (7.5 dot + 2×4 tap padding + 1).
+            HStack(spacing: 1) {
                 ForEach(0..<2, id: \.self) { i in
                     Circle()
                         .fill(page == i ? Color.white : Color(white: 0.45))
