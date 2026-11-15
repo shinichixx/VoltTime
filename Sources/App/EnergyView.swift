@@ -89,7 +89,9 @@ struct EnergyView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     PeriodBar(range: r, period: period, firstDay: store.firstDay, offset: $offset)
-                        .padding(.horizontal, -6)
+                        .padding(.horizontal, -4)
+                        .padding(.top, 4)
+                        .padding(.bottom, 10)   // same spacing as the Impact page
                     if comp == .all {
                         HStack(spacing: 8) {
                             Text(period == .day ? "Power" : "Energy per \(period == .year || period == .lifetime ? "month" : "day")")
@@ -369,6 +371,21 @@ struct EnergyView: View {
 
     private static let allNames = ["Solar", "Home", "Model 3", "Grid"]
     private static let allColors = [EnergyColor.solar, EnergyColor.home, EnergyColor.vehicle, EnergyColor.grid]
+    private static let fillOrder = ["Grid", "Home", "Model 3", "Solar"]
+    private static let lineOrder = ["Grid", "Home", "Solar", "Model 3"]
+
+    private static func color(_ part: String) -> Color {
+        allColors[allNames.firstIndex(of: part) ?? 3]
+    }
+
+    private static func fillOpacity(_ part: String) -> Double {
+        switch part {
+        case "Grid": return 0.28
+        case "Model 3": return 0.22
+        case "Solar": return 0.20
+        default: return 0.18
+        }
+    }
 
     /// Day: kW per slot. Longer periods: kWh per day / month. Grid is net (below zero = export).
     private func allSeries(_ r: PeriodRange) -> (points: [ChartPoint], step: TimeInterval, unit: Calendar.Component?) {
@@ -393,18 +410,24 @@ struct EnergyView: View {
 
     private func allChart(_ r: PeriodRange) -> some View {
         let (points, step, unit) = allSeries(r)
-        let solar = points.filter { $0.part == "Solar" }
+        let byPart = Dictionary(grouping: points, by: \.part)
         return Chart {
-            ForEach(solar) { p in
-                AreaMark(x: .value("Time", p.date), y: .value("Value", p.value))
-                    .foregroundStyle(EnergyColor.solar.opacity(0.22))
-                    .interpolationMethod(.monotone)
+            // Faint fill under each line (grid below zero too), then the lines on top; red last so charging spikes show.
+            ForEach(Self.fillOrder, id: \.self) { part in
+                ForEach(byPart[part] ?? []) { p in
+                    AreaMark(x: .value("Time", p.date), yStart: .value("Base", 0.0), yEnd: .value("Value", p.value),
+                             series: .value("Fill", part))
+                        .foregroundStyle(Self.color(part).opacity(Self.fillOpacity(part)))
+                        .interpolationMethod(.monotone)
+                }
             }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("Value", p.value), series: .value("Series", p.part))
-                    .foregroundStyle(by: .value("Part", p.part))
-                    .lineStyle(StrokeStyle(lineWidth: 1.6, lineJoin: .round))
-                    .interpolationMethod(.monotone)
+            ForEach(Self.lineOrder, id: \.self) { part in
+                ForEach(byPart[part] ?? []) { p in
+                    LineMark(x: .value("Time", p.date), y: .value("Value", p.value), series: .value("Series", part))
+                        .foregroundStyle(by: .value("Part", part))
+                        .lineStyle(StrokeStyle(lineWidth: 1.6, lineJoin: .round))
+                        .interpolationMethod(.monotone)
+                }
             }
             if let sel = selection {
                 RuleMark(x: .value("Selected", sel))
