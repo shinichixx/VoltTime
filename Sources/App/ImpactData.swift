@@ -1,19 +1,19 @@
 import SwiftUI
 
-// Impact data: Home Assistant long-term statistics, boiled down to one small summary per day and kept on the iPhone
-// (Application Support/impact_days.json, ~20 KB a year). Each refresh only re-reads from the day before the last
-// saved day, so the page opens instantly and stays fast.
+// Energy data shared by Impact and Energy: one curve per day (EnergyData.swift), all kept in ONE small file on the
+// iPhone (Application Support/energy.plist, ~280 KB a year). Daily totals are added up in memory, never saved twice.
+// Recent days are kept in 15-minute steps (HA only keeps its 5-minute data ~10 days); older days come hourly.
 
-/// One day's energy, all in kWh.
-struct DaySummary: Codable, Equatable {
-    var solar = 0.0      // generated (inverter)
-    var imp = 0.0        // bought from TNB
-    var exp = 0.0        // exported to TNB
-    var car = 0.0        // into the Model 3 (Wall Connector meter)
-    var carSolar = 0.0   // part of `car` covered by solar (solar serves the house first)
+/// Totals over a span, in the shape the Impact cards use.
+struct DaySummary {
+    var solar = 0.0
+    var imp = 0.0
+    var exp = 0.0
+    var car = 0.0
+    var carSolar = 0.0
 
-    static func + (a: DaySummary, b: DaySummary) -> DaySummary {
-        DaySummary(solar: a.solar + b.solar, imp: a.imp + b.imp, exp: a.exp + b.exp, car: a.car + b.car, carSolar: a.carSolar + b.carSolar)
+    init(_ f: EnergyFlow) {
+        solar = f.solar; imp = f.imp; exp = f.exp; car = f.car; carSolar = f.carSolar
     }
 
     /// Home + car consumption.
@@ -45,14 +45,15 @@ enum ImpactStat {
     static let chargeEfficiency = 0.93
 }
 
-private struct ImpactCache: Codable {
-    var firstDay: String?
-    var days: [String: DaySummary]
+private struct StoreFile: Codable {
+    var first: String?
+    var days: [String: Data]
 }
 
 @MainActor
-final class ImpactModel: ObservableObject {
-    @Published private(set) var days: [String: DaySummary] = [:]
+final class EnergyStore: ObservableObject {
+    /// Past days (saved) plus today (memory only, refreshed).
+    @Published private(set) var curves: [String: DayCurve] = [:]
     @Published private(set) var firstDay: Date?
     @Published var loading = false
     @Published var message: String?
@@ -62,6 +63,7 @@ final class ImpactModel: ObservableObject {
 
     private let cal = Calendar.current
     private var lastRefresh: Date?
+    private var flowCache: [String: EnergyFlow] = [:]
 
     static let keyFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -71,46 +73,72 @@ final class ImpactModel: ObservableObject {
         return f
     }()
 
-    private static var fileURL: URL {
+    private static var supportDir: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("impact_days.json")
     }
+    private static var fileURL: URL { supportDir.appendingPathComponent("energy.plist") }
 
     init() {
-        if let d = try? Data(contentsOf: Self.fileURL), let c = try? JSONDecoder().decode(ImpactCache.self, from: d) {
-            days = c.days
-            firstDay = c.firstDay.flatMap { Self.keyFormatter.date(from: $0) }
+        // Build 10 kept Impact's daily totals in their own file; everything now lives in energy.plist.
+        try? FileManager.default.removeItem(at: Self.supportDir.appendingPathComponent("impact_days.json"))
+        if let d = try? Data(contentsOf: Self.fileURL), let f = try? PropertyListDecoder().decode(StoreFile.self, from: d) {
+            var c: [String: DayCurve] = [:]
+            for (k, v) in f.days { if let curve = DayCurve(packed: v) { c[k] = curve } }
+            curves = c
+            firstDay = f.first.flatMap { Self.keyFormatter.date(from: $0) }
         }
     }
 
+    private func key(_ d: Date) -> String { Self.keyFormatter.string(from: d) }
+    private var todayKey: String { key(Date()) }
+
     private func save() {
-        let c = ImpactCache(firstDay: firstDay.map { Self.keyFormatter.string(from: $0) }, days: days)
-        guard let d = try? JSONEncoder().encode(c) else { return }
-        try? FileManager.default.createDirectory(at: Self.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let today = todayKey
+        var days: [String: Data] = [:]
+        for (k, c) in curves where k < today { days[k] = c.packed() }   // finished days only
+        let enc = PropertyListEncoder()
+        enc.outputFormat = .binary
+        guard let d = try? enc.encode(StoreFile(first: firstDay.map { key($0) }, days: days)) else { return }
+        try? FileManager.default.createDirectory(at: Self.supportDir, withIntermediateDirectories: true)
         try? d.write(to: Self.fileURL, options: .atomic)
     }
 
-    // MARK: Totals
+    // MARK: Reading
 
-    func total(from start: Date, to end: Date) -> DaySummary {
-        var t = DaySummary()
+    func curve(_ day: Date) -> DayCurve? { curves[key(day)] }
+
+    func flow(_ day: Date) -> EnergyFlow? {
+        let k = key(day)
+        if let f = flowCache[k] { return f }
+        guard let c = curves[k] else { return nil }
+        let f = c.total
+        flowCache[k] = f
+        return f
+    }
+
+    func flowTotal(from start: Date, to end: Date) -> EnergyFlow {
+        var t = EnergyFlow()
         var d = cal.startOfDay(for: start)
         while d < end {
-            if let s = days[Self.keyFormatter.string(from: d)] { t = t + s }
+            if let f = flow(d) { t = t + f }
             guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
             d = n
         }
         return t
     }
 
+    func total(from start: Date, to end: Date) -> DaySummary { DaySummary(flowTotal(from: start, to: end)) }
+
     // MARK: Refresh
 
-    func refresh(force: Bool = false) async {
+    /// Fetches only what isn't on the phone yet: today, yesterday (may have been partial), any missing days, and
+    /// recent days still saved hourly (upgraded to 15-minute while HA has the detail).
+    func refresh(minAge: TimeInterval = 60) async {
         guard let ha = HAClient.configured() else {
             message = "Set up Home Assistant first: My Home → Settings → Connection."
             return
         }
-        if !force, let lastRefresh, Date().timeIntervalSince(lastRefresh) < 60 { return }
+        if let lastRefresh, Date().timeIntervalSince(lastRefresh) < minAge { return }
         guard !loading else { return }
         loading = true
         defer { loading = false }
@@ -123,8 +151,7 @@ final class ImpactModel: ObservableObject {
 
             if firstDay == nil {
                 let monthly = try await ws.statistics([ImpactStat.solar, ImpactStat.imp], start: date(2024, 1, 1), end: Date(), period: "month")
-                let starts = monthly.values.flatMap { $0.map(\.start) }
-                guard let first = starts.min() else {
+                guard let first = monthly.values.flatMap({ $0.map(\.start) }).min() else {
                     message = "No energy history in Home Assistant yet."
                     return
                 }
@@ -132,56 +159,67 @@ final class ImpactModel: ObservableObject {
             }
             guard let firstDay else { return }
 
-            // Re-read from the day before the newest saved day (it may have been partial), or from the beginning.
             let today = cal.startOfDay(for: Date())
             let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
-            var from = firstDay
-            if let lastKey = days.keys.max(), let last = Self.keyFormatter.date(from: lastKey) {
-                from = max(firstDay, cal.date(byAdding: .day, value: -1, to: last) ?? last)
-            }
+            let recent = max(firstDay, cal.date(byAdding: .day, value: -9, to: today) ?? today)
 
-            var fresh: [String: DaySummary] = [:]
-            // Hourly up to yesterday, a month at a time.
+            // Earliest day that needs (re)fetching.
+            var from = yesterday
+            var d = firstDay
+            while d < yesterday {
+                let c = curves[key(d)]
+                if c == nil || (d >= recent && c!.minutes != 15) { from = d; break }
+                d = cal.date(byAdding: .day, value: 1, to: d) ?? yesterday
+            }
+            from = max(from, firstDay)
+
+            var fresh: [String: DayCurve] = [:]
             var chunk = from
-            while chunk < yesterday {
-                let next = min(cal.date(byAdding: .month, value: 1, to: chunk) ?? yesterday, yesterday)
-                let rows = try await ws.statistics(ImpactStat.all, start: chunk, end: next, period: "hour")
-                merge(rows, into: &fresh)
+            while chunk < recent {   // older days: hourly, a month at a time
+                let next = min(cal.date(byAdding: .month, value: 1, to: chunk) ?? recent, recent)
+                for (k, c) in try await fetch(ws, chunk, next, period: "hour") { fresh[k] = c }
                 chunk = next
             }
-            // Yesterday and today in 5-minute steps (finer car / solar split, and today's latest numbers).
-            let rows = try await ws.statistics(ImpactStat.all, start: max(from, yesterday), end: Date(), period: "5minute")
-            merge(rows, into: &fresh)
+            for (k, c) in try await fetch(ws, max(from, recent), Date(), period: "5minute") { fresh[k] = c }
 
-            for (k, v) in fresh { days[k] = v }
+            for (k, c) in fresh {
+                // Keep an existing 15-minute day rather than replace it with an hourly one.
+                if let old = curves[k], old.minutes == 15, c.minutes == 60 { continue }
+                curves[k] = c
+                flowCache[k] = nil
+            }
             lastRefresh = Date()
             message = nil
             save()
         } catch {
-            message = days.isEmpty
+            message = curves.isEmpty
                 ? "Couldn't load energy history: \(error.localizedDescription)"
                 : "Showing saved data. Couldn't update: \(error.localizedDescription)"
         }
     }
 
-    /// Adds statistic rows (one per hour or 5 minutes) to per-day summaries, splitting the car's energy into solar
-    /// and grid per step: solar covers the house first, the car gets whatever solar is left.
-    private func merge(_ rows: [String: [HAWebSocket.Row]], into out: inout [String: DaySummary]) {
-        var steps: [Date: DaySummary] = [:]
-        func add(_ id: String, _ kp: WritableKeyPath<DaySummary, Double>) {
-            for r in rows[id] ?? [] { steps[r.start, default: DaySummary()][keyPath: kp] += max(r.change, 0) }
+    /// Statistics rows -> per-day curves in 15-minute (from 5-minute data) or hourly slots.
+    private func fetch(_ ws: HAWebSocket, _ start: Date, _ end: Date, period: String) async throws -> [String: DayCurve] {
+        guard start < end else { return [:] }
+        let rows = try await ws.statistics(ImpactStat.all, start: start, end: end, period: period)
+        let minutes = period == "hour" ? 60 : 15
+        var out: [String: DayCurve] = [:]
+        func add(_ id: String, _ kp: WritableKeyPath<DayCurve, [Float]>) {
+            for r in rows[id] ?? [] {
+                let dayStart = cal.startOfDay(for: r.start)
+                let slot = Int(r.start.timeIntervalSince(dayStart) / 60) / minutes
+                let k = key(dayStart)
+                var c = out[k] ?? DayCurve(minutes: minutes)
+                guard slot >= 0 && slot < c.count else { continue }
+                c[keyPath: kp][slot] += Float(max(r.change, 0))
+                out[k] = c
+            }
         }
         add(ImpactStat.solar, \.solar)
         add(ImpactStat.imp, \.imp)
         add(ImpactStat.exp, \.exp)
         add(ImpactStat.car, \.car)
-        for (start, step) in steps {
-            var s = step
-            let house = max(s.solar + s.imp - s.exp - s.car, 0)
-            s.carSolar = min(s.car, max(s.solarUsed - house, 0))
-            let key = Self.keyFormatter.string(from: start)
-            out[key] = (out[key] ?? DaySummary()) + s
-        }
+        return out
     }
 
     /// Tomorrow's solar forecast only moves a few % during the day, so it's read once a day (the first time the app

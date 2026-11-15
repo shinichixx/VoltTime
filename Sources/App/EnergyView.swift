@@ -66,38 +66,38 @@ private struct ChartPoint: Identifiable {
 }
 
 struct EnergyView: View {
-    @ObservedObject var energy: EnergyModel
-    @ObservedObject var impact: ImpactModel
+    @ObservedObject var store: EnergyStore
     @AppStorage("energy.period") private var periodRaw = ImpactPeriod.day.rawValue
     @AppStorage("energy.component") private var compRaw = EnergyComponent.home.rawValue
     @State private var offset = 0
-    @State private var curve: DayCurve?
-    @State private var curveDay: Date?
     @State private var selection: Date?
 
     private let cal = Calendar.current
     private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .day }
     private var comp: EnergyComponent { EnergyComponent(rawValue: compRaw) ?? .home }
+    private var range: PeriodRange { PeriodRange.make(period, offset: offset, firstDay: store.firstDay) }
+    /// The day's curve (Day view only), straight from the shared store.
+    private var curve: DayCurve? { period == .day ? store.curve(range.start) : nil }
 
     var body: some View {
-        let r = PeriodRange.make(period, offset: offset, firstDay: impact.firstDay)
+        let r = range
         let total = periodTotal(r)
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    PeriodBar(range: r, period: period, firstDay: impact.firstDay, offset: $offset)
+                    PeriodBar(range: r, period: period, firstDay: store.firstDay, offset: $offset)
                         .padding(.horizontal, -6)
                     Text(comp.title).font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(totalText(total)).font(.system(size: 32, weight: .semibold))
-                        if (period == .day ? energy.loading : impact.loading) { ProgressView().tint(.white).scaleEffect(0.7) }
+                        if store.loading { ProgressView().tint(.white).scaleEffect(0.7) }
                     }
                     .padding(.bottom, 10)
                     chart(r)
                         .frame(height: 230)
                     flowRows(total)
                         .padding(.top, 14)
-                    if let msg = energy.message ?? impact.message {
+                    if let msg = store.message {
                         Text(msg).font(.system(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
                     }
                 }
@@ -116,29 +116,16 @@ struct EnergyView: View {
         .onChange(of: compRaw) { _, _ in selection = nil }
         .onChange(of: offset) { _, _ in selection = nil }
         .task(id: "\(periodRaw)|\(offset)") {
-            guard period == .day else { return }
-            let day = r.start
-            if curveDay != day {
-                curve = energy.cached(day)
-                curveDay = day
-            }
-            if let c = await energy.curve(day), curveDay == day { curve = c }
+            // Saved days show at once; this only tops up today / missing days (at most once a minute).
+            await store.refresh()
         }
-        .task { await impact.refresh() }
     }
 
     // MARK: Totals and parts
 
     private func periodTotal(_ r: PeriodRange) -> EnergyFlow {
         if period == .day { return curve?.total ?? EnergyFlow() }
-        var t = EnergyFlow()
-        var d = r.start
-        while d < r.end {
-            if let s = impact.days[ImpactModel.keyFormatter.string(from: d)] { t = t + EnergyFlow(s) }
-            guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
-            d = n
-        }
-        return t
+        return store.flowTotal(from: r.start, to: r.end)
     }
 
     private func parts(_ f: EnergyFlow) -> [EnergyPart] {
@@ -244,7 +231,7 @@ struct EnergyView: View {
             }
         }
         .overlay {
-            if curve == nil && !energy.loading {
+            if curve == nil && !store.loading {
                 Text("No data for this day").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
@@ -289,7 +276,7 @@ struct EnergyView: View {
             var f = EnergyFlow()
             var x = d
             while x < min(next, r.end) {
-                if let s = impact.days[ImpactModel.keyFormatter.string(from: x)] { f = f + EnergyFlow(s) }
+                if let df = store.flow(x) { f = f + df }
                 x = cal.date(byAdding: .day, value: 1, to: x) ?? next
             }
             out.append((date: d, flow: f))

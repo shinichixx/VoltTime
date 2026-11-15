@@ -16,8 +16,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var phase
     @StateObject private var home = HomeModel()
     @StateObject private var myHome = MyHomeModel()
-    @StateObject private var impact = ImpactModel()
-    @StateObject private var energy = EnergyModel()
+    @StateObject private var energy = EnergyStore()
     @State private var path: [Route] = []
     @State private var page = 0
 
@@ -56,12 +55,12 @@ struct ContentView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .energy: EnergyView(energy: energy, impact: impact)
+                case .energy: EnergyView(store: energy)
                 case .settings: SettingsPage(home: home, myHome: myHome, path: $path)
                 case .chargeDetails: ChargeDetailsPage(model: home)
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
-                case .impact: ImpactView(model: impact, home: myHome)
+                case .impact: ImpactView(model: energy, home: myHome)
                 }
             }
         }
@@ -79,8 +78,7 @@ struct ContentView: View {
         }
         .task {
             await home.refresh()
-            await impact.refresh()          // tops up the saved daily energy so Impact / Energy open instantly
-            await energy.prefetchRecent()   // keeps the last days' 15-minute curves before HA drops them
+            await energy.refresh()   // tops up the saved energy so Impact / Energy open instantly
         }
         .onChange(of: phase) { _, p in
             if p == .active { Task { await home.refresh() } }

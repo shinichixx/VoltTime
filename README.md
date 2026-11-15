@@ -11,10 +11,11 @@ Dark, Tesla-app style. Two pages, swiped left and right (no tab bar):
   - Tap the **Model 3** figure – charging current slider (5–32 A) and Start / Stop charging, sent straight to the car.
   - **Energy** – Tesla-style: Day / Week / Month / Year / Lifetime menu, Home / Solar / Vehicle / Grid bar at the bottom,
     stacked areas for a day (tap and hold to scrub), bars for longer periods, Energy Flow rows. Past days' 15-minute
-    curves are kept on the phone (~2–3 KB a day).
+    curves come from the same shared store as Impact.
   - **Impact** – Tesla-style cards for Day / Week / Month / Year / Lifetime: Self-Powered, Model 3 on solar (+ km on
-    sunshine), CO₂ avoided (0.740 kg/kWh, Peninsular 2024) and tomorrow's solar forecast. Daily summaries from HA
-    long-term statistics are kept on the phone (~20 KB a year); each refresh only re-reads the last day or two.
+    sunshine), CO₂ avoided (0.740 kg/kWh, Peninsular 2024) and tomorrow's solar forecast. Energy is kept on the phone in one
+    file (energy.plist, ~280 KB a year: one curve per day, 15-minute for recent days, hourly before) shared with the
+    Energy page; each refresh only fetches today, yesterday and anything missing.
   - **Settings** – *Charging mode* (Off / Routine / Excess Solar / Fast, sets `input_select.tesla_charging_mode`;
     the HA "Tesla Charging – Controller" automation still does the work), *Charging start time* (Routine only:
     location tomorrow GPS 73% / TSET 63% / Others, ready time, start time) → *Charge details* (duration, energy,

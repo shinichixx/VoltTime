@@ -17,7 +17,7 @@ enum ImpactPeriod: String, CaseIterable, Identifiable {
 
 /// Opened from the Impact row on My Home. Tesla-app style: period menu top right, cards below.
 struct ImpactView: View {
-    @ObservedObject var model: ImpactModel
+    @ObservedObject var model: EnergyStore
     @ObservedObject var home: MyHomeModel
     @AppStorage("impact.period") private var periodRaw = ImpactPeriod.month.rawValue
     @State private var offset = 0
@@ -34,7 +34,7 @@ struct ImpactView: View {
         ScrollView {
             VStack(spacing: 10) {
                 PeriodBar(range: r, period: period, firstDay: model.firstDay, offset: $offset)
-                if model.days.isEmpty && model.loading {
+                if model.curves.isEmpty && model.loading {
                     VStack(spacing: 10) {
                         ProgressView().tint(.white)
                         Text("Loading energy history from Home Assistant…").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
