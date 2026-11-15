@@ -40,8 +40,8 @@ struct ChargingMode: Identifiable {
 
 // MARK: - Scenario photos
 
-/// The 9 scenario photos live in Home Assistant (/config/www/tesla_home_scenario1-9.png).
-/// They are downloaded once from /local/ and kept on the iPhone. Photos added to the app bundle win.
+/// The 9 scenario photos are built into the app (Sources/Photos, ~1 MB in total).
+/// Backup only: if one is missing, it is downloaded once from Home Assistant /local/ and kept on the iPhone.
 enum ScenarioPhotos {
     static let numbers = Array(1...9)
 
@@ -55,6 +55,9 @@ enum ScenarioPhotos {
     }
 
     private static func localURL(_ name: String) -> URL? {
+        // Built into the app: Sources/Photos/tesla_home_scenarioN.jpg (shrunk to iPhone width).
+        let base = (name as NSString).deletingPathExtension
+        if let u = Bundle.main.url(forResource: base, withExtension: "jpg") { return u }
         if let u = Bundle.main.url(forResource: name, withExtension: nil) { return u }
         let u = folder.appendingPathComponent(name)
         return FileManager.default.fileExists(atPath: u.path) ? u : nil

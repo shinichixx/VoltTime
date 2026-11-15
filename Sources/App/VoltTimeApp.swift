@@ -58,7 +58,7 @@ struct ContentView: View {
                 await myHome.refresh()
             }
         }) {
-            SettingsView(onPhotosCleared: { myHome.reloadPhoto() })
+            SettingsView()
         }
         .sheet(isPresented: $home.showLimitSheet) {
             LimitSheet(model: home)
@@ -121,10 +121,7 @@ struct BottomBar: View {
 }
 
 struct SettingsView: View {
-    var onPhotosCleared: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
-    @State private var photoCount = ScenarioPhotos.savedCount
-    @State private var photoBusy = false
     @AppStorage(HAClient.urlKey) private var haURL = ""
     @State private var haToken = ""
     @State private var testResult: String?
@@ -168,23 +165,6 @@ struct SettingsView: View {
                 }
                 .font(.footnote)
 
-                Section {
-                    LabeledContent("Saved on this iPhone", value: "\(photoCount) of 9")
-                    Button {
-                        Task { await redownloadPhotos() }
-                    } label: {
-                        HStack {
-                            Text("Download again from Home Assistant")
-                            Spacer()
-                            if photoBusy { ProgressView() }
-                        }
-                    }
-                    .disabled(photoBusy)
-                } header: {
-                    Text("My Home photos")
-                } footer: {
-                    Text("The 9 scenario pictures come from /config/www/tesla_home_scenario1–9.png in Home Assistant. Replaced a picture there? Download again.")
-                }
 
                 Section {
                     LabeledContent("Version", value: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
@@ -206,15 +186,6 @@ struct SettingsView: View {
             .onAppear { haToken = Keychain.get(Keychain.homeAssistant) ?? "" }
         }
         .preferredColorScheme(.light)
-    }
-
-    private func redownloadPhotos() async {
-        guard let ha = HAClient.configured() else { return }
-        photoBusy = true
-        defer { photoBusy = false }
-        ScenarioPhotos.clear()
-        onPhotosCleared()
-        photoCount = await ScenarioPhotos.fetchMissing(ha: ha)
     }
 
     private func test() async {

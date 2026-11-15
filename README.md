@@ -8,7 +8,7 @@ iPhone app for Ultra Rouge (Tesla Model 3 LR RWD) charging, built from
   Model 3 / Solar / Home / Grid power, Exporting / Importing / Self-powered, Energy (today's power chart and totals),
   Impact (self-powered %), and Settings with the charging modes Off / Routine / Excess Solar / Fast
   (sets `input_select.tesla_charging_mode`; the HA "Tesla Charging – Controller" automation still does the work).
-  The 9 photos are downloaded once from `/config/www/tesla_home_scenario1-9.png` and kept on the phone.
+  The 9 scenario photos are built in (`Sources/Photos`, JPEG at iPhone width, ~1 MB total).
 - **Home** – night charge planner. Reads battery and charge limit from Home Assistant, quick GPS 73% / TSET 63% / Others limits,
   shows the start time Home Assistant scheduled in the car.
 - **Simulate** (section on Home, opens its own page) – what-if calculator: pick a start %, a target % and a leave time to see when charging would have to start.
