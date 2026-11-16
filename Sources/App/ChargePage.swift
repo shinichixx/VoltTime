@@ -120,7 +120,7 @@ struct ChargePage: View {
                 editing = isEditing
                 if !isEditing { Task { await sendAmps(amps) } }
             }
-            .tint(Theme.teal)
+            .tint(.white)
             HStack {
                 Text("5 A")
                 Spacer()
@@ -164,7 +164,7 @@ struct ChargePage: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .background(shownCharging ? Color(white: 0.17) : Theme.teal)
+            .background(shownCharging ? Color(white: 0.17) : Color(white: 0.27))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)

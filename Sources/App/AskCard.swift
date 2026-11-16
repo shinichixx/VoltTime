@@ -73,7 +73,7 @@ struct AskCard: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
-            .background(highlighted ? Theme.teal : Color(white: 0.17))
+            .background(highlighted ? Color(white: 0.30) : Color(white: 0.17))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)

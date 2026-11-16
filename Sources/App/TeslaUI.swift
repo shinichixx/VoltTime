@@ -4,10 +4,10 @@ import SwiftUI
 // slim grey segmented switches, big light numbers. Used by Settings, Charge details and Simulation.
 
 enum TSurface {
-    static let page = Color.black
-    static let field = Color(white: 0.10)      // #1a1a1c
-    static let selected = Color(white: 0.23)   // #3a3a3c
-    static let line = Color(white: 0.17)       // #2c2c2e
+    static let page = Color(red: 22 / 255, green: 23 / 255, blue: 24 / 255)   // #161718, Tesla app
+    static let field = Color(white: 0.15)      // #26272a
+    static let selected = Color(white: 0.245)  // #3d3e41
+    static let line = Color(white: 0.185)      // #2e2f31
     static let icon = Color(white: 0.78)       // #c7c7cc
     static let green = Color(red: 48 / 255, green: 209 / 255, blue: 88 / 255)  // #30d158
 }

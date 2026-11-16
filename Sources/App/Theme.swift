@@ -9,10 +9,10 @@ enum Theme {
     static let orange = Color(red: 1.0, green: 0.62, blue: 0.04)
     static let purple = Color(red: 0.243, green: 0.416, blue: 0.882)
     static let green = Color(red: 0.247, green: 0.725, blue: 0.314)
-    static let background = Color(red: 14 / 255, green: 14 / 255, blue: 16 / 255)
+    static let background = Color(red: 22 / 255, green: 23 / 255, blue: 24 / 255)
     static let tabInactive = Color(white: 0.45)
-    static let field = Color(white: 0.16)
-    static let card = Color(white: 0.11)
+    static let field = Color(white: 0.20)
+    static let card = Color(white: 0.145)
 }
 
 struct Card<Content: View>: View {

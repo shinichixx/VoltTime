@@ -323,121 +323,123 @@ func dayLabel(_ d: Date) -> String {
 
 struct ChargeDetailsPage: View {
     @ObservedObject var model: HomeModel
-    @FocusState private var focus: String?
 
     var body: some View {
         let r = model.result
         ScrollView {
             VStack(spacing: 0) {
-                TStats(items: [
-                    TStat(value: Fmt.longDuration(r.minutes), caption: "Duration"),
-                    TStat(value: "+\(Int(r.deltaPct.rounded()))%",
-                          caption: "\(Int(model.startSoc))% → \(Int(model.limit.rounded()))%", color: TSurface.green),
-                    TStat(value: String(format: "%.1f", r.packKWh), unit: "kWh", caption: "Into battery"),
-                ])
-                .padding(.top, 18)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Text("CHARGE TIME").kerning(0.8)
+                        Spacer()
+                        Text("COST").kerning(0.8)
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(TeslaDark.rowLabel)
+                    .padding(.top, 20)
+                    .padding(.bottom, 4)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(r.minutes == 0 ? "Not needed" : Fmt.longDuration(r.minutes))
+                            .font(.system(size: r.minutes == 0 ? 30 : 42, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        Spacer()
+                        Text(Fmt.rm(r.cost)).font(.system(size: 28, weight: .bold)).foregroundStyle(TSurface.green)
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                    }
+                    Text(r.minutes == 0
+                         ? "Already at \(Int(model.startSoc))%, limit \(Int(model.limit.rounded()))%"
+                         : "+\(Int(r.deltaPct.rounded()))% (\(Int(model.startSoc))% → \(Int(model.limit.rounded()))%) · \(String(format: "%.1f", r.packKWh)) kWh into battery")
+                        .font(.system(size: 13))
+                        .foregroundStyle(TeslaDark.rowLabel)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
 
-                reminders
-
-                TCaption(text: "Charge plan")
-                TRow("Safety buffer", icon: "shield", subtitle: "Finish this long before the ready time") {
+                NavigationLink { RemindersPage(model: model) } label: {
+                    TRow("Reminders", icon: "bell") {
+                        HStack(spacing: 8) {
+                            Text(reminderSummary).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                TRow("Safety buffer", icon: "shield") {
                     HStack(spacing: 10) {
                         TValue(value: "\(model.bufferMinutes)", unit: "min")
                         TStepper(value: $model.bufferMinutes, range: 0...60, step: 5)
                     }
                 }
-                TRow("Start charge", icon: "battery.50percent", badge: socBadge, last: true) {
-                    TValue(value: "\(Int(model.startSoc))%")
-                } below: {
-                    Slider(value: $model.startSoc, in: 0...99, step: 1).tint(.white)
+                NavigationLink { ChargerBatteryPage(model: model) } label: {
+                    TRow("Charger & battery", icon: "bolt", last: true) {
+                        HStack(spacing: 8) {
+                            Text("\(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)%")
+                                .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                        }
+                    }
                 }
+                .buttonStyle(.plain)
 
-                TCaption(text: "Cost")
-                TRow("From the wall", icon: "powerplug", subtitle: "Before the \(model.efficiency.plain)% charging efficiency") {
-                    TValue(value: String(format: "%.2f", r.wallKWh), unit: "kWh")
-                }
-                TRow("Estimated cost", icon: "banknote", subtitle: "RM \(String(format: "%.4f", model.tariff)) / kWh", last: true) {
-                    TValue(value: Fmt.rm(r.cost), color: TSurface.green, size: 22)
-                }
-
-                TCaption(text: "Charger and battery")
-                TRow("Current", icon: "bolt") { TValueField(value: $model.amps, unit: "A", focus: $focus, key: "amps") }
-                TRow("Voltage", icon: "powerplug") { TValueField(value: $model.volts, unit: "V", focus: $focus, key: "volts") }
-                TRow("Charging efficiency", icon: "gauge.with.dots.needle.67percent") { TValueField(value: $model.efficiency, unit: "%", focus: $focus, key: "eff") }
-                TRow("Battery capacity", icon: "battery.100percent") { TValueField(value: $model.capacity, unit: "kWh", focus: $focus, key: "cap") }
-                TRow("Tariff", icon: "banknote") { TValueField(value: $model.tariff, unit: "RM", focus: $focus, key: "tariff") }
-                TRow("Gross power", icon: nil) { TValue(value: String(format: "%.2f", r.grossKW), unit: "kW", color: TeslaDark.labelGrey) }
-                TRow("Net to battery", icon: nil) { TValue(value: String(format: "%.3f", r.netKW), unit: "kW", color: TeslaDark.labelGrey) }
-                TRow("Pace", icon: nil, last: true) {
-                    TValue(value: "\(r.secondsPerPct / 60)m \(String(format: "%02d", r.secondsPerPct % 60))s", unit: "per 1%", color: TeslaDark.labelGrey)
-                }
-                Button("Reset to defaults") { model.resetDefaults() }
-                    .font(.system(size: 14)).foregroundStyle(Theme.rouge)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 18)
-                Text("Saved to Home Assistant, which re-plans tonight's start when these change.")
+                Text("Finishes \(model.bufferMinutes) min before your ready time. Saved to Home Assistant, which re-plans tonight's start when these change.")
                     .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 30)
-                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
                 Spacer(minLength: 40)
             }
         }
-        .scrollDismissesKeyboard(.interactively)
         .teslaPage("Charge details", black: true)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { focus = nil }
-            }
-        }
     }
 
-    private var socBadge: AnyView? {
-        if model.socIsLive { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
-        if let live = model.liveSoc {
-            return AnyView(
-                Button("Use car \(Int(live.rounded()))%") { model.startSoc = live.rounded() }
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.teal)
-                    .buttonStyle(.plain)
-            )
-        }
-        return nil
+    private var reminderSummary: String {
+        if !model.remindersAvailable { return "Update HA package" }
+        if !model.remindersOn { return "Off" }
+        return model.reminderTimes.sorted().map { String(format: "%02d:%02d", $0 / 60, $0 % 60) }.joined(separator: " · ")
     }
+}
 
-    // MARK: Reminders
+/// Charge details → Reminders.
+struct RemindersPage: View {
+    @ObservedObject var model: HomeModel
 
-    private var reminders: some View {
-        VStack(spacing: 0) {
-            TCaption(text: "Reminders")
-            TRow("Ask where I'm going", icon: "bell", last: !model.remindersOn) {
-                Toggle("", isOn: Binding(get: { model.remindersOn }, set: { model.setRemindersOn($0) }))
-                    .labelsHidden()
-                    .tint(TSurface.green)
-            }
-            if model.remindersOn {
-                ForEach(Array(model.reminderTimes.enumerated()), id: \.offset) { i, t in
-                    TRow(ordinal(i + 1) + " reminder", icon: nil) {
-                        DatePicker("", selection: timeBinding(i, t), in: eveningRange, displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                    }
-                    .modifier(SwipeToDelete(enabled: model.reminderTimes.count > 1) { model.removeReminder(at: i) })
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Spacer().frame(height: 12)
+                TRow("Ask where I'm going", icon: "bell", last: !model.remindersOn) {
+                    Toggle("", isOn: Binding(get: { model.remindersOn }, set: { model.setRemindersOn($0) }))
+                        .labelsHidden()
+                        .tint(TSurface.green)
                 }
-                if model.reminderTimes.count < 6 {
-                    Button { model.addReminder() } label: {
-                        TRow("Add reminder", icon: "plus", last: true) { EmptyView() }
+                if model.remindersOn {
+                    ForEach(Array(model.reminderTimes.enumerated()), id: \.offset) { i, t in
+                        TRow(ordinal(i + 1) + " reminder", icon: nil) {
+                            DatePicker("", selection: timeBinding(i, t), in: eveningRange, displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                        }
+                        .modifier(SwipeToDelete(enabled: model.reminderTimes.count > 1) { model.removeReminder(at: i) })
                     }
-                    .buttonStyle(.plain)
-                } else {
-                    Rectangle().fill(TSurface.line).frame(height: 0.5).padding(.leading, 58).padding(.trailing, 20)
+                    if model.reminderTimes.count < 6 {
+                        Button { model.addReminder() } label: {
+                            TRow("Add reminder", icon: "plus", last: true) { EmptyView() }
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Rectangle().fill(TSurface.line).frame(height: 0.5).padding(.leading, 58).padding(.trailing, 20)
+                    }
                 }
+                TFootnote(text: model.remindersAvailable
+                          ? "Sent by Home Assistant Sat–Wed, only while Ultra Rouge is plugged in at home and you haven't answered. Between 5 pm and 10:59 pm."
+                            + (model.remindersOn && model.reminderTimes.count > 1 ? " Swipe left on a reminder to delete it." : "")
+                          : "Update the VoltTime package in Home Assistant to use reminders.",
+                          color: model.remindersAvailable ? TeslaDark.dim : TeslaDark.importing)
+                Spacer(minLength: 40)
             }
-            TFootnote(text: model.remindersAvailable
-                      ? "Sent by Home Assistant Sat–Wed, only while Ultra Rouge is plugged in at home and you haven't answered. Between 5 pm and 10:59 pm."
-                        + (model.remindersOn && model.reminderTimes.count > 1 ? " Swipe left on a reminder to delete it." : "")
-                      : "Update the VoltTime package in Home Assistant to use reminders.",
-                      color: model.remindersAvailable ? TeslaDark.dim : TeslaDark.importing)
         }
+        .teslaPage("Reminders", black: true)
     }
 
     private func ordinal(_ n: Int) -> String {
@@ -467,45 +469,125 @@ struct ChargeDetailsPage: View {
     }
 }
 
-// MARK: - "Others" slider
+/// Charge details → Charger & battery: start charge, charger settings and the worked-out numbers.
+struct ChargerBatteryPage: View {
+    @ObservedObject var model: HomeModel
+    @FocusState private var focus: String?
+
+    var body: some View {
+        let r = model.result
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "Battery")
+                TRow("Start charge", icon: "battery.50percent", badge: socBadge, last: true) {
+                    TValue(value: "\(Int(model.startSoc))%")
+                } below: {
+                    Slider(value: $model.startSoc, in: 0...99, step: 1).tint(.white)
+                }
+
+                TCaption(text: "Settings")
+                TRow("Current") { TValueField(value: $model.amps, unit: "A", focus: $focus, key: "amps") }
+                TRow("Voltage") { TValueField(value: $model.volts, unit: "V", focus: $focus, key: "volts") }
+                TRow("Efficiency") { TValueField(value: $model.efficiency, unit: "%", focus: $focus, key: "eff") }
+                TRow("Capacity") { TValueField(value: $model.capacity, unit: "kWh", focus: $focus, key: "cap") }
+                TRow("Tariff", last: true) { TValueField(value: $model.tariff, unit: "RM", focus: $focus, key: "tariff") }
+
+                TCaption(text: "Numbers")
+                TRow("From the wall") { TValue(value: String(format: "%.2f", r.wallKWh), unit: "kWh") }
+                TRow("Power", subtitle: "From the wall → into the battery") {
+                    TValue(value: String(format: "%.2f → %.2f", r.grossKW, r.netKW), unit: "kW")
+                }
+                TRow("Pace", last: true) {
+                    TValue(value: "\(r.secondsPerPct / 60)m \(String(format: "%02d", r.secondsPerPct % 60))s", unit: "per 1%")
+                }
+
+                Button("Reset to defaults") { model.resetDefaults() }
+                    .font(.system(size: 14)).foregroundStyle(Theme.rouge)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 20)
+                Spacer(minLength: 40)
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .teslaPage("Charger & battery", black: true)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focus = nil }
+            }
+        }
+    }
+
+    private var socBadge: AnyView? {
+        if model.socIsLive { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
+        if let live = model.liveSoc {
+            return AnyView(
+                Button("Use car \(Int(live.rounded()))%") { model.startSoc = live.rounded() }
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
+                    .buttonStyle(.plain)
+            )
+        }
+        return nil
+    }
+}
+
+// MARK: - "Others" limit sheet
 
 struct LimitSheet: View {
     @ObservedObject var model: HomeModel
     @Environment(\.dismiss) private var dismiss
     @State private var value: Double = 80
 
+    private static let picks = [60, 70, 80, 90, 100]
+
     var body: some View {
-        VStack(spacing: 18) {
-            Text("Charge limit for tomorrow").font(.headline).foregroundStyle(.white).padding(.top, 26)
-            Text("\(Int(value))%").font(.system(size: 52, weight: .semibold)).foregroundStyle(.white)
-            Slider(value: $value, in: 50...100, step: 1).tint(Theme.teal).padding(.horizontal, 24)
-            HStack(spacing: 8) {
-                ForEach([60, 70, 80, 90, 100], id: \.self) { p in
-                    Button("\(p)%") { value = Double(p) }
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity).padding(.vertical, 8)
-                        .foregroundStyle(.white)
-                        .background(Int(value) == p ? Theme.teal : Theme.field)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .buttonStyle(.plain)
-                }
+        let now = model.liveSoc ?? model.startSoc
+        VStack(spacing: 0) {
+            Text("Charge limit for tomorrow").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                .padding(.top, 28)
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text("\(Int(value))").font(.system(size: 60, weight: .light))
+                Text("%").font(.system(size: 24, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
+            }
+            .foregroundStyle(.white)
+            .padding(.top, 8)
+            Text("Drag the battery to set").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                .padding(.bottom, 20)
+
+            TBatteryBar(now: now, limit: max(value, now), range: 50...100) { value = $0 }
+                .padding(.horizontal, 20)
+            HStack {
+                (Text("\(Int(now.rounded()))%").foregroundStyle(.white) + Text(" now"))
+                Spacer()
+                Text(value > now ? "+\(Int((value - now).rounded()))%" : "No charge needed")
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(TeslaDark.rowLabel)
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 18)
+
+            TSegment(items: Self.picks.map { "\($0)%" }, selected: Self.picks.firstIndex(of: Int(value))) {
+                value = Double(Self.picks[$0])
             }
             .padding(.horizontal, 20)
+
             Button {
                 let v = value
                 Task { await model.chooseTrip("Others", limit: v) }
                 dismiss()
             } label: {
-                Text("Set limit").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                Text("Set limit").font(.system(size: 16, weight: .medium)).foregroundStyle(.white)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
-                    .background(Theme.teal).clipShape(RoundedRectangle(cornerRadius: 12))
+                    .background(RoundedRectangle(cornerRadius: 12).fill(TSurface.selected))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 20)
+            .padding(.top, 24)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(white: 0.09).ignoresSafeArea())
+        .background(Color(red: 31 / 255, green: 32 / 255, blue: 34 / 255).ignoresSafeArea())
         .onAppear { value = (model.liveLimit ?? model.limit).rounded() }
         .preferredColorScheme(.dark)
     }

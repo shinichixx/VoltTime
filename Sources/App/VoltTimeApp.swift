@@ -88,7 +88,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.25), value: home.toast)
         .sheet(isPresented: $home.showLimitSheet) {
             LimitSheet(model: home)
-                .presentationDetents([.height(380)])
+                .presentationDetents([.height(450)])
                 .presentationDragIndicator(.visible)
         }
         .onOpenURL { url in

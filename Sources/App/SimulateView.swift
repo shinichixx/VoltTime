@@ -86,10 +86,10 @@ struct SimulateView: View {
             TCaption(text: "Start charging at", trailing: r.minutes > 0 ? dayLabel(sim) : "")
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 if r.minutes == 0 {
-                    Text("—").font(.system(size: 54, weight: .thin))
+                    Text("—").font(.system(size: 50, weight: .bold))
                 } else {
                     let c = splitClock(Fmt.clock(minutes: sim.minutes))
-                    Text(c.time).font(.system(size: 54, weight: .thin))
+                    Text(c.time).font(.system(size: 50, weight: .bold))
                     Text(c.suffix).font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
                 }
                 Spacer()
@@ -181,7 +181,7 @@ struct SimMoreOptions: View {
         if abs(live - startSoc) < 0.5 { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
         return AnyView(
             Button("Use car \(Int(live.rounded()))%") { startSoc = min(99, live.rounded()) }
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.teal)
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
                 .buttonStyle(.plain)
         )
     }

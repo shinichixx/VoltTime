@@ -7,7 +7,7 @@ import ImageIO
 // this page only reads the sensors and sets input_select.tesla_charging_mode.
 
 enum TeslaDark {
-    static let bg = Color(red: 14 / 255, green: 14 / 255, blue: 16 / 255)          // #0e0e10
+    static let bg = Color(red: 22 / 255, green: 23 / 255, blue: 24 / 255)          // #161718, Tesla app
     static let labelGrey = Color(red: 209 / 255, green: 209 / 255, blue: 214 / 255) // #d1d1d6
     static let rowIcon = Color(red: 154 / 255, green: 154 / 255, blue: 159 / 255)   // #9a9a9f
     static let rowLabel = Color(red: 142 / 255, green: 142 / 255, blue: 147 / 255)  // #8e8e93
@@ -16,7 +16,7 @@ enum TeslaDark {
     static let importing = Color(red: 1, green: 214 / 255, blue: 10 / 255)         // #ffd60a
     static let selfPowered = Color(red: 106 / 255, green: 169 / 255, blue: 1)      // #6aa9ff
     static let chargingGreen = Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255) // #34c759
-    static let card = Color(white: 0.11)
+    static let card = Color(white: 0.145)
 }
 
 /// Charging modes and the wording from the HA page.

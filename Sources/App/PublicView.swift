@@ -99,13 +99,13 @@ struct PublicView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     let m = Int(minutes.rounded())
                     if m < 60 {
-                        Text("\(m)").font(.system(size: 54, weight: .thin))
+                        Text("\(m)").font(.system(size: 50, weight: .bold))
                         Text("min").font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
                     } else {
-                        Text(Fmt.shortDuration(minutes)).font(.system(size: 42, weight: .thin))
+                        Text(Fmt.shortDuration(minutes)).font(.system(size: 40, weight: .bold))
                     }
                     Spacer()
-                    Text(Fmt.rm(cost)).font(.system(size: 34, weight: .light)).foregroundStyle(Theme.orange)
+                    Text(Fmt.rm(cost)).font(.system(size: 32, weight: .bold)).foregroundStyle(Theme.orange)
                         .minimumScaleFactor(0.6).lineLimit(1)
                 }
                 .foregroundStyle(.white)
