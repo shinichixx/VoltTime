@@ -561,6 +561,7 @@ struct EnergyView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(color)
+                    .frame(width: 16, height: 14)   // same slot for every icon, so all six tiles are the same height
                 Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
             }
             Text(value).font(.system(size: 19, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)

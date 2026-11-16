@@ -2,7 +2,8 @@ import SwiftUI
 
 // Energy data shared by Impact and Energy: one curve per day (EnergyData.swift), all kept in ONE small file on the
 // iPhone (Application Support/energy.plist, ~280 KB a year). Daily totals are added up in memory, never saved twice.
-// Recent days are kept in 15-minute steps (HA only keeps its 5-minute data ~10 days); older days come hourly.
+// Recent days are kept in 5-minute steps (HA only keeps its 5-minute data ~10 days); older days come hourly.
+// A day already saved in more detail is never replaced by a coarser copy.
 
 /// Totals over a span, in the shape the Impact cards use.
 struct DaySummary {
@@ -129,10 +130,33 @@ final class EnergyStore: ObservableObject {
 
     func total(from start: Date, to end: Date) -> DaySummary { DaySummary(flowTotal(from: start, to: end)) }
 
+    // MARK: Restore
+
+    /// Adds days from a backup. A day already on the phone is only replaced by a copy with more detail.
+    func merge(_ incoming: [String: DayCurve]) -> (added: Int, improved: Int) {
+        var added = 0, improved = 0
+        for (k, c) in incoming {
+            if let old = curves[k] {
+                guard c.minutes < old.minutes else { continue }
+                improved += 1
+            } else {
+                added += 1
+            }
+            curves[k] = c
+            flowCache[k] = nil
+        }
+        if let earliest = incoming.keys.min().flatMap({ Self.keyFormatter.date(from: $0) }),
+           firstDay == nil || earliest < firstDay! {
+            firstDay = earliest
+        }
+        save()
+        return (added, improved)
+    }
+
     // MARK: Refresh
 
     /// Fetches only what isn't on the phone yet: today, yesterday (may have been partial), any missing days, and
-    /// recent days still saved hourly (upgraded to 15-minute while HA has the detail).
+    /// recent days saved coarser than 5-minute (upgraded while HA still has the detail).
     func refresh(minAge: TimeInterval = 60) async {
         guard let ha = HAClient.configured() else {
             message = "Set up Home Assistant first: My Home → Settings → Connection."
@@ -168,7 +192,7 @@ final class EnergyStore: ObservableObject {
             var d = firstDay
             while d < yesterday {
                 let c = curves[key(d)]
-                if c == nil || (d >= recent && c!.minutes != 15) { from = d; break }
+                if c == nil || (d >= recent && c!.minutes > 5) { from = d; break }
                 d = cal.date(byAdding: .day, value: 1, to: d) ?? yesterday
             }
             from = max(from, firstDay)
@@ -183,8 +207,8 @@ final class EnergyStore: ObservableObject {
             for (k, c) in try await fetch(ws, max(from, recent), Date(), period: "5minute") { fresh[k] = c }
 
             for (k, c) in fresh {
-                // Keep an existing 15-minute day rather than replace it with an hourly one.
-                if let old = curves[k], old.minutes == 15, c.minutes == 60 { continue }
+                // Keep an existing day that has more detail than the new copy.
+                if let old = curves[k], old.minutes < c.minutes { continue }
                 curves[k] = c
                 flowCache[k] = nil
             }
@@ -198,11 +222,11 @@ final class EnergyStore: ObservableObject {
         }
     }
 
-    /// Statistics rows -> per-day curves in 15-minute (from 5-minute data) or hourly slots.
+    /// Statistics rows -> per-day curves in 5-minute or hourly slots.
     private func fetch(_ ws: HAWebSocket, _ start: Date, _ end: Date, period: String) async throws -> [String: DayCurve] {
         guard start < end else { return [:] }
         let rows = try await ws.statistics(ImpactStat.all, start: start, end: end, period: period)
-        let minutes = period == "hour" ? 60 : 15
+        let minutes = period == "hour" ? 60 : 5
         var out: [String: DayCurve] = [:]
         func add(_ id: String, _ kp: WritableKeyPath<DayCurve, [Float]>) {
             for r in rows[id] ?? [] {

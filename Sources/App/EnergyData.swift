@@ -1,10 +1,10 @@
 import SwiftUI
 
-// One day of energy per 15-minute (or hourly) slot, kWh: solar, grid import, grid export, car.
+// One day of energy per 5-minute slot (older days: 15-minute or hourly), kWh: solar, grid import, grid export, car.
 // This is the only energy data kept on the phone; Impact, Energy bars and Energy day graphs all read it (EnergyStore).
 
 struct DayCurve {
-    var minutes: Int          // slot length: 15, or 60 for days only available hourly
+    var minutes: Int          // slot length: 5, 15 (saved before build 25), or 60 for days only available hourly
     var solar: [Float]
     var imp: [Float]
     var exp: [Float]

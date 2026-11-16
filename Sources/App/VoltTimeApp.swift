@@ -57,7 +57,7 @@ struct ContentView: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .energy: EnergyView(store: energy)
-                case .settings: SettingsPage(home: home, myHome: myHome, path: $path)
+                case .settings: SettingsPage(home: home, myHome: myHome, energy: energy, path: $path)
                 case .chargeDetails: ChargeDetailsPage(model: home)
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
@@ -101,9 +101,17 @@ struct ContentView: View {
         .task {
             await home.refresh()
             await energy.refresh()   // tops up the saved energy so Impact / Energy open instantly
+            await BackupManager.shared.autoBackup(energy)
         }
-        .onChange(of: phase) { _, p in
-            if p == .active { Task { await home.refresh() } }
+        .onChange(of: phase) { old, p in
+            guard p == .active else { return }
+            Task { await home.refresh() }
+            if old == .background {   // opened again from the background: top up and back up
+                Task {
+                    await energy.refresh()
+                    await BackupManager.shared.autoBackup(energy)
+                }
+            }
         }
     }
 }
