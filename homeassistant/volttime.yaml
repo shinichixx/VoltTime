@@ -8,11 +8,14 @@
 #      plug in after 7pm.  GPS = 73 %, TSET = 63 %, Others = VoltTime slider. These are Time Sensitive and GPS / TSET
 #      work from the lock screen. (For banners that stay until you act: iPhone Settings → Notifications →
 #      Home Assistant → Banner Style → Persistent.)
-#   2. The answer sets the charge limit straight away. No answer by 11pm = GPS 73 %.
+#   2. The answer sets the charge limit straight away. No answer by 10pm = GPS 73 %.
 #   3. The start time is worked out (battery now -> limit, at the VoltTime amps / volts / efficiency /
 #      battery size, finishing by the ready time minus the buffer) and written into the car as a
 #      ONE-TIME Tesla charge schedule through Tessie, so the car waits and then starts by itself.
-#      Weekday nights never start before 10pm (TNB peak ends at 10pm).
+#      Weekday nights never start before 10:15pm (TNB peak ends at 10pm).
+#      The schedule is never switched off: when no charge is needed it stays on, parked at the ready time
+#      (the car does nothing at or above its limit). Every unplug re-arms it for 10:15pm, so plugging in
+#      at home never starts a charge at peak rate before the night plan.
 #   4. Five minutes after the start time, if the car is still not charging, Home Assistant starts it.
 #
 # Install
@@ -148,7 +151,7 @@ script:
             {% set s = as_datetime(ready) - timedelta(minutes=(minutes | int) + (states('input_number.volttime_buffer') | float(15) | int)) %}
             {% set earliest = now() + timedelta(minutes=2) %}
             {% if s < earliest %}{% set s = earliest %}{% endif %}
-            {% if s.weekday() < 5 and 14 <= s.hour < 22 %}{% set s = s.replace(hour=22, minute=0) %}{% endif %}
+            {% if s.weekday() < 5 and (14 <= s.hour < 22 or (s.hour == 22 and s.minute < 15)) %}{% set s = s.replace(hour=22, minute=15) %}{% endif %}
             {{ s.replace(second=0, microsecond=0).isoformat() }}
           start_minute: "{{ as_datetime(start).hour * 60 + as_datetime(start).minute }}"
       - action: input_datetime.set_datetime
@@ -160,7 +163,9 @@ script:
         continue_on_error: true
         response_variable: tessie
         data:
-          enabled: "{{ 'true' if (minutes | int) > 0 else 'false' }}"
+          # Always on: with nothing to add the car simply does nothing at the start time,
+          # and plugging in later still waits instead of charging straight away.
+          enabled: "true"
           start_time: "{{ start_minute }}"
       - variables:
           result:
@@ -213,7 +218,7 @@ automation:
           title: >-
             {% if is_state('input_boolean.volttime_answered', 'on') %}⚡ Tonight: {{ states('input_text.volttime_destination') }} · {{ plan.limit | float(0) | round(0) | int }}%{% else %}🔌 Where are you going tomorrow?{% endif %}
           message: >-
-            {% if is_state('input_boolean.volttime_answered', 'on') %}{% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }}. Ultra Rouge is at {{ plan.soc | float(0) | round(0) | int }}%.{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% · no charging needed tonight.{% endif %}{% else %}Ultra Rouge is at {{ plan.soc | float(0) | round(0) | int }}% and plugged in. No answer by 11 pm = GPS 73%.{% endif %}
+            {% if is_state('input_boolean.volttime_answered', 'on') %}{% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }}. Ultra Rouge is at {{ plan.soc | float(0) | round(0) | int }}%.{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% · no charging needed tonight.{% endif %}{% else %}Ultra Rouge is at {{ plan.soc | float(0) | round(0) | int }}% and plugged in. No answer by 10 pm = GPS 73%.{% endif %}
           data:
             tag: volttime_ask
             url: volttime://home
@@ -244,7 +249,7 @@ automation:
         value_template: >-
           {% set raw = states('input_text.volttime_reminders') %}
           {% set times = (raw if raw not in ['', 'unknown', 'unavailable'] else '19:00').replace(' ', '').split(',') %}
-          {{ 17 <= now().hour < 23 and now().strftime('%H:%M') in times }}
+          {{ 17 <= now().hour < 22 and now().strftime('%H:%M') in times }}
       - condition: time
         weekday: [sat, sun, mon, tue, wed]
       - condition: not
@@ -271,7 +276,7 @@ automation:
           title: >-
             {% if first %}🔌 Where are you going tomorrow?{% else %}⏰ Still need tomorrow’s limit{% endif %}
           message: >-
-            {% if first %}Ultra Rouge is at {{ soc }}% and plugged in. No answer by 11 pm = GPS 73%.{% else %}Ultra Rouge is at {{ soc }}%. GPS 73% at 11 pm if no answer.{% endif %}
+            {% if first %}Ultra Rouge is at {{ soc }}% and plugged in. No answer by 10 pm = GPS 73%.{% else %}Ultra Rouge is at {{ soc }}%. GPS 73% at 10 pm if no answer.{% endif %}
           data:
             tag: volttime_ask
             url: volttime://home
@@ -343,13 +348,13 @@ automation:
     actions:
       - action: script.volttime_plan
 
-  # ---------------------------------------------------------------- 11pm default
+  # ---------------------------------------------------------------- 10pm default (before the 10:15pm earliest start)
   - id: volttime_default
-    alias: VoltTime – no answer by 11pm = GPS 73%
+    alias: VoltTime – no answer by 10pm = GPS 73%
     mode: single
     triggers:
       - trigger: time
-        at: "23:00:00"
+        at: "22:00:00"
     conditions:
       - condition: state
         entity_id: input_boolean.volttime_active
@@ -414,6 +419,26 @@ automation:
       - action: switch.turn_on
         target:
           entity_id: switch.ultra_rouge_charge_2
+
+  # ---------------------------------------------------------------- re-arm on unplug
+  # The car only waits at plug-in if a schedule is on. Every unplug re-arms VoltTime's schedule for 10:15pm
+  # (after the TNB peak), so coming home and plugging in never starts a charge straight away. The night plan
+  # then moves it to the real start. Thu/Fri nights: the charging controller stops any Routine night charge.
+  - id: volttime_rearm
+    alias: VoltTime – re-arm schedule on unplug
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.tesla_wall_connector_vehicle_connected
+        from: "on"
+        to: "off"
+        for: "00:01:00"
+    actions:
+      - action: rest_command.volttime_tessie_schedule
+        continue_on_error: true
+        data:
+          enabled: "true"
+          start_time: 1335 # 22:15
 
   # ---------------------------------------------------------------- morning reset
   - id: volttime_reset

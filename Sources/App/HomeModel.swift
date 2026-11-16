@@ -173,7 +173,9 @@ final class HomeModel: ObservableObject {
     private var reminderTask: Task<Void, Never>?
 
     static func parseReminders(_ s: String) -> [Int] {
+        // Reminders end at 9:59 pm: the 10 pm default answers the question.
         let list = s.split(separator: ",").compactMap { HAClient.parseTimeOfDay(String($0).trimmingCharacters(in: .whitespaces)) }
+            .map { min(max($0, 17 * 60), 21 * 60 + 59) }
         return list.isEmpty ? [19 * 60] : Array(Set(list)).sorted()
     }
 
@@ -183,13 +185,13 @@ final class HomeModel: ObservableObject {
 
     func setReminder(at index: Int, minutes: Int) {
         guard reminderTimes.indices.contains(index) else { return }
-        reminderTimes[index] = min(max(minutes, 17 * 60), 22 * 60 + 59)
+        reminderTimes[index] = min(max(minutes, 17 * 60), 21 * 60 + 59)
         saveReminders()
     }
 
     func addReminder() {
         let last = reminderTimes.max() ?? 18 * 60 + 30
-        var t = min(last + 60, 22 * 60 + 30)
+        var t = min(last + 60, 21 * 60 + 30)
         while reminderTimes.contains(t) && t > 17 * 60 { t -= 15 }
         reminderTimes.append(t)
         saveReminders()
@@ -235,13 +237,13 @@ final class HomeModel: ObservableObject {
         return f.string(from: Date())
     }
 
-    /// Sat–Wed, 7–11 pm, Routine, plugged in, not answered, not dismissed tonight.
+    /// Sat–Wed, 7–10 pm, Routine, plugged in, not answered, not dismissed tonight.
     var shouldAsk: Bool {
         let cal = Calendar.current
         let now = Date()
         let hour = cal.component(.hour, from: now)
         let weekday = cal.component(.weekday, from: now)   // 1 = Sunday … 7 = Saturday
-        guard haConfigured, (19..<23).contains(hour), [7, 1, 2, 3, 4].contains(weekday) else { return false }
+        guard haConfigured, (19..<22).contains(hour), [7, 1, 2, 3, 4].contains(weekday) else { return false }
         guard (chargingMode ?? "Routine") == "Routine", plugged == true, !answered else { return false }
         return dismissedNight != nightKey
     }

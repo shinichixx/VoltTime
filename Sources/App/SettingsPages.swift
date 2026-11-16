@@ -432,7 +432,7 @@ struct RemindersPage: View {
                     }
                 }
                 TFootnote(text: model.remindersAvailable
-                          ? "Sent by Home Assistant Sat–Wed, only while Ultra Rouge is plugged in at home and you haven't answered. Between 5 pm and 10:59 pm."
+                          ? "Sent by Home Assistant Sat–Wed, only while Ultra Rouge is plugged in at home and you haven't answered. Between 5 pm and 9:59 pm. No answer by 10 pm = GPS 73%."
                             + (model.remindersOn && model.reminderTimes.count > 1 ? " Swipe left on a reminder to delete it." : "")
                           : "Update the VoltTime package in Home Assistant to use reminders.",
                           color: model.remindersAvailable ? TeslaDark.dim : TeslaDark.importing)
@@ -454,7 +454,7 @@ struct RemindersPage: View {
     private var eveningRange: ClosedRange<Date> {
         let cal = Calendar.current
         let a = cal.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
-        let b = cal.date(bySettingHour: 22, minute: 59, second: 0, of: Date()) ?? Date()
+        let b = cal.date(bySettingHour: 21, minute: 59, second: 0, of: Date()) ?? Date()
         return a...b
     }
 

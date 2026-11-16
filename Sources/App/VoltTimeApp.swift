@@ -66,7 +66,7 @@ struct ContentView: View {
             }
         }
         .overlay {
-            // Tonight's question, if it's still open (Sat–Wed 7–11 pm, plugged in, Routine, not answered).
+            // Tonight's question, if it's still open (Sat–Wed 7–10 pm, plugged in, Routine, not answered).
             if home.shouldAsk && !home.showLimitSheet {
                 AskCard(model: home)
                     .transition(.opacity)
@@ -112,70 +112,160 @@ struct HomeAssistantPage: View {
     @AppStorage(HAClient.urlKey) private var haURL = ""
     @State private var haToken = ""
     @State private var testResult: String?
+    @State private var connected: Bool?
+    @State private var checkedAt: Date?
     @State private var testing = false
+    @State private var editingToken = false
+    @FocusState private var focus: String?
 
     var body: some View {
-            Form {
-                Section {
-                    TextField("http://100.x.x.x:8123", text: $haURL)
+        ScrollView {
+            VStack(spacing: 0) {
+                status
+                    .padding(.top, 20)
+
+                TCaption(text: "Connection")
+                TRow("Address", icon: "link") {
+                    TextField("100.x.x.x:8123", text: $haURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    SecureField("Long-lived access token", text: $haToken)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Button {
-                        Keychain.set(haToken.trimmingCharacters(in: .whitespacesAndNewlines), for: Keychain.homeAssistant)
-                        Task { await test() }
-                    } label: {
-                        HStack {
-                            Text("Save & test connection")
-                            Spacer()
-                            if testing { ProgressView() }
+                        .multilineTextAlignment(.trailing)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white)
+                        .frame(width: 190)
+                        .focused($focus, equals: "url")
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
+                }
+                TRow("Token", icon: "key", last: true) {
+                    Group {
+                        if editingToken || haToken.isEmpty {
+                            SecureField("Long-lived token", text: $haToken)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .multilineTextAlignment(.trailing)
+                                .focused($focus, equals: "token")
+                        } else {
+                            Button { editingToken = true; focus = "token" } label: {
+                                HStack(spacing: 5) {
+                                    Text("••••••••••").foregroundStyle(.white)
+                                    Text("saved").foregroundStyle(TeslaDark.rowLabel)
+                                }
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    if let testResult {
-                        Text(testResult).font(.footnote).foregroundStyle(testResult.hasPrefix("✓") ? Theme.green : Theme.rouge)
+                    .font(.system(size: 14))
+                    .frame(width: 190, alignment: .trailing)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
+                }
+
+                Button {
+                    focus = nil
+                    editingToken = false
+                    Keychain.set(haToken.trimmingCharacters(in: .whitespacesAndNewlines), for: Keychain.homeAssistant)
+                    Task { await test() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if testing { ProgressView().tint(.white).scaleEffect(0.8) }
+                        Text("Save & test connection").font(.system(size: 15, weight: .medium))
                     }
-                } header: {
-                    Text("Home Assistant")
-                } footer: {
-                    Text("Same URL and token as Fleetly. Create a token in Home Assistant → your profile → Security → Long-lived access tokens. The token is kept in the iPhone Keychain.")
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(TSurface.selected))
                 }
-
-                Section("How tonight's charge works") {
-                    Label("Sat–Wed nights from 7pm, plugging in asks where you're going tomorrow.", systemImage: "bell.badge")
-                    Label("GPS = 73%, TSET = 63%, Others = slider. No answer by 11pm = 73%.", systemImage: "mappin.and.ellipse")
-                    Label("Home Assistant sets the car's own one-time charge schedule to the start time and starts it if needed.", systemImage: "clock.badge.checkmark")
-                    Label("Only in Routine mode (Settings → Charging mode).", systemImage: "slider.horizontal.3")
+                .buttonStyle(.plain)
+                .disabled(testing)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                if let testResult {
+                    Text(testResult)
+                        .font(.system(size: 12))
+                        .foregroundStyle(connected == true ? TSurface.green : Theme.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
                 }
-                .font(.footnote)
+                Text("Same address and token as Fleetly. Create a token in Home Assistant → your profile → Security → Long-lived access tokens. Kept in the iPhone Keychain.")
+                    .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
 
+                TCaption(text: "How tonight's charge works")
+                howRow("bell", "Plug in after 7pm, Sat–Wed", "You're asked where you're going tomorrow")
+                howRow("mappin.and.ellipse", "GPS 73% · TSET 63% · Others", "No answer by 10pm means GPS 73%")
+                howRow("clock", "The car's schedule is set for you", "Starts at the planned time, never before 10:15pm")
+                howRow("slider.horizontal.3", "Routine mode only", "Change it in Settings → Charging mode", last: true)
 
-                Section {
-                    LabeledContent("Version", value: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
+                TCaption(text: "About")
+                TRow("Version", icon: "info.circle", last: true) {
+                    Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
+                        .font(.system(size: 14)).foregroundStyle(TeslaDark.rowLabel)
                 }
+                Spacer(minLength: 40)
             }
-            .scrollContentBackground(.hidden)
-            .teslaPage("Home Assistant")
-            .onAppear { haToken = Keychain.get(Keychain.homeAssistant) ?? "" }
-            .onDisappear { Keychain.set(haToken.trimmingCharacters(in: .whitespacesAndNewlines), for: Keychain.homeAssistant) }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .teslaPage("Home Assistant", black: true)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focus = nil }
+            }
+        }
+        .onAppear { haToken = Keychain.get(Keychain.homeAssistant) ?? "" }
+        .onDisappear { Keychain.set(haToken.trimmingCharacters(in: .whitespacesAndNewlines), for: Keychain.homeAssistant) }
+        .task { if !haURL.isEmpty && !haToken.isEmpty { await test(quiet: true) } }
     }
 
-    private func test() async {
+    private var status: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "house")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(TSurface.icon)
+            Text(connected == nil ? (testing ? "Checking…" : "Not checked") : (connected == true ? "Connected" : "Can't reach Home Assistant"))
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(connected == false ? Theme.orange : .white)
+            if let checkedAt {
+                HStack(spacing: 5) {
+                    Circle().fill(connected == true ? TSurface.green : Theme.orange).frame(width: 6, height: 6)
+                    Text("Checked at \(checkedAt.formatted(date: .omitted, time: .shortened))")
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(TeslaDark.rowLabel)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func howRow(_ icon: String, _ title: String, _ detail: String, last: Bool = false) -> some View {
+        TRow(title, icon: icon, subtitle: detail, last: last) { EmptyView() }
+    }
+
+    private func test(quiet: Bool = false) async {
         guard let ha = HAClient(urlString: haURL, token: haToken) else {
-            testResult = "Enter both the URL and the token."
+            if !quiet { testResult = "Enter both the address and the token." }
+            connected = nil
             return
         }
         testing = true
-        defer { testing = false }
+        defer { testing = false; checkedAt = Date() }
         do {
             _ = try await ha.ping()
+            connected = true
             let helpers = try? await ha.state(Entity.readyTime)
             testResult = helpers == nil
-                ? "✓ Connected, but the VoltTime package isn't installed in Home Assistant yet."
-                : "✓ Connected – VoltTime package found."
+                ? "Connected, but the VoltTime package isn't installed in Home Assistant yet."
+                : (quiet ? nil : "Connected – VoltTime package found.")
         } catch {
+            connected = false
             testResult = error.localizedDescription
         }
     }

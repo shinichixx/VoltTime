@@ -54,6 +54,10 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/VoltTime.app Payload/
+          # Drop the debugging symbol table (about 2 MB the app never uses); nothing in the app changes.
+          ls -l Payload/VoltTime.app/VoltTime
+          xcrun strip -rSTx Payload/VoltTime.app/VoltTime
+          ls -l Payload/VoltTime.app/VoltTime
           zip -qry "VoltTime_build${{ steps.ver.outputs.build }}.ipa" Payload
           ls -lh *.ipa
 

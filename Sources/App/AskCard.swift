@@ -47,7 +47,7 @@ struct AskCard: View {
                     .font(.system(size: 14))
                     .foregroundStyle(TeslaDark.labelGrey)
                     .padding(.top, 14)
-                Text("No answer by 11 pm = GPS 73%")
+                Text("No answer by 10 pm = GPS 73%")
                     .font(.system(size: 10.5)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 6)
             }
