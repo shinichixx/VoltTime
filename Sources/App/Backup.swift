@@ -92,14 +92,39 @@ final class BackupManager: ObservableObject {
 
     var hasFolder: Bool { defaults.data(forKey: bookmarkKey) != nil }
 
+    /// One line for the Settings row.
+    var summary: String {
+        if let lastError { return lastError }
+        guard hasFolder else { return "Not set up" }
+        guard auto else { return "Auto backup off" }
+        return "Auto · " + lastText
+    }
+    var summaryColor: Color? {
+        if lastError != nil || !hasFolder { return Theme.orange }
+        return auto ? TSurface.green : nil
+    }
+    var lastText: String {
+        guard let d = lastDate else { return "not yet" }
+        return Calendar.current.isDateInToday(d)
+            ? "today " + d.formatted(date: .omitted, time: .shortened)
+            : d.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    func clearError() { lastError = nil }
+
     // MARK: Folder
 
     func setFolder(_ url: URL) {
         let ok = url.startAccessingSecurityScopedResource()
         defer { if ok { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil) else {
-            lastError = "Couldn't use that folder. Try another one."
-            return
+        let data: Data
+        do {
+            data = try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+        } catch {
+            do { data = try url.bookmarkData() } catch {
+                lastError = "Couldn't use that folder: \(error.localizedDescription)"
+                return
+            }
         }
         defaults.set(data, forKey: bookmarkKey)
         let name = Self.displayName(url)
@@ -227,13 +252,144 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
-struct SharedFile: Identifiable {
-    let url: URL
-    var id: String { url.path }
-}
 
 struct PendingRestore: Identifiable {
     let curves: [String: DayCurve]
     let fileName: String
     var id: String { fileName }
+}
+
+// MARK: - Backup & restore page (Settings → Data)
+
+struct BackupPage: View {
+    @ObservedObject var energy: EnergyStore
+    @ObservedObject private var backup = BackupManager.shared
+    @State private var sheet: BackupSheet?
+    @State private var pendingRestore: PendingRestore?
+    @State private var note: String?
+
+    enum BackupSheet: Identifiable {
+        case folder, restore, share(URL)
+        var id: String {
+            switch self {
+            case .folder: return "folder"
+            case .restore: return "restore"
+            case .share(let u): return u.path
+            }
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "Automatic")
+                TRow("Auto backup", icon: "arrow.triangle.2.circlepath") {
+                    Toggle("", isOn: $backup.auto).labelsHidden().tint(TSurface.green)
+                }
+                TNavRow(title: "Backup folder", icon: "folder",
+                        subtitle: backup.folderName ?? "Choose a folder, e.g. iCloud Drive") {
+                    sheet = .folder
+                }
+                TRow("Last backup", icon: nil,
+                     subtitle: lastLine,
+                     dot: backup.lastError != nil ? Theme.orange : (backup.lastDate == nil ? nil : TSurface.green), last: true) {
+                    if backup.working { ProgressView().tint(.white).scaleEffect(0.8) }
+                }
+
+                TCaption(text: "Manual")
+                Button {
+                    if backup.hasFolder { Task { await backup.backUp(energy) } } else { sheet = .folder }
+                } label: {
+                    TRow("Back up now", icon: "square.and.arrow.up") { chevron }
+                }
+                .buttonStyle(.plain)
+                .disabled(backup.working)
+                Button {
+                    Task { if let u = await backup.dailyTotalsFile(energy) { sheet = .share(u) } }
+                } label: {
+                    TRow("Daily totals", icon: "tablecells", subtitle: "One row per day, for Excel or Numbers") { chevron }
+                }
+                .buttonStyle(.plain)
+                Button { sheet = .restore } label: {
+                    TRow("Restore from backup", icon: "square.and.arrow.down", subtitle: note, last: true) { chevron }
+                }
+                .buttonStyle(.plain)
+
+                TFootnote(text: "Backs up each time the app opens, after the data refreshes. One file per day, the latest \(BackupManager.keep) days kept. After a reset: Restore from backup, then pick the newest file.")
+                Spacer(minLength: 40)
+            }
+        }
+        .teslaPage("Backup & restore", black: true)
+        .sheet(item: $sheet) { s in
+            switch s {
+            case .folder:
+                DocumentPicker(types: [.folder], asCopy: false) { url in
+                    backup.setFolder(url)
+                    Task { await backup.backUp(energy) }
+                }
+                .ignoresSafeArea()
+            case .restore:
+                DocumentPicker(types: [.commaSeparatedText, .plainText, .text], asCopy: true) { url in
+                    Task {
+                        do {
+                            let curves = try await BackupManager.read(url)
+                            pendingRestore = PendingRestore(curves: curves, fileName: url.lastPathComponent)
+                        } catch {
+                            note = error.localizedDescription
+                        }
+                    }
+                }
+                .ignoresSafeArea()
+            case .share(let u):
+                ShareSheet(url: u).presentationDetents([.medium, .large])
+            }
+        }
+        .alert(item: $pendingRestore) { p in
+            Alert(title: Text("Restore \(p.curves.count) days?"),
+                  message: Text("From \(p.fileName). Days already on the iPhone keep whichever copy has more detail."),
+                  primaryButton: .default(Text("Restore")) {
+                      let r = energy.merge(p.curves)
+                      note = "Restored: \(r.added) days added, \(r.improved) improved"
+                  },
+                  secondaryButton: .cancel())
+        }
+    }
+
+    private var lastLine: String {
+        if let e = backup.lastError { return e }
+        guard backup.hasFolder else { return "Choose a folder first" }
+        guard backup.lastDate != nil else { return "Not yet" }
+        let t = backup.lastText
+        return t.prefix(1).uppercased() + String(t.dropFirst()) + " · \(backup.kept) kept"
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+    }
+}
+
+/// The iPhone's own document picker (Files), for a folder or a backup file.
+struct DocumentPicker: UIViewControllerRepresentable {
+    let types: [UTType]
+    let asCopy: Bool
+    let onPick: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let vc = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: asCopy)
+        vc.allowsMultipleSelection = false
+        vc.delegate = context.coordinator
+        return vc
+    }
+
+    func updateUIViewController(_ vc: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let u = urls.first { onPick(u) }
+        }
+    }
 }

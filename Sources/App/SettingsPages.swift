@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// Pages pushed from My Home.
 enum Route: Hashable {
@@ -122,11 +121,6 @@ struct SettingsPage: View {
     @ObservedObject var energy: EnergyStore
     @Binding var path: [Route]
     @ObservedObject private var backup = BackupManager.shared
-    @State private var showImporter = false
-    @State private var pickingFolder = false
-    @State private var shareFile: SharedFile?
-    @State private var pendingRestore: PendingRestore?
-    @State private var restoreNote: String?
 
     private var routine: Bool { (myHome.mode ?? "Routine") == "Routine" }
 
@@ -161,38 +155,16 @@ struct SettingsPage: View {
                     path.append(.homeAssistant)
                 }
 
-                dataSection
-                Spacer(minLength: 40)
-            }
-        }
-        .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: pickingFolder ? [.folder] : [.commaSeparatedText, .plainText, .text]) { result in
-            guard case let .success(url) = result else { return }
-            if pickingFolder {
-                backup.setFolder(url)
-                Task { await backup.backUp(energy) }
-            } else {
-                Task {
-                    do {
-                        let curves = try await BackupManager.read(url)
-                        pendingRestore = PendingRestore(curves: curves, fileName: url.lastPathComponent)
-                    } catch {
-                        restoreNote = error.localizedDescription
+                TCaption(text: "Data")
+                NavigationLink { BackupPage(energy: energy) } label: {
+                    TRow("Backup & restore", icon: "arrow.triangle.2.circlepath", subtitle: backup.summary,
+                         dot: backup.summaryColor, last: true) {
+                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
                     }
                 }
+                .buttonStyle(.plain)
+                Spacer(minLength: 40)
             }
-        }
-        .alert(item: $pendingRestore) { p in
-            Alert(title: Text("Restore \(p.curves.count) days?"),
-                  message: Text("From \(p.fileName). Days already on the iPhone keep whichever copy has more detail."),
-                  primaryButton: .default(Text("Restore")) {
-                      let r = energy.merge(p.curves)
-                      restoreNote = "Restored: \(r.added) days added, \(r.improved) improved"
-                  },
-                  secondaryButton: .cancel())
-        }
-        .sheet(item: $shareFile) { f in
-            ShareSheet(url: f.url).presentationDetents([.medium, .large])
         }
         .refreshable {
             await home.refresh()
@@ -203,64 +175,6 @@ struct SettingsPage: View {
             await home.refresh()
             await myHome.refresh()
         }
-    }
-
-    // MARK: Data (backup / restore)
-
-    private var dataSection: some View {
-        VStack(spacing: 0) {
-            TCaption(text: "Data")
-            TRow("Auto backup", icon: "arrow.triangle.2.circlepath") {
-                Toggle("", isOn: $backup.auto).labelsHidden().tint(TSurface.green)
-            }
-            TNavRow(title: "Backup folder", icon: "folder",
-                    subtitle: backup.folderName ?? "Choose a folder, e.g. iCloud Drive") {
-                pickingFolder = true
-                showImporter = true
-            }
-            if backup.hasFolder {
-                TRow("Last backup", icon: nil, subtitle: lastBackupText,
-                     dot: backup.lastError == nil ? (backup.lastDate == nil ? nil : TSurface.green) : Theme.orange) {
-                    if backup.working { ProgressView().tint(.white).scaleEffect(0.8) }
-                }
-            }
-            Button {
-                if backup.hasFolder { Task { await backup.backUp(energy) } } else { pickingFolder = true; showImporter = true }
-            } label: {
-                TRow("Back up now", icon: "square.and.arrow.up") {
-                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(backup.working)
-            Button {
-                Task { if let u = await backup.dailyTotalsFile(energy) { shareFile = SharedFile(url: u) } }
-            } label: {
-                TRow("Daily totals", icon: "tablecells", subtitle: "One row per day, for Excel or Numbers") {
-                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-                }
-            }
-            .buttonStyle(.plain)
-            Button {
-                pickingFolder = false
-                showImporter = true
-            } label: {
-                TRow("Restore from backup", icon: "square.and.arrow.down", subtitle: restoreNote, last: true) {
-                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-                }
-            }
-            .buttonStyle(.plain)
-            TFootnote(text: "Backs up each time the app opens, after the data refreshes. One file per day, the latest \(BackupManager.keep) days kept. Restore after a reset: Restore from backup, then pick the newest file.")
-        }
-    }
-
-    private var lastBackupText: String {
-        if let e = backup.lastError { return e }
-        guard let d = backup.lastDate else { return "Not yet" }
-        let when = Calendar.current.isDateInToday(d)
-            ? "Today \(d.formatted(date: .omitted, time: .shortened))"
-            : d.formatted(date: .abbreviated, time: .shortened)
-        return "\(when) · \(backup.kept) kept"
     }
 
     // MARK: Mode tiles

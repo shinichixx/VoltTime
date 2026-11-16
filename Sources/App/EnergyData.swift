@@ -54,6 +54,20 @@ struct DayCurve {
         for i in 0..<n { car[i] = next() }
     }
 
+    /// Same energy in longer slots (sums), e.g. 5-minute -> 15-minute for a smoother Day graph.
+    func coarsened(to m: Int) -> DayCurve {
+        guard m > minutes, m % minutes == 0, 1440 % m == 0 else { return self }
+        var c = DayCurve(minutes: m)
+        let k = m / minutes
+        for i in 0..<count {
+            c.solar[i / k] += solar[i]
+            c.imp[i / k] += imp[i]
+            c.exp[i / k] += exp[i]
+            c.car[i / k] += car[i]
+        }
+        return c
+    }
+
     var isEmpty: Bool { solar.allSatisfy { $0 == 0 } && imp.allSatisfy { $0 == 0 } && car.allSatisfy { $0 == 0 } }
 
     /// The same split as Impact: solar serves the house first, the car gets what's left, the rest is exported.

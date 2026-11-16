@@ -81,6 +81,14 @@ struct EnergyView: View {
     private var range: PeriodRange { PeriodRange.make(period, offset: offset, firstDay: store.firstDay) }
     /// The day's curve (Day view only), straight from the shared store.
     private var curve: DayCurve? { period == .day ? store.curve(range.start) : nil }
+    /// What the Day graph draws: 5-minute days shown as 15-minute points (smoother); totals still use `curve`.
+    private var chartCurve: DayCurve? { curve.map { $0.minutes < 15 ? $0.coarsened(to: 15) : $0 } }
+
+    /// "10:00–10:15 AM": the slot a Day graph point stands for.
+    private func slotTitle(_ start: Date, _ step: TimeInterval) -> String {
+        let a = splitClock(start.formatted(date: .omitted, time: .shortened)).time
+        return a + "–" + start.addingTimeInterval(step).formatted(date: .omitted, time: .shortened)
+    }
 
     var body: some View {
         let r = range
@@ -201,7 +209,7 @@ struct EnergyView: View {
     }
 
     private func dayPoints(_ r: PeriodRange) -> (points: [ChartPoint], step: TimeInterval) {
-        guard let c = curve else { return ([], 900) }
+        guard let c = chartCurve else { return ([], 900) }
         let step = TimeInterval(c.minutes * 60)
         let perHour = 60.0 / Double(c.minutes)
         var lastSlot = c.count
@@ -268,13 +276,14 @@ struct EnergyView: View {
 
     private func dayScrub(_ sel: Date, _ r: PeriodRange, step: TimeInterval) -> some View {
         let perHour = 3600 / step
-        let i = max(0, min((curve?.count ?? 1) - 1, Int(sel.timeIntervalSince(r.start) / step)))
-        let f = curve.map { $0.flow(i) } ?? EnergyFlow()
+        let c = chartCurve
+        let i = max(0, min((c?.count ?? 1) - 1, Int(sel.timeIntervalSince(r.start) / step)))
+        let f = c.map { $0.flow(i) } ?? EnergyFlow()
         let time = r.start.addingTimeInterval(Double(i) * step)
         let rows: [EnergyPart] = comp == .grid
             ? [EnergyPart(name: f.imp >= f.exp ? "Importing" : "Exporting", color: EnergyColor.grid, kwh: abs(f.imp - f.exp))]
             : parts(f)
-        return scrubBox(time.formatted(date: .omitted, time: .shortened), rows.map { ($0, String(format: "%.1f kW", $0.kwh * perHour)) })
+        return scrubBox(slotTitle(time, step), rows.map { ($0, String(format: "%.1f kW", $0.kwh * perHour)) })
     }
 
     private func scrubBox(_ title: String, _ rows: [(EnergyPart, String)]) -> some View {
@@ -400,7 +409,7 @@ struct EnergyView: View {
             StackPoint(date: t, home: f.house * k, car: f.car * k, solar: f.solar * k, imp: f.imp * k, exp: f.exp * k)
         }
         if period == .day {
-            guard let c = curve else { return ([], 900, nil) }
+            guard let c = chartCurve else { return ([], 900, nil) }
             let step = TimeInterval(c.minutes * 60)
             var last = c.count
             if cal.isDateInToday(r.start) { last = min(c.count, max(0, Int(Date().timeIntervalSince(r.start) / step))) }
@@ -515,9 +524,10 @@ struct EnergyView: View {
         let k: Double
         let fmt: String
         if period == .day {
-            let i = max(0, min((curve?.count ?? 1) - 1, Int(sel.timeIntervalSince(r.start) / max(step, 1))))
-            f = curve.map { $0.flow(i) } ?? EnergyFlow()
-            title = r.start.addingTimeInterval(Double(i) * step).formatted(date: .omitted, time: .shortened)
+            let c = chartCurve
+            let i = max(0, min((c?.count ?? 1) - 1, Int(sel.timeIntervalSince(r.start) / max(step, 1))))
+            f = c.map { $0.flow(i) } ?? EnergyFlow()
+            title = slotTitle(r.start.addingTimeInterval(Double(i) * step), step)
             k = 3600 / max(step, 1)
             fmt = "%.1f kW"
         } else {
@@ -561,7 +571,7 @@ struct EnergyView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(color)
-                    .frame(width: 16, height: 14)   // same slot for every icon, so all six tiles are the same height
+                    .frame(width: 22, height: 14)   // same slot for every icon (the car is the widest), so all six tiles match
                 Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
             }
             Text(value).font(.system(size: 19, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
@@ -600,7 +610,7 @@ struct EnergyView: View {
                 let n = m.rounded() == m ? String(Int(m)) : String(format: "%.1f", m)
                 return "\(n) MWh"
             }
-            let n = step < 1 ? String(format: "%.1f", v) : String(Int(v.rounded()))
+            let n = abs(v - v.rounded()) < 0.001 ? String(Int(v.rounded())) : String(format: "%.1f", v)
             return unit.map { "\(n) \($0)" } ?? n
         }
 
