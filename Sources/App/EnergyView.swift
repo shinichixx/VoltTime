@@ -105,7 +105,9 @@ struct EnergyView: View {
                             .padding(.top, 8)
                         allTiles(total)
                             .padding(.top, 12)
-                        Text("Model 3 sits on top of Home (red line = everything used). Grid sits on top of Solar (grey line = everything supplied). Below 0 = solar exported to TNB.")
+                        Text(period == .day
+                             ? "Model 3 sits on top of Home (red line = everything used). Grid sits on top of Solar (grey line = everything supplied). Below 0 = solar exported to TNB."
+                             : "Left bar = used (Home + Model 3). Right bar = supplied (Solar + Grid). Below 0 = solar exported to TNB.")
                             .font(.system(size: 9.5))
                             .foregroundStyle(Color(white: 0.36))
                             .padding(.top, 10)
@@ -404,46 +406,63 @@ struct EnergyView: View {
     private func allChart(_ r: PeriodRange) -> some View {
         let (points, step, unit) = allSeries(r)
         return Chart {
-            ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.solar), series: .value("F", "solar"))
-                    .foregroundStyle(EnergyColor.solar.opacity(0.22)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.solar), yEnd: .value("Hi", p.solar + p.imp), series: .value("F", "import"))
-                    .foregroundStyle(EnergyColor.grid.opacity(0.25)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.exp), series: .value("F", "export"))
-                    .foregroundStyle(EnergyColor.grid.opacity(0.3)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.home), series: .value("F", "home"))
-                    .foregroundStyle(EnergyColor.home.opacity(0.25)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.home), yEnd: .value("Hi", p.home + p.car), series: .value("F", "car"))
-                    .foregroundStyle(EnergyColor.vehicle.opacity(0.28)).interpolationMethod(.monotone)
-            }
-            // Lines on top: grey (supply top, export), yellow, red, then blue over red, so red only shows while charging.
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", p.solar + p.imp), series: .value("L", "supply"))
-                    .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", -p.exp), series: .value("L", "export"))
-                    .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", p.solar), series: .value("L", "solar"))
-                    .foregroundStyle(EnergyColor.solar).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", p.home + p.car), series: .value("L", "used"))
-                    .foregroundStyle(EnergyColor.vehicle).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", p.home), series: .value("L", "home"))
-                    .foregroundStyle(EnergyColor.home).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            if period == .day {
+                ForEach(points) { p in
+                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.solar), series: .value("F", "solar"))
+                        .foregroundStyle(EnergyColor.solar.opacity(0.22)).interpolationMethod(.monotone)
+                }
+                ForEach(points) { p in
+                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.solar), yEnd: .value("Hi", p.solar + p.imp), series: .value("F", "import"))
+                        .foregroundStyle(EnergyColor.grid.opacity(0.25)).interpolationMethod(.monotone)
+                }
+                ForEach(points) { p in
+                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.exp), series: .value("F", "export"))
+                        .foregroundStyle(EnergyColor.grid.opacity(0.3)).interpolationMethod(.monotone)
+                }
+                ForEach(points) { p in
+                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.home), series: .value("F", "home"))
+                        .foregroundStyle(EnergyColor.home.opacity(0.25)).interpolationMethod(.monotone)
+                }
+                ForEach(points) { p in
+                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.home), yEnd: .value("Hi", p.home + p.car), series: .value("F", "car"))
+                        .foregroundStyle(EnergyColor.vehicle.opacity(0.28)).interpolationMethod(.monotone)
+                }
+                // Lines on top: grey (supply top, export), yellow, red, then blue over red, so red only shows while charging.
+                ForEach(points) { p in
+                    LineMark(x: .value("Time", p.date), y: .value("V", p.solar + p.imp), series: .value("L", "supply"))
+                        .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+                }
+                ForEach(points) { p in
+                    LineMark(x: .value("Time", p.date), y: .value("V", -p.exp), series: .value("L", "export"))
+                        .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+                }
+                ForEach(points) { p in
+                    LineMark(x: .value("Time", p.date), y: .value("V", p.solar), series: .value("L", "solar"))
+                        .foregroundStyle(EnergyColor.solar).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+                }
+                ForEach(points) { p in
+                    LineMark(x: .value("Time", p.date), y: .value("V", p.home + p.car), series: .value("L", "used"))
+                        .foregroundStyle(EnergyColor.vehicle).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+                }
+                ForEach(points) { p in
+                    LineMark(x: .value("Time", p.date), y: .value("V", p.home), series: .value("L", "home"))
+                        .foregroundStyle(EnergyColor.home).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+                }
+            } else {
+                // Per day / month: left bar = used (Home, Model 3 on top), right bar = supplied (Solar, grid on top),
+                // export below zero under the right bar.
+                ForEach(points) { p in
+                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.home))
+                        .foregroundStyle(EnergyColor.home.opacity(0.9)).position(by: .value("Side", "used"))
+                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", p.home), yEnd: .value("Hi", p.home + p.car))
+                        .foregroundStyle(EnergyColor.vehicle.opacity(0.9)).position(by: .value("Side", "used"))
+                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.solar))
+                        .foregroundStyle(EnergyColor.solar.opacity(0.9)).position(by: .value("Side", "supplied"))
+                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", p.solar), yEnd: .value("Hi", p.solar + p.imp))
+                        .foregroundStyle(EnergyColor.grid.opacity(0.9)).position(by: .value("Side", "supplied"))
+                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.exp))
+                        .foregroundStyle(EnergyColor.grid.opacity(0.5)).position(by: .value("Side", "supplied"))
+                }
             }
             if let sel = selection {
                 RuleMark(x: .value("Selected", sel))
@@ -468,7 +487,7 @@ struct EnergyView: View {
         .chartYAxis {
             AxisMarks(position: .leading) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text("\(Int(d))") } }
+                AxisValueLabel { if let d = v.as(Double.self) { Text("\(Int(d)) \(period == .day ? "kW" : "kWh")") } }
             }
         }
         .overlay {

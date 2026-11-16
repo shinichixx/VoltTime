@@ -45,8 +45,10 @@ struct ContentView: View {
         NavigationStack(path: $path) {
             TabView(selection: $page) {
                 MyHomeView(model: myHome, path: $path)
+                    .modifier(CrossFadePage())
                     .tag(0)
                 SimulationPage(home: home)
+                    .modifier(CrossFadePage())
                     .tag(1)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -176,6 +178,21 @@ struct HomeAssistantPage: View {
                 : "✓ Connected – VoltTime package found."
         } catch {
             testResult = error.localizedDescription
+        }
+    }
+}
+
+/// Swiping between My Home and Simulation cross-fades instead of sliding: each page is held in place while the
+/// swipe moves it, and fades with the distance. iOS still handles the swipe, so sliders and scrolling work as before.
+struct CrossFadePage: ViewModifier {
+    func body(content: Content) -> some View {
+        GeometryReader { geo in
+            let minX = geo.frame(in: .global).minX
+            let w = max(geo.size.width, 1)
+            content
+                .offset(x: -minX)
+                .opacity(Double(max(0, 1 - abs(minX) / w)))
+                .allowsHitTesting(abs(minX) < w / 2)
         }
     }
 }
