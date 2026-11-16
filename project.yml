@@ -8,7 +8,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "26"
+    CURRENT_PROJECT_VERSION: "27"
 targets:
   VoltTime:
     type: application
@@ -28,6 +28,8 @@ targets:
           - CFBundleURLName: com.ridhuan.volttime
             CFBundleURLSchemes:
               - volttime
+        UIFileSharingEnabled: true               # VoltTime folder in Files (On My iPhone › VoltTime) for backups
+        LSSupportsOpeningDocumentsInPlace: true  # needed to open picked folders/files in place
         NSLocalNetworkUsageDescription: Connects to Home Assistant on your network to read the car's battery and set tonight's charge.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
