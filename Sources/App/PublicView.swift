@@ -55,7 +55,7 @@ struct PublicView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
-                .padding(.bottom, 44)
+                .padding(.bottom, 90)   // room to scroll the last card above the page dots
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)

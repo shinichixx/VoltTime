@@ -277,7 +277,7 @@ struct MyHomeView: View {
                 }
             }
             .scrollIndicators(.hidden)
-            .refreshable { await model.refresh() }
+            .scrollDisabled(true)   // fixed page; the numbers refresh every 5 s by themselves
         }
         .background(TeslaDark.bg.ignoresSafeArea())
         .task(id: phase) {

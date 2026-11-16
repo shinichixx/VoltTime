@@ -45,13 +45,14 @@ struct ContentView: View {
         NavigationStack(path: $path) {
             TabView(selection: $page) {
                 MyHomeView(model: myHome, path: $path)
-                    .modifier(CrossFadePage())
+                    .modifier(FadeWhenLeaving(isCurrent: page == 0))
                     .tag(0)
                 SimulationPage(home: home)
-                    .modifier(CrossFadePage())
+                    .modifier(FadeWhenLeaving(isCurrent: page == 1))
                     .tag(1)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea(.container, edges: .bottom)
             .background(TeslaDark.bg.ignoresSafeArea())
             .overlay { pageDots }
             .toolbar(.hidden, for: .navigationBar)
@@ -182,17 +183,16 @@ struct HomeAssistantPage: View {
     }
 }
 
-/// Swiping between My Home and Simulation cross-fades instead of sliding: each page is held in place while the
-/// swipe moves it, and fades with the distance. iOS still handles the swipe, so sliders and scrolling work as before.
-struct CrossFadePage: ViewModifier {
+/// Pages slide as normal; the page you're leaving fades out as it slides away, the page coming in stays solid.
+struct FadeWhenLeaving: ViewModifier {
+    let isCurrent: Bool
+
     func body(content: Content) -> some View {
         GeometryReader { geo in
             let minX = geo.frame(in: .global).minX
             let w = max(geo.size.width, 1)
             content
-                .offset(x: -minX)
-                .opacity(Double(max(0, 1 - abs(minX) / w)))
-                .allowsHitTesting(abs(minX) < w / 2)
+                .opacity(isCurrent ? Double(max(0, 1 - abs(minX) / w)) : 1)
         }
     }
 }

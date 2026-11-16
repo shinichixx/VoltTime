@@ -100,7 +100,7 @@ struct EnergyView: View {
                         }
                         allChart(r)
                             .frame(height: 210)
-                            .padding(.top, 6)
+                            .padding(.top, 16)
                         allLegend
                             .padding(.top, 8)
                         allTiles(total)
@@ -224,6 +224,7 @@ struct EnergyView: View {
 
     private func dayChart(_ r: PeriodRange, names: [String], colors: [Color]) -> some View {
         let (points, step) = dayPoints(r)
+        let scale = FittedScale(stacked: points.map { ($0.date, $0.value) })
         return Chart {
             ForEach(points) { p in
                 AreaMark(x: .value("Time", p.date), y: .value("kW", p.value), stacking: .standard)
@@ -251,10 +252,11 @@ struct EnergyView: View {
                 AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))
             }
         }
+        .chartYScale(domain: scale.domain)
         .chartYAxis {
-            AxisMarks(position: .leading) { v in
+            AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text("\(Int(d)) kW") } }
+                AxisValueLabel { if let d = v.as(Double.self) { Text("\(scale.step < 1 ? String(format: "%.1f", d) : String(Int(d))) kW") } }
             }
         }
         .overlay {
@@ -325,6 +327,7 @@ struct EnergyView: View {
                 for p in parts(f) { points.append(ChartPoint(date: date, part: p.name, value: p.kwh)) }
             }
         }
+        let scale = FittedScale(stacked: points.map { ($0.date, $0.value) })
         return Chart {
             ForEach(points) { p in
                 BarMark(x: .value("Date", p.date, unit: unit), y: .value("kWh", p.value), width: .ratio(0.6))
@@ -349,10 +352,11 @@ struct EnergyView: View {
                 AxisValueLabel(format: axisFormat, centered: true)
             }
         }
+        .chartYScale(domain: scale.domain)
         .chartYAxis {
-            AxisMarks(position: .leading) { v in
+            AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text("\(Int(d))") } }
+                AxisValueLabel { if let d = v.as(Double.self) { Text(scale.step < 1 ? String(format: "%.1f", d) : String(Int(d))) } }
             }
         }
     }
@@ -405,6 +409,8 @@ struct EnergyView: View {
     /// (grey top = everything supplied); export is shown below zero.
     private func allChart(_ r: PeriodRange) -> some View {
         let (points, step, unit) = allSeries(r)
+        let scale = FittedScale(lo: -(points.map(\.exp).max() ?? 0),
+                                hi: points.map { max($0.home + $0.car, $0.solar + $0.imp) }.max() ?? 0)
         return Chart {
             if period == .day {
                 ForEach(points) { p in
@@ -484,10 +490,11 @@ struct EnergyView: View {
                 AxisValueLabel(format: period == .day ? Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)) : axisFormat)
             }
         }
+        .chartYScale(domain: scale.domain)
         .chartYAxis {
-            AxisMarks(position: .leading) { v in
+            AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text("\(Int(d)) \(period == .day ? "kW" : "kWh")") } }
+                AxisValueLabel { if let d = v.as(Double.self) { Text("\(scale.step < 1 ? String(format: "%.1f", d) : String(Int(d))) \(period == .day ? "kW" : "kWh")") } }
             }
         }
         .overlay {
@@ -559,6 +566,33 @@ struct EnergyView: View {
         .padding(.vertical, 9)
         .background(TeslaDark.card)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Y range fitted to the data: top = tallest stack rounded up to a neat step, bottom = deepest negative
+    /// (export) rounded down, 0 if nothing goes below zero. Steps give 4–5 gridlines.
+    struct FittedScale {
+        let domain: ClosedRange<Double>
+        let step: Double
+
+        init(lo: Double, hi: Double) {
+            let low = min(lo, 0), high = max(hi, 0)
+            let span = max(high - low, 0.5)
+            let steps: [Double] = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000]
+            let st = steps.first { span / $0 <= 4.5 } ?? 10000
+            let top = max(st, (high / st).rounded(.up) * st)
+            let bottom = low < -0.001 ? (low / st).rounded(.down) * st : 0
+            domain = bottom...top
+            step = st
+        }
+
+        /// From chart points sharing a time: positive values stacked for the top, negatives for the bottom.
+        init(stacked points: [(Date, Double)]) {
+            var up: [Date: Double] = [:], down: [Date: Double] = [:]
+            for (d, v) in points {
+                if v >= 0 { up[d, default: 0] += v } else { down[d, default: 0] += v }
+            }
+            self.init(lo: down.values.min() ?? 0, hi: up.values.max() ?? 0)
+        }
     }
 
     /// Scrub box goes beside the line, inside the graph: right of it in the first half, left of it after.

@@ -27,11 +27,14 @@ struct SimulationPage: View {
             .padding(.top, 20)
             .padding(.bottom, 4)
 
-            if kind == 0 {
-                SimulateView(model: home)
-            } else {
-                PublicView()
+            Group {
+                if kind == 0 {
+                    SimulateView(model: home)
+                } else {
+                    PublicView()
+                }
             }
+            .ignoresSafeArea(.container, edges: .bottom)   // cards scroll all the way to the screen edge
         }
         .background(TeslaDark.bg.ignoresSafeArea())
     }
