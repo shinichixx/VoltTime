@@ -9,12 +9,12 @@ enum Route: Hashable {
 
 extension View {
     /// Dark page with a small centred title and the system back button (white).
-    func teslaPage(_ title: String) -> some View {
+    func teslaPage(_ title: String, black: Bool = false) -> some View {
         self
-            .background(TeslaDark.bg.ignoresSafeArea())
+            .background((black ? TSurface.page : TeslaDark.bg).ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(TeslaDark.bg, for: .navigationBar)
+            .toolbarBackground(black ? TSurface.page : TeslaDark.bg, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
     }
 }
@@ -125,28 +125,31 @@ struct SettingsPage: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                SectionCaption(text: "Charging mode")
-                Card {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(myHome.modeOptions, id: \.self) { option in
-                            ModeRow(model: myHome, mode: ChargingMode.named(option), inset: 0)
-                        }
-                        if let msg = myHome.message ?? home.message {
-                            Text(msg).font(.system(size: 12)).foregroundStyle(TeslaDark.importing)
-                                .padding(.top, 6)
-                        }
-                    }
-                    .padding(.vertical, -4)
+                TCaption(text: "Charging mode")
+                modeTiles
+                    .padding(.horizontal, 20)
+                Text(ChargingMode.named(myHome.pendingMode ?? myHome.mode ?? "Routine").detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(TeslaDark.rowLabel)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 10)
+                    .padding(.horizontal, 20)
+                if let msg = myHome.message ?? home.message {
+                    Text(msg).font(.system(size: 12)).foregroundStyle(TeslaDark.importing)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 6)
                 }
-                .padding(.horizontal, 16)
 
-                SectionCaption(text: "Charging start time", trailing: "Routine")
-                startTimeCard
-                    .padding(.horizontal, 16)
+                TCaption(text: "Tonight's charge", trailing: routine ? "Sat–Wed" : "Routine only")
+                tonight
+                    .opacity(routine ? 1 : 0.55)
 
-                SectionCaption(text: "Home Assistant")
-                NavRow(icon: "server.rack", title: "Connection",
-                       detail: home.haConfigured ? (home.message == nil ? "Connected" : "Can't reach Home Assistant") : "Not set up") {
+                TCaption(text: "Home Assistant")
+                TNavRow(title: "Connection", icon: "house",
+                        subtitle: home.haConfigured ? (home.message == nil ? "Connected" : "Can't reach Home Assistant") : "Not set up",
+                        dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil,
+                        last: true) {
                     path.append(.homeAssistant)
                 }
                 Spacer(minLength: 40)
@@ -156,143 +159,145 @@ struct SettingsPage: View {
             await home.refresh()
             await myHome.refresh()
         }
-        .teslaPage("Settings")
+        .teslaPage("Settings", black: true)
         .task {
             await home.refresh()
             await myHome.refresh()
         }
     }
 
-    // MARK: Charging start time
+    // MARK: Mode tiles
 
-    private var startTimeCard: some View {
-        let r = home.result
-        let start = home.plannedStart()
-        return Card {
-            VStack(alignment: .leading, spacing: 14) {
-                if !routine {
-                    Label("Used in Routine mode only. Now on \(myHome.mode ?? "another mode"), so no night schedule is set.",
-                          systemImage: "pause.circle.fill")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.orange)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Location tomorrow").font(.system(size: 13, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
-                        Spacer()
-                        if home.settingLimit { ProgressView().tint(.white).scaleEffect(0.7) }
-                        Text("Limit \(Int(home.limit.rounded()))%").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                    }
-                    HStack(spacing: 8) {
-                        tripButton("GPS", HomeModel.gpsLimit) { Task { await home.chooseTrip("GPS", limit: HomeModel.gpsLimit) } }
-                        tripButton("TSET", HomeModel.tsetLimit) { Task { await home.chooseTrip("TSET", limit: HomeModel.tsetLimit) } }
-                        tripButton("Others", nil) { home.showLimitSheet = true }
-                    }
-                }
-
-                Divider().overlay(Color.white.opacity(0.08))
-
-                HStack {
-                    Text("Ready by").font(.system(size: 14)).foregroundStyle(.white)
-                    Spacer()
-                    DatePicker("", selection: readyBinding, displayedComponents: .hourAndMinute)
-                        .labelsHidden()
-                }
-
-                Divider().overlay(Color.white.opacity(0.08))
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("START TIME").font(.system(size: 11, weight: .semibold)).kerning(0.5).foregroundStyle(TeslaDark.dim)
-                    if r.minutes == 0 && home.charging != true {
-                        // Battery already at or above tomorrow's limit.
-                        Text("Not needed")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(TeslaDark.labelGrey)
-                            .padding(.bottom, 2)
-                        Label("Already at \(Int((home.liveSoc ?? home.startSoc).rounded()))% · limit \(Int(home.limit.rounded()))%",
-                              systemImage: "battery.75percent")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(TeslaDark.labelGrey)
-                            .labelStyle(TintedIconLabel(color: TeslaDark.exporting))
-                        Label(home.active ? "Car schedule off for tonight" : "Nothing will be scheduled tonight", systemImage: "moon.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(TeslaDark.labelGrey)
-                            .labelStyle(TintedIconLabel(color: TeslaDark.rowLabel))
-                    } else {
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Text(r.minutes == 0 ? "—" : Fmt.clock(start, calendar: .current))
-                                .font(.system(size: 38, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .minimumScaleFactor(0.6).lineLimit(1)
-                            if r.minutes > 0 {
-                                Text(dayLabel(start)).font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-                            }
+    private var modeTiles: some View {
+        HStack(spacing: 8) {
+            ForEach(myHome.modeOptions, id: \.self) { option in
+                let mode = ChargingMode.named(option)
+                let selected = (myHome.pendingMode ?? myHome.mode) == option
+                let emoji = mode.title.split(separator: " ").last.map(String.init) ?? ""
+                Button {
+                    Task { await myHome.setMode(option) }
+                } label: {
+                    VStack(spacing: 5) {
+                        ZStack {
+                            Text(emoji).font(.system(size: 22)).opacity(myHome.pendingMode == option ? 0.25 : 1)
+                            if myHome.pendingMode == option { ProgressView().tint(.white).scaleEffect(0.7) }
                         }
-                        scheduleStatus
+                        Text(option == "Excess Solar" ? "Solar" : option)
+                            .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                            .foregroundStyle(selected ? Color.white : TeslaDark.rowLabel)
+                            .lineLimit(1)
                     }
-                }
-
-                Divider().overlay(Color.white.opacity(0.08))
-
-                Button { path.append(.chargeDetails) } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Charge details").font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
-                            Text(r.minutes == 0 ? "Safety buffer, battery, charger settings"
-                                 : "\(Fmt.longDuration(r.minutes)) · +\(Int(r.deltaPct.rounded()))% · \(String(format: "%.1f kWh", r.packKWh))")
-                                .font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(RoundedRectangle(cornerRadius: 13).fill(selected ? Color(white: 0.17) : TSurface.field))
+                    .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(selected ? Color.white : Color.clear, lineWidth: 1.2))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(myHome.pendingMode != nil)
             }
         }
-        .opacity(routine ? 1 : 0.6)
+        .animation(.easeOut(duration: 0.15), value: myHome.mode)
     }
 
-    @ViewBuilder private var scheduleStatus: some View {
-        HStack(spacing: 6) {
-            if home.charging == true {
-                Image(systemName: "bolt.fill").foregroundStyle(TeslaDark.chargingGreen)
-                Text("Charging now").foregroundStyle(TeslaDark.chargingGreen)
-            } else if !routine {
-                Image(systemName: "moon.zzz").foregroundStyle(TeslaDark.dim)
-                Text("Night plan paused").foregroundStyle(TeslaDark.rowLabel)
-            } else if home.active, home.result.minutes > 0, let st = home.scheduledStart {
-                Image(systemName: "checkmark.seal.fill").foregroundStyle(TeslaDark.chargingGreen)
-                Text("Set in the car for \(Fmt.clock(st, calendar: .current))").foregroundStyle(.white)
-            } else {
-                Image(systemName: "moon.zzz").foregroundStyle(TeslaDark.dim)
-                Text("Sat–Wed nights, set when you plug in after 7pm").foregroundStyle(TeslaDark.rowLabel)
+    // MARK: Tonight's charge
+
+    private var nowSoc: Double { home.liveSoc ?? home.startSoc }
+
+    private var tonight: some View {
+        let r = home.result
+        return VStack(spacing: 0) {
+            if !routine {
+                Label("Used in Routine mode only. Now on \(myHome.mode ?? "another mode"), so no night schedule is set.",
+                      systemImage: "pause.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+            }
+
+            VStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(Int(nowSoc.rounded()))%").font(.system(size: 28, weight: .light)).foregroundStyle(.white)
+                    Text("now").font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                    Spacer()
+                    if home.settingLimit { ProgressView().tint(.white).scaleEffect(0.7) }
+                    Text("Limit").font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                    Text("\(Int(home.limit.rounded()))%").font(.system(size: 15, weight: .medium)).foregroundStyle(.white)
+                }
+                TBatteryBar(now: nowSoc, limit: home.limit)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+
+            TSegment(items: ["GPS", "TSET", "Others"],
+                     subs: ["\(Int(HomeModel.gpsLimit))%", "\(Int(HomeModel.tsetLimit))%", "Slider"],
+                     selected: tripIndex, disabled: home.settingLimit) { i in
+                switch i {
+                case 0: Task { await home.chooseTrip("GPS", limit: HomeModel.gpsLimit) }
+                case 1: Task { await home.chooseTrip("TSET", limit: HomeModel.tsetLimit) }
+                default: home.showLimitSheet = true
+                }
+            }
+            .padding(.horizontal, 20)
+            Text("Where you're going tomorrow")
+                .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                .padding(.top, 7)
+                .padding(.bottom, 14)
+
+            TRow("Ready by", icon: "clock") {
+                DatePicker("", selection: readyBinding, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+            }
+            TRow("Starts charging", icon: "powerplug", subtitle: statusText) {
+                startTime(r)
+            }
+            TNavRow(title: "Charge details", icon: "list.bullet.rectangle",
+                    subtitle: r.minutes == 0 ? "Reminders, safety buffer, charger settings"
+                        : "\(Fmt.longDuration(r.minutes)) · +\(Int(r.deltaPct.rounded()))% · \(String(format: "%.1f kWh", r.packKWh))",
+                    last: true) {
+                path.append(.chargeDetails)
             }
         }
-        .font(.system(size: 12, weight: .medium))
     }
 
-    private func tripButton(_ name: String, _ value: Double?, action: @escaping () -> Void) -> some View {
-        let selected: Bool = {
-            if !home.destination.isEmpty { return home.destination.hasPrefix(name) }
-            if let value { return abs(home.limit - value) < 0.5 }
-            return false
-        }()
-        return Button(action: action) {
-            VStack(spacing: 2) {
-                Text(name).font(.system(size: 14, weight: .semibold))
-                Text(value.map { "\(Int($0))%" } ?? "Slider").font(.system(size: 11))
-                    .foregroundStyle(selected ? Color.white.opacity(0.85) : TeslaDark.rowLabel)
+    @ViewBuilder private func startTime(_ r: HomeResult) -> some View {
+        if r.minutes == 0 && home.charging != true {
+            Text("Not needed").font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.labelGrey)
+        } else if r.minutes == 0 {
+            Text("—").font(.system(size: 26, weight: .light)).foregroundStyle(.white)
+        } else {
+            let c = splitClock(Fmt.clock(home.plannedStart(), calendar: .current))
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(c.time).font(.system(size: 28, weight: .light)).foregroundStyle(.white)
+                if !c.suffix.isEmpty {
+                    Text(c.suffix).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                }
             }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(selected ? Theme.teal : Theme.field)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
-        .buttonStyle(.plain)
-        .disabled(home.settingLimit)
+    }
+
+    private var statusText: String {
+        let r = home.result
+        if home.charging == true { return "Charging now" }
+        if r.minutes == 0 {
+            return "Already at \(Int(nowSoc.rounded()))%, limit \(Int(home.limit.rounded()))%. " +
+                (home.active ? "Car schedule off tonight." : "Nothing scheduled tonight.")
+        }
+        if !routine { return "Night plan paused" }
+        if home.active, let st = home.scheduledStart {
+            return "\(dayLabel(home.plannedStart())). Set in the car for \(Fmt.clock(st, calendar: .current))"
+        }
+        return "\(dayLabel(home.plannedStart())). Set in the car when you plug in after 7pm"
+    }
+
+    private var tripIndex: Int? {
+        let names = ["GPS", "TSET", "Others"]
+        if !home.destination.isEmpty { return names.firstIndex { home.destination.hasPrefix($0) } }
+        if abs(home.limit - HomeModel.gpsLimit) < 0.5 { return 0 }
+        if abs(home.limit - HomeModel.tsetLimit) < 0.5 { return 1 }
+        return nil
     }
 
     private var readyBinding: Binding<Date> {
@@ -323,95 +328,63 @@ struct ChargeDetailsPage: View {
     var body: some View {
         let r = model.result
         ScrollView {
-            VStack(spacing: 12) {
-                remindersCard
-                Card {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 8) {
-                            Figure(label: "Duration", value: Fmt.longDuration(r.minutes))
-                            Figure(label: "Added", value: "+\(Int(r.deltaPct.rounded()))%", color: Theme.teal)
-                            Figure(label: "Energy", value: String(format: "%.1f kWh", r.packKWh))
-                        }
-                        batteryBar(r)
+            VStack(spacing: 0) {
+                TStats(items: [
+                    TStat(value: Fmt.longDuration(r.minutes), caption: "Duration"),
+                    TStat(value: "+\(Int(r.deltaPct.rounded()))%",
+                          caption: "\(Int(model.startSoc))% → \(Int(model.limit.rounded()))%", color: TSurface.green),
+                    TStat(value: String(format: "%.1f", r.packKWh), unit: "kWh", caption: "Into battery"),
+                ])
+                .padding(.top, 18)
+
+                reminders
+
+                TCaption(text: "Charge plan")
+                TRow("Safety buffer", icon: "shield", subtitle: "Finish this long before the ready time") {
+                    HStack(spacing: 10) {
+                        TValue(value: "\(model.bufferMinutes)", unit: "min")
+                        TStepper(value: $model.bufferMinutes, range: 0...60, step: 5)
                     }
                 }
-                Card {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Stepper(value: $model.bufferMinutes, in: 0...60, step: 5) {
-                            HStack {
-                                Text("Safety buffer").font(.system(size: 14))
-                                Spacer()
-                                Text("\(model.bufferMinutes) min").font(.system(size: 14, weight: .semibold))
-                            }
-                        }
-                        Text("Charging finishes this long before the ready time.")
-                            .font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-                        Divider().overlay(Color.white.opacity(0.08))
-                        VStack(spacing: 6) {
-                            HStack {
-                                Text("Start state of charge").font(.system(size: 14))
-                                if model.socIsLive { Badge(text: "LIVE", color: TeslaDark.chargingGreen) }
-                                else if let live = model.liveSoc {
-                                    Button("Use car \(Int(live.rounded()))%") { model.startSoc = live.rounded() }
-                                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.teal)
-                                }
-                                Spacer()
-                                Text("\(Int(model.startSoc))%").font(.system(size: 15, weight: .semibold))
-                            }
-                            Slider(value: $model.startSoc, in: 0...99, step: 1).tint(Theme.teal)
-                        }
-                    }
+                TRow("Start charge", icon: "battery.50percent", badge: socBadge, last: true) {
+                    TValue(value: "\(Int(model.startSoc))%")
+                } below: {
+                    Slider(value: $model.startSoc, in: 0...99, step: 1).tint(.white)
                 }
-                Card {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Wall power").font(.system(size: 14, weight: .medium))
-                                Text("Drawn before AC–DC loss @ \(model.efficiency.plain)%").font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-                            }
-                            Spacer()
-                            Text(String(format: "%.2f kWh", r.wallKWh)).font(.system(size: 16, weight: .semibold))
-                        }
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Estimated cost").font(.system(size: 14, weight: .medium))
-                                Text("RM \(String(format: "%.4f", model.tariff)) / kWh").font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-                            }
-                            Spacer()
-                            Text(Fmt.rm(r.cost)).font(.system(size: 20, weight: .semibold)).foregroundStyle(TeslaDark.exporting)
-                        }
-                    }
+
+                TCaption(text: "Cost")
+                TRow("From the wall", icon: "powerplug", subtitle: "Before the \(model.efficiency.plain)% charging efficiency") {
+                    TValue(value: String(format: "%.2f", r.wallKWh), unit: "kWh")
                 }
-                Card {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("CHARGER AND BATTERY").font(.system(size: 11, weight: .semibold)).kerning(0.5).foregroundStyle(TeslaDark.dim)
-                        ValueRow(label: "Current", value: $model.amps, unit: "A", focus: $focus, key: "amps")
-                        ValueRow(label: "Voltage", value: $model.volts, unit: "V", focus: $focus, key: "volts")
-                        ValueRow(label: "Charging efficiency", value: $model.efficiency, unit: "%", focus: $focus, key: "eff")
-                        ValueRow(label: "Battery capacity", value: $model.capacity, unit: "kWh", focus: $focus, key: "cap")
-                        ValueRow(label: "Tariff", value: $model.tariff, unit: "RM/kWh", focus: $focus, key: "tariff")
-                        HStack(spacing: 8) {
-                            Figure(label: "Gross power", value: String(format: "%.2f kW", r.grossKW))
-                            Figure(label: "Net to battery", value: String(format: "%.3f kW", r.netKW))
-                            Figure(label: "Pace", value: "\(r.secondsPerPct / 60)m \(String(format: "%02d", r.secondsPerPct % 60))s/1%")
-                        }
-                        .padding(.top, 4)
-                        Button("Reset to defaults") { model.resetDefaults() }
-                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.rouge)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 6)
-                    }
+                TRow("Estimated cost", icon: "banknote", subtitle: "RM \(String(format: "%.4f", model.tariff)) / kWh", last: true) {
+                    TValue(value: Fmt.rm(r.cost), color: TSurface.green, size: 22)
                 }
+
+                TCaption(text: "Charger and battery")
+                TRow("Current", icon: "bolt") { TValueField(value: $model.amps, unit: "A", focus: $focus, key: "amps") }
+                TRow("Voltage", icon: "powerplug") { TValueField(value: $model.volts, unit: "V", focus: $focus, key: "volts") }
+                TRow("Charging efficiency", icon: "gauge.with.dots.needle.67percent") { TValueField(value: $model.efficiency, unit: "%", focus: $focus, key: "eff") }
+                TRow("Battery capacity", icon: "battery.100percent") { TValueField(value: $model.capacity, unit: "kWh", focus: $focus, key: "cap") }
+                TRow("Tariff", icon: "banknote") { TValueField(value: $model.tariff, unit: "RM", focus: $focus, key: "tariff") }
+                TRow("Gross power", icon: nil) { TValue(value: String(format: "%.2f", r.grossKW), unit: "kW", color: TeslaDark.labelGrey) }
+                TRow("Net to battery", icon: nil) { TValue(value: String(format: "%.3f", r.netKW), unit: "kW", color: TeslaDark.labelGrey) }
+                TRow("Pace", icon: nil, last: true) {
+                    TValue(value: "\(r.secondsPerPct / 60)m \(String(format: "%02d", r.secondsPerPct % 60))s", unit: "per 1%", color: TeslaDark.labelGrey)
+                }
+                Button("Reset to defaults") { model.resetDefaults() }
+                    .font(.system(size: 14)).foregroundStyle(Theme.rouge)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 18)
                 Text("Saved to Home Assistant, which re-plans tonight's start when these change.")
                     .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
-                    .padding(.horizontal, 4)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 30)
+                    .padding(.top, 8)
+                Spacer(minLength: 40)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 40)
         }
         .scrollDismissesKeyboard(.interactively)
-        .teslaPage("Charge details")
+        .teslaPage("Charge details", black: true)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -420,48 +393,50 @@ struct ChargeDetailsPage: View {
         }
     }
 
+    private var socBadge: AnyView? {
+        if model.socIsLive { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
+        if let live = model.liveSoc {
+            return AnyView(
+                Button("Use car \(Int(live.rounded()))%") { model.startSoc = live.rounded() }
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.teal)
+                    .buttonStyle(.plain)
+            )
+        }
+        return nil
+    }
+
     // MARK: Reminders
 
-    private var remindersCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("REMINDERS").font(.system(size: 11, weight: .semibold)).kerning(0.5).foregroundStyle(TeslaDark.dim)
-                    .padding(.bottom, 8)
-                Toggle(isOn: Binding(get: { model.remindersOn }, set: { model.setRemindersOn($0) })) {
-                    Text("Ask where I'm going tomorrow").font(.system(size: 14))
-                }
-                .tint(TeslaDark.chargingGreen)
-                if model.remindersOn {
-                    ForEach(Array(model.reminderTimes.enumerated()), id: \.offset) { i, t in
-                        Divider().overlay(Color.white.opacity(0.08)).padding(.vertical, 8)
-                        HStack {
-                            Button { model.removeReminder(at: i) } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .foregroundStyle(model.reminderTimes.count > 1 ? Theme.rouge : Color(white: 0.3))
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(model.reminderTimes.count < 2)
-                            Text(ordinal(i + 1) + " reminder").font(.system(size: 14))
-                            Spacer()
-                            DatePicker("", selection: timeBinding(i, t), in: eveningRange, displayedComponents: .hourAndMinute)
-                                .labelsHidden()
-                        }
-                    }
-                    if model.reminderTimes.count < 6 {
-                        Divider().overlay(Color.white.opacity(0.08)).padding(.vertical, 8)
-                        Button { model.addReminder() } label: {
-                            Label("Add reminder", systemImage: "plus.circle.fill").font(.system(size: 14))
-                                .foregroundStyle(Theme.teal)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                Text(model.remindersAvailable
-                     ? "Sent by Home Assistant on Sat–Wed nights, only while Ultra Rouge is plugged in at home and you haven't answered. Times between 5 pm and 10:59 pm."
-                     : "Update the VoltTime package in Home Assistant to use reminders.")
-                    .font(.system(size: 11)).foregroundStyle(model.remindersAvailable ? TeslaDark.rowLabel : TeslaDark.importing)
-                    .padding(.top, 10)
+    private var reminders: some View {
+        VStack(spacing: 0) {
+            TCaption(text: "Reminders")
+            TRow("Ask where I'm going", icon: "bell", last: !model.remindersOn) {
+                Toggle("", isOn: Binding(get: { model.remindersOn }, set: { model.setRemindersOn($0) }))
+                    .labelsHidden()
+                    .tint(TSurface.green)
             }
+            if model.remindersOn {
+                ForEach(Array(model.reminderTimes.enumerated()), id: \.offset) { i, t in
+                    TRow(ordinal(i + 1) + " reminder", icon: nil) {
+                        DatePicker("", selection: timeBinding(i, t), in: eveningRange, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                    }
+                    .modifier(SwipeToDelete(enabled: model.reminderTimes.count > 1) { model.removeReminder(at: i) })
+                }
+                if model.reminderTimes.count < 6 {
+                    Button { model.addReminder() } label: {
+                        TRow("Add reminder", icon: "plus", last: true) { EmptyView() }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Rectangle().fill(TSurface.line).frame(height: 0.5).padding(.leading, 58).padding(.trailing, 20)
+                }
+            }
+            TFootnote(text: model.remindersAvailable
+                      ? "Sent by Home Assistant Sat–Wed, only while Ultra Rouge is plugged in at home and you haven't answered. Between 5 pm and 10:59 pm."
+                        + (model.remindersOn && model.reminderTimes.count > 1 ? " Swipe left on a reminder to delete it." : "")
+                      : "Update the VoltTime package in Home Assistant to use reminders.",
+                      color: model.remindersAvailable ? TeslaDark.dim : TeslaDark.importing)
         }
     }
 
@@ -489,32 +464,6 @@ struct ChargeDetailsPage: View {
                 model.setReminder(at: i, minutes: (c.hour ?? 19) * 60 + (c.minute ?? 0))
             }
         )
-    }
-
-    private func batteryBar(_ r: HomeResult) -> some View {
-        VStack(spacing: 5) {
-            GeometryReader { g in
-                let w = g.size.width
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.field)
-                    HStack(spacing: 0) {
-                        Rectangle().fill(Color(white: 0.45)).frame(width: w * min(1, model.startSoc / 100))
-                        Rectangle().fill(Theme.teal).frame(width: w * min(1, r.deltaPct / 100))
-                    }
-                    .clipShape(Capsule())
-                }
-            }
-            .frame(height: 10)
-            HStack {
-                Text("\(Int(model.startSoc))%")
-                Spacer()
-                Text("+\(Int(r.deltaPct.rounded()))% added").fontWeight(.semibold)
-                Spacer()
-                Text("\(Int(model.limit.rounded()))%")
-            }
-            .font(.system(size: 10.5))
-            .foregroundStyle(TeslaDark.rowLabel)
-        }
     }
 }
 

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// What-if calculator: "if I want X % by the time I leave, when does charging have to start?"
-/// Uses the charger settings from the Home tab. Nothing here is sent to the car or Home Assistant.
+/// Uses the charger settings from Charge details. Nothing here is sent to the car or Home Assistant.
 struct SimulateView: View {
     @ObservedObject var model: HomeModel
     @AppStorage("sim.leave") private var leaveMinutes = 7 * 60
@@ -9,6 +9,8 @@ struct SimulateView: View {
     @AppStorage("sim.buffer") private var bufferMinutes = 15
     @State private var startSoc = 20.0
     @State private var seeded = false
+
+    private static let targets = [63, 73, 80, 90, 100]
 
     private var result: HomeResult {
         HomeMath.calculate(HomeInputs(startSoc: startSoc, endSoc: target, amps: model.amps, volts: model.volts,
@@ -18,22 +20,25 @@ struct SimulateView: View {
     var body: some View {
         let r = result
         let sim = HomeMath.simulatedStart(leaveMinutes: leaveMinutes, chargeMinutes: r.minutes, bufferMinutes: bufferMinutes)
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 12) {
-                    resultCard(r, sim)
-                    inputCard(r)
-                    costCard(r)
-                    Text("Uses the charger settings from Settings → Charge details (\(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)% · \(model.capacity.plain) kWh). Charging to 100% adds about 25 min for the slow last 1% (the car ramps the current down from 99%).")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
+        ScrollView {
+            VStack(spacing: 0) {
+                hero(r, sim)
+                whatIf
+                TCaption(text: "Cost")
+                TRow("Estimated cost", icon: "banknote",
+                     subtitle: String(format: "%.2f kWh from the wall · RM %.4f/kWh", r.wallKWh, model.tariff), last: true) {
+                    TValue(value: Fmt.rm(r.cost), color: TSurface.green, size: 22)
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 90)   // room to scroll the last card above the page dots
+                Text("Uses the charger settings from Settings → Charge details (\(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)% · \(model.capacity.plain) kWh). Charging to 100% adds about 25 min for the slow last 1%.")
+                    .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
             }
-            .background(Theme.background)
+            .padding(.bottom, 90)   // room to scroll the last row above the page dots
         }
+        .background(TSurface.page)
         .onAppear {
             if !seeded {
                 startSoc = min(99, (model.liveSoc ?? model.startSoc).rounded())
@@ -44,48 +49,45 @@ struct SimulateView: View {
 
     // MARK: Result
 
-    private func resultCard(_ r: HomeResult, _ sim: (minutes: Int, daysBefore: Int)) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("START CHARGING AT").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.purple).kerning(0.6)
-                    Text(r.minutes == 0 ? "—" : Fmt.clock(minutes: sim.minutes))
-                        .font(.system(size: 40, weight: .semibold)).foregroundStyle(.primary)
-                        .minimumScaleFactor(0.6).lineLimit(1)
-                    HStack(spacing: 8) {
-                        if r.minutes > 0 { Badge(text: dayLabel(sim), color: Theme.purple) }
-                        Text(summary(r)).font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
+    private func hero(_ r: HomeResult, _ sim: (minutes: Int, daysBefore: Int)) -> some View {
+        VStack(spacing: 0) {
+            TCaption(text: "Start charging at", trailing: r.minutes > 0 ? dayLabel(sim) : "")
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                if r.minutes == 0 {
+                    Text("—").font(.system(size: 54, weight: .thin))
+                    Text("Target must be above the start level").font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                } else {
+                    let c = splitClock(Fmt.clock(minutes: sim.minutes))
+                    Text(c.time).font(.system(size: 54, weight: .thin))
+                    Text(c.suffix).font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
                 }
-                HStack(spacing: 8) {
-                    Figure(label: "Duration", value: Fmt.longDuration(r.minutes))
-                    Figure(label: "Added", value: "+\(Int(r.deltaPct.rounded()))%", color: Theme.purple)
-                    Figure(label: "Energy", value: String(format: "%.1f kWh", r.packKWh))
+                Spacer()
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 14)
+
+            TStats(items: [
+                TStat(value: Fmt.longDuration(r.minutes), caption: "Duration"),
+                TStat(value: "+\(Int(r.deltaPct.rounded()))%", caption: "\(Int(startSoc))% → \(Int(target))%", color: TSurface.green),
+                TStat(value: String(format: "%.1f", r.packKWh), unit: "kWh", caption: "Into battery"),
+            ])
+            .padding(.bottom, 16)
+
+            if r.minutes > 0 {
+                TRow("Full by \(Fmt.clock(minutes: finishMinutes))", icon: "flag.checkered", last: !inPeak(sim.minutes)) {
+                    Text(bufferMinutes > 0 ? "\(bufferMinutes) min before you leave" : "right as you leave")
+                        .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                 }
-                if r.minutes > 0 {
-                    Divider()
-                    HStack(spacing: 8) {
-                        Image(systemName: "flag.checkered").foregroundStyle(Theme.green)
-                        Text("Full by \(Fmt.clock(minutes: finishMinutes))").font(.system(size: 12, weight: .semibold))
-                        Text(bufferMinutes > 0 ? "\(bufferMinutes) min before you leave" : "right as you leave")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    if inPeak(sim.minutes) {
-                        Label("This start falls in the TNB peak window (2pm–10pm, Mon–Fri).", systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.orange)
-                    }
+                if inPeak(sim.minutes) {
+                    TRow("Starts in TNB peak", icon: "exclamationmark.triangle", subtitle: "2pm–10pm, Mon–Fri", last: true) { EmptyView() }
+                        .foregroundStyle(Theme.orange)
                 }
             }
         }
     }
 
     private var finishMinutes: Int { ((leaveMinutes - bufferMinutes) % 1440 + 1440) % 1440 }
-
-    private func summary(_ r: HomeResult) -> String {
-        if r.minutes == 0 { return "Target must be above the start level" }
-        return "\(Int(startSoc))% → \(Int(target))% · leave at \(Fmt.clock(minutes: leaveMinutes))"
-    }
 
     private func dayLabel(_ sim: (minutes: Int, daysBefore: Int)) -> String {
         if sim.daysBefore == 0 { return "Same day" }
@@ -95,63 +97,47 @@ struct SimulateView: View {
 
     private func inPeak(_ minutes: Int) -> Bool { minutes >= 14 * 60 && minutes < 22 * 60 }
 
-    // MARK: Inputs
+    // MARK: What if
 
-    private func inputCard(_ r: HomeResult) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                CardTitle(icon: "slider.horizontal.3", title: "What if…", color: Theme.purple, trailing: "Not applied")
-                HStack {
-                    Text("I leave at").font(.system(size: 13))
-                    Spacer()
-                    DatePicker("", selection: leaveBinding, displayedComponents: .hourAndMinute)
-                        .labelsHidden()
+    private var whatIf: some View {
+        VStack(spacing: 0) {
+            TCaption(text: "What if", trailing: "Not applied")
+            TRow("I leave at", icon: "clock") {
+                DatePicker("", selection: leaveBinding, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+            }
+            TRow("Finish early by", icon: "shield") {
+                HStack(spacing: 10) {
+                    TValue(value: "\(bufferMinutes)", unit: "min")
+                    TStepper(value: $bufferMinutes, range: 0...60, step: 5)
                 }
-                Stepper(value: $bufferMinutes, in: 0...60, step: 5) {
-                    HStack {
-                        Text("Finish early by").font(.system(size: 13))
-                        Spacer()
-                        Text("\(bufferMinutes) min").font(.system(size: 13, weight: .semibold))
-                    }
-                }
-                Divider()
-                VStack(spacing: 4) {
-                    HStack {
-                        Text("Start state of charge").font(.system(size: 13))
-                        if let live = model.liveSoc {
-                            if abs(live - startSoc) < 0.5 { Badge(text: "LIVE", color: Theme.green) }
-                            else {
-                                Button("Use car \(Int(live.rounded()))%") { startSoc = min(99, live.rounded()) }
-                                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.purple)
-                            }
-                        }
-                        Spacer()
-                        Text("\(Int(startSoc))%").font(.system(size: 15, weight: .bold))
-                    }
-                    Slider(value: $startSoc, in: 0...99, step: 1).tint(Theme.purple)
-                }
-                VStack(spacing: 6) {
-                    HStack {
-                        Text("Charge up to").font(.system(size: 13))
-                        Spacer()
-                        Text("\(Int(target))%").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.purple)
-                    }
-                    Slider(value: $target, in: 1...100, step: 1).tint(Theme.purple)
-                    HStack(spacing: 6) {
-                        ForEach([63, 73, 80, 90, 100], id: \.self) { p in
-                            Button { target = Double(p) } label: {
-                                Text("\(p)%").font(.system(size: 12, weight: .semibold))
-                                    .frame(maxWidth: .infinity).padding(.vertical, 7)
-                                    .foregroundStyle(Int(target) == p ? .white : Theme.purple)
-                                    .background(Int(target) == p ? Theme.purple : Theme.purple.opacity(0.10))
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain)
-                        }
+            }
+            TRow("Start charge", icon: "battery.25percent", badge: socBadge) {
+                TValue(value: "\(Int(startSoc))%")
+            } below: {
+                Slider(value: $startSoc, in: 0...99, step: 1).tint(.white)
+            }
+            TRow("Charge up to", icon: "battery.100percent", last: true) {
+                TValue(value: "\(Int(target))%")
+            } below: {
+                VStack(spacing: 12) {
+                    Slider(value: $target, in: 1...100, step: 1).tint(.white)
+                    TSegment(items: Self.targets.map { "\($0)%" }, selected: Self.targets.firstIndex(of: Int(target))) {
+                        target = Double(Self.targets[$0])
                     }
                 }
             }
         }
+    }
+
+    private var socBadge: AnyView? {
+        guard let live = model.liveSoc else { return nil }
+        if abs(live - startSoc) < 0.5 { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
+        return AnyView(
+            Button("Use car \(Int(live.rounded()))%") { startSoc = min(99, live.rounded()) }
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.teal)
+                .buttonStyle(.plain)
+        )
     }
 
     private var leaveBinding: Binding<Date> {
@@ -162,21 +148,5 @@ struct SimulateView: View {
                 leaveMinutes = (c.hour ?? 7) * 60 + (c.minute ?? 0)
             }
         )
-    }
-
-    // MARK: Cost
-
-    private func costCard(_ r: HomeResult) -> some View {
-        Card {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Estimated cost").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.green)
-                    Text(String(format: "%.2f kWh from the wall · RM %.4f / kWh", r.wallKWh, model.tariff))
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Text(Fmt.rm(r.cost)).font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.green)
-            }
-        }
     }
 }
