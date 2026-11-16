@@ -303,6 +303,9 @@ struct TFootnote: View {
 struct TBatteryBar: View {
     let now: Double
     let limit: Double
+    /// When set, dragging along the bar sets the limit (like Tesla's charge-limit slider).
+    var range: ClosedRange<Double> = 1...100
+    var onDrag: ((Double) -> Void)? = nil
 
     private struct Stripes: Shape {
         func path(in r: CGRect) -> Path {
@@ -345,10 +348,19 @@ struct TBatteryBar: View {
                     .frame(width: 3.5, height: 11)
                     .offset(x: 5)
             }
+            .contentShape(Rectangle().inset(by: -10))
+            .gesture(
+                DragGesture(minimumDistance: 0).onChanged { v in
+                    guard let onDrag else { return }
+                    let pct = ((v.location.x - 3) / inner * 100).rounded()
+                    onDrag(min(max(pct, range.lowerBound), range.upperBound))
+                },
+                including: onDrag == nil ? .none : .all
+            )
         }
         .frame(height: 30)
         .padding(.trailing, 6)
-        .animation(.easeOut(duration: 0.3), value: limit)
+        .animation(onDrag == nil ? .easeOut(duration: 0.3) : nil, value: limit)
     }
 }
 
