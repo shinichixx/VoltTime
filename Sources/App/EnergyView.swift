@@ -256,7 +256,7 @@ struct EnergyView: View {
         .chartYAxis {
             AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text("\(scale.step < 1 ? String(format: "%.1f", d) : String(Int(d))) kW") } }
+                AxisValueLabel { if let d = v.as(Double.self) { Text(scale.label(d, unit: "kW")) } }
             }
         }
         .overlay {
@@ -278,19 +278,24 @@ struct EnergyView: View {
     }
 
     private func scrubBox(_ title: String, _ rows: [(EnergyPart, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.system(size: 11, weight: .semibold))
-            ForEach(rows, id: \.0.id) { row in
-                HStack(spacing: 5) {
-                    Circle().fill(row.0.color).frame(width: 6, height: 6)
-                    Text(row.0.name).font(.system(size: 11)).foregroundStyle(TeslaDark.labelGrey)
-                    Spacer(minLength: 6)
-                    Text(row.1).font(.system(size: 11, weight: .medium))
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+                ForEach(rows, id: \.0.id) { row in
+                    GridRow {
+                        HStack(spacing: 5) {
+                            Circle().fill(row.0.color).frame(width: 6, height: 6)
+                            Text(row.0.name).font(.system(size: 11)).foregroundStyle(TeslaDark.labelGrey)
+                        }
+                        Text(row.1).font(.system(size: 11, weight: .medium).monospacedDigit())
+                            .gridColumnAlignment(.trailing)
+                    }
                 }
             }
         }
+        .lineLimit(1)
+        .fixedSize()
         .padding(8)
-        .frame(width: 140)
         .background(Color(white: 0.17))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
@@ -340,7 +345,7 @@ struct EnergyView: View {
                     .annotation(position: side(sel, r), alignment: .top, spacing: 8,
                                 overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         scrubBox(hit.date.formatted(byMonth ? .dateTime.month(.wide).year() : .dateTime.weekday(.abbreviated).day().month(.abbreviated)),
-                                 parts(hit.flow).map { ($0, kwh($0.kwh)) })
+                                 parts(hit.flow).map { ($0, String(format: "%.1f kWh", $0.kwh)) })
                     }
             }
         }
@@ -356,7 +361,7 @@ struct EnergyView: View {
         .chartYAxis {
             AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text(scale.step < 1 ? String(format: "%.1f", d) : String(Int(d))) } }
+                AxisValueLabel { if let d = v.as(Double.self) { Text(scale.label(d, unit: nil)) } }
             }
         }
     }
@@ -481,7 +486,7 @@ struct EnergyView: View {
             }
         }
         .chartLegend(.hidden)
-        .chartXScale(domain: r.start...r.end)
+        .chartXScale(domain: r.start...allXEnd(r, points: points, unit: unit))
         .chartXSelection(value: $selection)
         .chartXAxis {
             AxisMarks(values: .stride(by: period == .day ? .hour : axisUnit,
@@ -494,7 +499,7 @@ struct EnergyView: View {
         .chartYAxis {
             AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text("\(scale.step < 1 ? String(format: "%.1f", d) : String(Int(d))) \(period == .day ? "kW" : "kWh")") } }
+                AxisValueLabel { if let d = v.as(Double.self) { Text(scale.label(d, unit: period == .day ? "kW" : "kWh")) } }
             }
         }
         .overlay {
@@ -585,6 +590,19 @@ struct EnergyView: View {
             step = st
         }
 
+        /// Axis text: kW as is; energy switches to MWh once the scale passes 1000 kWh.
+        func label(_ v: Double, unit: String?) -> String {
+            let big = unit != "kW" && max(abs(domain.lowerBound), abs(domain.upperBound)) > 1000
+            if big {
+                let m = v / 1000
+                if abs(m) < 0.0001 { return "0" }
+                let n = m.rounded() == m ? String(Int(m)) : String(format: "%.1f", m)
+                return "\(n) MWh"
+            }
+            let n = step < 1 ? String(format: "%.1f", v) : String(Int(v.rounded()))
+            return unit.map { "\(n) \($0)" } ?? n
+        }
+
         /// From chart points sharing a time: positive values stacked for the top, negatives for the bottom.
         init(stacked points: [(Date, Double)]) {
             var up: [Date: Double] = [:], down: [Date: Double] = [:]
@@ -593,6 +611,13 @@ struct EnergyView: View {
             }
             self.init(lo: down.values.min() ?? 0, hi: up.values.max() ?? 0)
         }
+    }
+
+    /// Day: end of day. Bars: end of the last bucket, so the current month / day isn't cut off.
+    private func allXEnd(_ r: PeriodRange, points: [StackPoint], unit: Calendar.Component?) -> Date {
+        guard period != .day, let u = unit, let last = points.last?.date,
+              let end = cal.date(byAdding: u, value: 1, to: last) else { return r.end }
+        return max(end, r.start.addingTimeInterval(1))
     }
 
     /// Scrub box goes beside the line, inside the graph: right of it in the first half, left of it after.

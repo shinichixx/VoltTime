@@ -45,10 +45,8 @@ struct ContentView: View {
         NavigationStack(path: $path) {
             TabView(selection: $page) {
                 MyHomeView(model: myHome, path: $path)
-                    .modifier(FadeWhenLeaving(isCurrent: page == 0))
                     .tag(0)
                 SimulationPage(home: home)
-                    .modifier(FadeWhenLeaving(isCurrent: page == 1))
                     .tag(1)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -179,20 +177,6 @@ struct HomeAssistantPage: View {
                 : "✓ Connected – VoltTime package found."
         } catch {
             testResult = error.localizedDescription
-        }
-    }
-}
-
-/// Pages slide as normal; the page you're leaving fades out as it slides away, the page coming in stays solid.
-struct FadeWhenLeaving: ViewModifier {
-    let isCurrent: Bool
-
-    func body(content: Content) -> some View {
-        GeometryReader { geo in
-            let minX = geo.frame(in: .global).minX
-            let w = max(geo.size.width, 1)
-            content
-                .opacity(isCurrent ? Double(max(0, 1 - abs(minX) / w)) : 1)
         }
     }
 }
