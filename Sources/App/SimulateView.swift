@@ -2,6 +2,7 @@ import SwiftUI
 
 /// What-if calculator: "if I want X % by the time I leave, when does charging have to start?"
 /// Uses the charger settings from Charge details. Nothing here is sent to the car or Home Assistant.
+/// Laid out like Public charging: answer + cost on top, battery bar, quick picks, a few rows, Charger ›.
 struct SimulateView: View {
     @ObservedObject var model: HomeModel
     @AppStorage("sim.leave") private var leaveMinutes = 7 * 60
@@ -43,19 +44,22 @@ struct SimulateView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 18)
 
+                TRow("Starting with", icon: "battery.25percent", badge: socBadge) {
+                    HStack(spacing: 10) {
+                        TValue(value: "\(Int(startSoc))%")
+                        TStepper(value: startBinding, range: 0...99, step: 1)
+                    }
+                }
                 TRow("I leave at", icon: "clock") {
                     DatePicker("", selection: leaveBinding, displayedComponents: .hourAndMinute)
                         .labelsHidden()
                 }
-                TRow("Estimated cost", icon: "banknote") {
-                    TValue(value: Fmt.rm(r.cost), color: TSurface.green, size: 18)
-                }
                 NavigationLink {
-                    SimMoreOptions(model: model, startSoc: $startSoc, target: target, bufferMinutes: $bufferMinutes)
+                    SimChargerPage(model: model, startSoc: startSoc, target: target, bufferMinutes: $bufferMinutes)
                 } label: {
-                    TRow("More options", icon: "list.bullet", last: true) {
+                    TRow("Charger", icon: "bolt", last: true) {
                         HStack(spacing: 8) {
-                            Text("\(Int(startSoc))% start · \(bufferMinutes) min early")
+                            Text("\(Int(model.amps))A · RM \(String(format: "%.4f", model.tariff))/kWh")
                                 .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
                         }
@@ -63,8 +67,9 @@ struct SimulateView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.bottom, 90)   // room to scroll the last row above the page dots
+            .padding(.bottom, 60)
         }
+        .scrollBounceBehavior(.basedOnSize)   // fixed when it fits on screen
         .background(TSurface.page)
         .onAppear {
             if !seeded {
@@ -79,11 +84,34 @@ struct SimulateView: View {
         return abs(live - startSoc) < 0.5
     }
 
+    private var startBinding: Binding<Int> {
+        Binding(get: { Int(startSoc) }, set: { startSoc = Double($0) })
+    }
+
+    private var socBadge: AnyView? {
+        guard let live = model.liveSoc else { return nil }
+        if abs(live - startSoc) < 0.5 { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
+        return AnyView(
+            Button("Use car \(Int(live.rounded()))%") { startSoc = min(99, live.rounded()) }
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
+                .buttonStyle(.plain)
+        )
+    }
+
     // MARK: Result
 
     private func hero(_ r: HomeResult, _ sim: (minutes: Int, daysBefore: Int)) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            TCaption(text: "Start charging at", trailing: r.minutes > 0 ? dayLabel(sim) : "")
+            HStack {
+                Text("START CHARGING AT").kerning(0.8)
+                Spacer()
+                Text("TOTAL COST").kerning(0.8)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(TeslaDark.rowLabel)
+            .padding(.top, 26)
+            .padding(.bottom, 6)
+
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 if r.minutes == 0 {
                     Text("—").font(.system(size: 50, weight: .bold))
@@ -93,22 +121,24 @@ struct SimulateView: View {
                     Text(c.suffix).font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
                 }
                 Spacer()
+                Text(Fmt.rm(r.cost)).font(.system(size: 32, weight: .bold)).foregroundStyle(TSurface.green)
+                    .minimumScaleFactor(0.6).lineLimit(1)
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 20)
+
             Text(r.minutes == 0 ? "Pick a target above the start level"
-                 : "Full by \(Fmt.clock(minutes: finishMinutes)) · \(Fmt.longDuration(r.minutes))")
+                 : "\(dayLabel(sim)) · full by \(Fmt.clock(minutes: finishMinutes)) · \(Fmt.longDuration(r.minutes))")
                 .font(.system(size: 13))
                 .foregroundStyle(TeslaDark.rowLabel)
-                .padding(.horizontal, 20)
+                .lineLimit(1).minimumScaleFactor(0.8)
             if r.minutes > 0 && inPeak(sim.minutes) {
                 Label("Starts in TNB peak (2pm–10pm, Mon–Fri)", systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.orange)
-                    .padding(.horizontal, 20)
                     .padding(.top, 6)
             }
         }
+        .padding(.horizontal, 20)
     }
 
     private var finishMinutes: Int { ((leaveMinutes - bufferMinutes) % 1440 + 1440) % 1440 }
@@ -132,10 +162,10 @@ struct SimulateView: View {
     }
 }
 
-/// Home charging → More options: the less-used inputs and the detailed numbers.
-struct SimMoreOptions: View {
+/// Home charging → Charger: finish-early buffer, the charger settings in use, and the detailed numbers.
+struct SimChargerPage: View {
     @ObservedObject var model: HomeModel
-    @Binding var startSoc: Double
+    let startSoc: Double
     let target: Double
     @Binding var bufferMinutes: Int
 
@@ -143,18 +173,19 @@ struct SimMoreOptions: View {
         let r = SimulateView.result(model, start: startSoc, target: target)
         ScrollView {
             VStack(spacing: 0) {
-                TCaption(text: "Charge")
-                TRow("Start charge", icon: "battery.50percent", badge: socBadge) {
-                    TValue(value: "\(Int(startSoc))%")
-                } below: {
-                    Slider(value: $startSoc, in: 0...99, step: 1).tint(.white)
-                }
+                TCaption(text: "Timing")
                 TRow("Finish early by", icon: "shield", last: true) {
                     HStack(spacing: 10) {
                         TValue(value: "\(bufferMinutes)", unit: "min")
                         TStepper(value: $bufferMinutes, range: 0...60, step: 5)
                     }
                 }
+
+                TCaption(text: "Charger")
+                TRow("Current", icon: "bolt") { TValue(value: "\(Int(model.amps))", unit: "A") }
+                TRow("Voltage") { TValue(value: "\(Int(model.volts))", unit: "V") }
+                TRow("Efficiency") { TValue(value: model.efficiency.plain, unit: "%") }
+                TRow("Battery capacity", last: true) { TValue(value: model.capacity.plain, unit: "kWh") }
 
                 TCaption(text: "Numbers")
                 TRow("Duration") { TValue(value: Fmt.longDuration(r.minutes)) }
@@ -164,7 +195,7 @@ struct SimMoreOptions: View {
                 TRow("Tariff") { TValue(value: String(format: "%.4f", model.tariff), unit: "RM/kWh") }
                 TRow("Cost", last: true) { TValue(value: Fmt.rm(r.cost), color: TSurface.green) }
 
-                Text("Uses \(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)% · \(model.capacity.plain) kWh from Settings → Charge details. Charging to 100% adds about 25 min for the slow last 1%.")
+                Text("Charger settings come from Settings → Charge details. Charging to 100% adds about 25 min for the slow last 1%.")
                     .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -173,16 +204,6 @@ struct SimMoreOptions: View {
                 Spacer(minLength: 40)
             }
         }
-        .teslaPage("More options", black: true)
-    }
-
-    private var socBadge: AnyView? {
-        guard let live = model.liveSoc else { return nil }
-        if abs(live - startSoc) < 0.5 { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
-        return AnyView(
-            Button("Use car \(Int(live.rounded()))%") { startSoc = min(99, live.rounded()) }
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
-                .buttonStyle(.plain)
-        )
+        .teslaPage("Charger", black: true)
     }
 }

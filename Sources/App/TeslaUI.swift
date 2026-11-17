@@ -194,28 +194,46 @@ struct TSegment: View {
     }
 }
 
-/// Compact − / + pill.
+/// Compact − / + pill. A tap moves one step; press and hold repeats, slowly at first, then faster.
 struct TStepper: View {
     @Binding var value: Int
     let range: ClosedRange<Int>
     let step: Int
+    @State private var repeater: Task<Void, Never>?
 
     var body: some View {
         HStack(spacing: 0) {
-            button("minus", -step).disabled(value <= range.lowerBound)
+            button("minus", -step, enabled: value > range.lowerBound)
             Rectangle().fill(TSurface.selected).frame(width: 0.5, height: 18)
-            button("plus", step).disabled(value >= range.upperBound)
+            button("plus", step, enabled: value < range.upperBound)
         }
         .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
+        .onDisappear { repeater?.cancel() }
     }
 
-    private func button(_ symbol: String, _ d: Int) -> some View {
-        Button { value = min(max(value + d, range.lowerBound), range.upperBound) } label: {
-            Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                .frame(width: 38, height: 30)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+    private func bump(_ d: Int) {
+        value = min(max(value + d, range.lowerBound), range.upperBound)
+    }
+
+    private func button(_ symbol: String, _ d: Int, enabled: Bool) -> some View {
+        Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(enabled ? Color.white : TeslaDark.dim)
+            .frame(width: 38, height: 30)
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 60, maximumDistance: 40, perform: {}, onPressingChanged: { pressing in
+                repeater?.cancel()
+                guard pressing else { repeater = nil; return }
+                bump(d)
+                repeater = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(450))
+                    var n = 0
+                    while !Task.isCancelled {
+                        bump(d)
+                        n += 1
+                        try? await Task.sleep(for: .milliseconds(n < 8 ? 140 : 60))
+                    }
+                }
+            })
     }
 }
 

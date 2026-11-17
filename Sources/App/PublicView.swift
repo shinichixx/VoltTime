@@ -9,7 +9,7 @@ struct PublicView: View {
     @AppStorage("pub.rateKWh") private var rateKWh = "1.07"
     @AppStorage("pub.rateMin") private var rateMin = "1.00"
 
-    private static let targets = [60, 70, 80, 90]
+    private static let targets = [60, 70, 80, 90, 100]
 
     static func outcome(current: String, target: String, speed: String, perMinute: Bool, rateKWh: String, rateMin: String) -> PublicMath.Outcome {
         PublicMath.estimate(start: parseNumber(current), end: parseNumber(target), maxKW: parseNumber(speed),
@@ -47,7 +47,7 @@ struct PublicView: View {
                 TRow("Arriving with", icon: "battery.25percent") {
                     HStack(spacing: 10) {
                         TValue(value: "\(Int(now))%")
-                        TStepper(value: arrivingBinding, range: 0...95, step: 5)
+                        TStepper(value: arrivingBinding, range: 0...99, step: 1)
                     }
                 }
                 NavigationLink {
@@ -63,8 +63,9 @@ struct PublicView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.bottom, 90)   // room to scroll the last row above the page dots
+            .padding(.bottom, 60)
         }
+        .scrollBounceBehavior(.basedOnSize)   // fixed when it fits on screen
         .background(TSurface.page)
     }
 
@@ -73,7 +74,7 @@ struct PublicView: View {
         return perMinute ? "\(kw) · RM \(rateMin)/min" : "\(kw) · RM \(rateKWh)/kWh"
     }
 
-    /// Steps of 5 from wherever it is now (12 → 17 → 22…), never below 0.
+    /// 1% steps (press and hold to run), never below 0.
     private var arrivingBinding: Binding<Int> {
         Binding(
             get: { Int(now) },

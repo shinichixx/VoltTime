@@ -295,8 +295,10 @@ struct EnergyView: View {
                         HStack(spacing: 5) {
                             Circle().fill(row.0.color).frame(width: 6, height: 6)
                             Text(row.0.name).font(.system(size: 11)).foregroundStyle(TeslaDark.labelGrey)
+                                .fixedSize()
                         }
                         Text(row.1).font(.system(size: 11, weight: .medium).monospacedDigit())
+                            .fixedSize()
                             .gridColumnAlignment(.trailing)
                     }
                 }

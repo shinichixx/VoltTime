@@ -147,15 +147,12 @@ struct SettingsPage: View {
                 tonight
                     .opacity(routine ? 1 : 0.55)
 
-                TCaption(text: "Home Assistant")
-                TNavRow(title: "Connection", icon: "house",
+                TCaption(text: "System")
+                TNavRow(title: "Home Assistant", icon: "house",
                         subtitle: home.haConfigured ? (home.message == nil ? "Connected" : "Can't reach Home Assistant") : "Not set up",
-                        dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil,
-                        last: true) {
+                        dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil) {
                     path.append(.homeAssistant)
                 }
-
-                TCaption(text: "Data")
                 NavigationLink { BackupPage(energy: energy) } label: {
                     TRow("Backup & restore", icon: "arrow.triangle.2.circlepath", subtitle: backup.summary,
                          dot: backup.summaryColor, last: true) {
@@ -163,13 +160,10 @@ struct SettingsPage: View {
                     }
                 }
                 .buttonStyle(.plain)
-                Spacer(minLength: 40)
+                Spacer(minLength: 12)
             }
         }
-        .refreshable {
-            await home.refresh()
-            await myHome.refresh()
-        }
+        .scrollBounceBehavior(.basedOnSize)   // fixed when it fits; scrolls only if something makes it taller
         .teslaPage("Settings", black: true)
         .task {
             await home.refresh()
@@ -279,7 +273,9 @@ struct SettingsPage: View {
         } else if r.minutes == 0 {
             Text("—").font(.system(size: 26, weight: .light)).foregroundStyle(.white)
         } else {
-            let c = splitClock(Fmt.clock(home.plannedStart(), calendar: .current))
+            // The time actually set in the car wins over the app's own estimate.
+            let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
+            let c = splitClock(Fmt.clock(start, calendar: .current))
             VStack(alignment: .trailing, spacing: 1) {
                 Text(c.time).font(.system(size: 28, weight: .light)).foregroundStyle(.white)
                 if !c.suffix.isEmpty {
@@ -293,12 +289,11 @@ struct SettingsPage: View {
         let r = home.result
         if home.charging == true { return "Charging now" }
         if r.minutes == 0 {
-            return "Already at \(Int(nowSoc.rounded()))%, limit \(Int(home.limit.rounded()))%. " +
-                (home.active ? "Car schedule off tonight." : "Nothing scheduled tonight.")
+            return "Already at \(Int(nowSoc.rounded()))%, limit \(Int(home.limit.rounded()))%. Nothing to add tonight."
         }
         if !routine { return "Night plan paused" }
         if home.active, let st = home.scheduledStart {
-            return "\(dayLabel(home.plannedStart())). Set in the car for \(Fmt.clock(st, calendar: .current))"
+            return "\(dayLabel(st)) · set in the car"
         }
         return "\(dayLabel(home.plannedStart())). Set in the car when you plug in after 7pm"
     }
