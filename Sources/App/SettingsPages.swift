@@ -268,10 +268,16 @@ struct SettingsPage: View {
     }
 
     @ViewBuilder private func startTime(_ r: HomeResult) -> some View {
-        if r.minutes == 0 && home.charging != true {
-            Text("Not needed").font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.labelGrey)
+        if home.charging == true {
+            // Charging now: show that and the current, not a start time that has already passed.
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("Charging").font(.system(size: 22, weight: .light)).foregroundStyle(TSurface.green)
+                if let a = myHome.currentNow ?? myHome.chargeAmps {
+                    Text("\(Int(a.rounded())) A").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                }
+            }
         } else if r.minutes == 0 {
-            Text("—").font(.system(size: 26, weight: .light)).foregroundStyle(.white)
+            Text("Not needed").font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.labelGrey)
         } else {
             // The time actually set in the car wins over the app's own estimate.
             let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
@@ -287,7 +293,10 @@ struct SettingsPage: View {
 
     private var statusText: String {
         let r = home.result
-        if home.charging == true { return "Charging now" }
+        if home.charging == true {
+            let mode = myHome.mode ?? "Routine"
+            return mode == "Routine" ? "Charging now" : "Charging now in \(mode == "Excess Solar" ? "Solar" : mode) mode"
+        }
         if r.minutes == 0 {
             return "Already at \(Int(nowSoc.rounded()))%, limit \(Int(home.limit.rounded()))%. Nothing to add tonight."
         }
