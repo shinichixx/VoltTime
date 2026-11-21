@@ -14,8 +14,8 @@
 #      ONE-TIME Tesla charge schedule through Tessie, so the car waits and then starts by itself.
 #      Weekday nights never start before 10:15pm (TNB peak ends at 10pm).
 #      The schedule is never switched off: when no charge is needed it stays on, parked at the ready time
-#      (the car does nothing at or above its limit). Every unplug re-arms it for 10:15pm, so plugging in
-#      at home never starts a charge at peak rate before the night plan.
+#      (the car does nothing at or above its limit). Every unplug parks it at the next ready time, so plugging
+#      in at home never starts a charge before the night plan.
 #   4. Five minutes after the start time, if the car is still not charging, Home Assistant starts it.
 #
 # Install
@@ -325,7 +325,7 @@ automation:
         data:
           title: "{{ '⚡' if plan.minutes | int > 0 else '✅' }} {{ trigger.id }} · limit {{ pick }}%"
           message: >-
-            {% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }} ({{ (plan.minutes | int) // 60 }}h {{ '%02d' | format((plan.minutes | int) % 60) }}m) · ready by {{ today_at(states('input_datetime.volttime_ready_time')).strftime('%-I:%M %p') }}.{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% · no charging needed tonight. Car schedule off.{% endif %}{% if not plan.tessie_ok %} ⚠️ Tessie did not confirm the schedule; Home Assistant will start it.{% endif %}
+            {% if plan.minutes | int > 0 %}Charging starts {{ plan.start_text }} ({{ (plan.minutes | int) // 60 }}h {{ '%02d' | format((plan.minutes | int) % 60) }}m) · ready by {{ today_at(states('input_datetime.volttime_ready_time')).strftime('%-I:%M %p') }}.{% else %}Already at {{ plan.soc | float(0) | round(0) | int }}% · no charging needed tonight. Car schedule parked at the ready time.{% endif %}{% if not plan.tessie_ok %} ⚠️ Tessie did not confirm the schedule; Home Assistant will start it.{% endif %}
           data:
             tag: volttime_ask
             url: volttime://home
@@ -435,9 +435,11 @@ automation:
           entity_id: switch.ultra_rouge_charge_2
 
   # ---------------------------------------------------------------- re-arm on unplug
-  # The car only waits at plug-in if a schedule is on. Every unplug re-arms VoltTime's schedule for 10:15pm
-  # (after the TNB peak), so coming home and plugging in never starts a charge straight away. The night plan
-  # then moves it to the real start. Thu/Fri nights: the charging controller stops any Routine night charge.
+  # The car only waits at plug-in if a schedule is on, and a Tesla starts at once if you plug in after the
+  # scheduled start has passed. So every unplug parks VoltTime's schedule at tomorrow morning's ready time
+  # (ready time minus the safety buffer): whenever you come home in the evening it is still in the future,
+  # and the car waits. The night plan then moves it to the real start. Thu/Fri nights: the charging
+  # controller stops any Routine night charge; Excess Solar / Off: stopped at night too.
   - id: volttime_rearm
     alias: VoltTime – re-arm schedule on unplug
     mode: restart
@@ -452,7 +454,9 @@ automation:
         continue_on_error: true
         data:
           enabled: "true"
-          start_time: 1335 # 22:15
+          start_time: >-
+            {% set r = today_at(states('input_datetime.volttime_ready_time')) %}
+            {{ ((r.hour * 60 + r.minute) - (states('input_number.volttime_buffer') | float(15) | int)) % 1440 }}
 
   # ---------------------------------------------------------------- morning reset
   - id: volttime_reset
