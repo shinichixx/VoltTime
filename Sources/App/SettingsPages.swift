@@ -153,7 +153,7 @@ struct SettingsPage: View {
                         dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil) {
                     path.append(.homeAssistant)
                 }
-                NavigationLink { BackupPage(energy: energy) } label: {
+                NavigationLink { BackupPage(energy: energy, home: home) } label: {
                     TRow("Backup & restore", icon: "arrow.triangle.2.circlepath", subtitle: backup.summary,
                          dot: backup.summaryColor, last: true) {
                         Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)

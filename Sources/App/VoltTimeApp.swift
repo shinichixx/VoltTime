@@ -2,6 +2,11 @@ import SwiftUI
 
 @main
 struct VoltTimeApp: App {
+    init() {
+        BackupReminder.registerDefaults()
+        ScenarioPhotos.moveOldFolder()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -101,15 +106,16 @@ struct ContentView: View {
         .task {
             await home.refresh()
             await energy.refresh()   // tops up the saved energy so Impact / Energy open instantly
-            await BackupManager.shared.autoBackup(energy)
+            await Task.detached(priority: .utility) { Snapshots.takeDailyIfNeeded() }.value
+            await BackupReminder.apply()
         }
         .onChange(of: phase) { old, p in
             guard p == .active else { return }
             Task { await home.refresh() }
-            if old == .background {   // opened again from the background: top up and back up
+            if old == .background {   // opened again from the background: top up, and the day's local copy
                 Task {
                     await energy.refresh()
-                    await BackupManager.shared.autoBackup(energy)
+                    await Task.detached(priority: .utility) { Snapshots.takeDailyIfNeeded() }.value
                 }
             }
         }

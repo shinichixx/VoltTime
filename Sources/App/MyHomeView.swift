@@ -49,9 +49,22 @@ enum ScenarioPhotos {
         numbers.contains(n) ? "tesla_home_scenario\(n).png" : "tesla_home.png"
     }
 
+    /// Can be downloaded again, so it lives in Caches (iOS may clear it; left out of iCloud backups).
     static var folder: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("ScenarioPhotos", isDirectory: true)
+    }
+
+    /// Builds up to 29 kept the downloaded copies in Application Support; move them to Caches.
+    static func moveOldFolder() {
+        let fm = FileManager.default
+        let old = AppData.support.appendingPathComponent("ScenarioPhotos", isDirectory: true)
+        guard fm.fileExists(atPath: old.path) else { return }
+        if !fm.fileExists(atPath: folder.path) {
+            try? fm.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if (try? fm.moveItem(at: old, to: folder)) != nil { return }
+        }
+        try? fm.removeItem(at: old)
     }
 
     private static func localURL(_ name: String) -> URL? {

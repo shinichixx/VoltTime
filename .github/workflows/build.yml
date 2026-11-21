@@ -13,9 +13,17 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: xcode-27   # GitHub's Xcode 27 image (macOS 27); the newest Xcode on it is picked below
     steps:
       - uses: actions/checkout@v4
+
+      - name: Use the newest Xcode
+        run: |
+          NEWEST=$(ls -d /Applications/Xcode_*.app | grep -E 'Xcode_[0-9.]+\.app$' | sort -V | tail -n1)
+          echo "Using $NEWEST"
+          sudo xcode-select -s "$NEWEST/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos
 
       - name: Read build number
         id: ver

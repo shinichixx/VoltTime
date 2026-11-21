@@ -46,9 +46,17 @@ enum ImpactStat {
     static let chargeEfficiency = 0.93
 }
 
-private struct StoreFile: Codable {
+struct StoreFile: Codable {
     var first: String?
     var days: [String: Data]
+
+    /// Reads an energy.plist (the app's own file, or one inside a backup).
+    static func curves(from data: Data) -> [String: DayCurve]? {
+        guard let f = try? PropertyListDecoder().decode(StoreFile.self, from: data) else { return nil }
+        var c: [String: DayCurve] = [:]
+        for (k, v) in f.days { if let curve = DayCurve(packed: v) { c[k] = curve } }
+        return c
+    }
 }
 
 @MainActor
@@ -74,10 +82,8 @@ final class EnergyStore: ObservableObject {
         return f
     }()
 
-    private static var supportDir: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    }
-    private static var fileURL: URL { supportDir.appendingPathComponent("energy.plist") }
+    nonisolated private static var supportDir: URL { AppData.support }
+    nonisolated static var fileURL: URL { AppData.energy }
 
     init() {
         // Build 10 kept Impact's daily totals in their own file; everything now lives in energy.plist.

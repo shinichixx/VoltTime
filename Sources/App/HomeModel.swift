@@ -60,6 +60,38 @@ final class HomeModel: ObservableObject {
         tariff = num("home.tariff", 0.4981)
     }
 
+    /// Picks up planner values put back by a restore.
+    func reloadSettings() {
+        let fresh = HomeModel.Saved()
+        if readyMinutes != fresh.ready { readyMinutes = fresh.ready }
+        if bufferMinutes != fresh.buffer { bufferMinutes = fresh.buffer }
+        if startSoc != fresh.startSoc { startSoc = fresh.startSoc }
+        if limit != fresh.limit { limit = fresh.limit }
+        if amps != fresh.amps { amps = fresh.amps }
+        if volts != fresh.volts { volts = fresh.volts }
+        if efficiency != fresh.eff { efficiency = fresh.eff }
+        if capacity != fresh.cap { capacity = fresh.cap }
+        if tariff != fresh.tariff { tariff = fresh.tariff }
+    }
+
+    private struct Saved {
+        let ready: Int, buffer: Int
+        let startSoc: Double, limit: Double, amps: Double, volts: Double, eff: Double, cap: Double, tariff: Double
+        init() {
+            let d = UserDefaults.standard
+            func num(_ k: String, _ def: Double) -> Double { d.object(forKey: k) == nil ? def : d.double(forKey: k) }
+            ready = d.object(forKey: "home.ready") == nil ? 5 * 60 + 45 : d.integer(forKey: "home.ready")
+            buffer = d.object(forKey: "home.buffer") == nil ? 15 : d.integer(forKey: "home.buffer")
+            startSoc = num("home.startSoc", 20)
+            limit = num("home.limit", 73)
+            amps = num("home.amps", 32)
+            volts = num("home.volts", 240)
+            eff = num("home.eff", 93)
+            cap = num("home.cap", 79)
+            tariff = num("home.tariff", 0.4981)
+        }
+    }
+
     private func save() {
         d.set(readyMinutes, forKey: "home.ready")
         d.set(bufferMinutes, forKey: "home.buffer")

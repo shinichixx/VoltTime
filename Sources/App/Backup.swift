@@ -1,28 +1,233 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AppleArchive
+import System
+import UserNotifications
 
-// Backup / restore of the energy history as CSV, plus the daily-totals file for spreadsheets.
-// Auto backup: each time the app opens (after the energy refresh) the full backup is written into a folder the user
-// picked once (e.g. iCloud Drive › VoltTime Backups). One file per day, the latest 3 kept.
+// Backup the Pinggan way: ONE file (Apple Archive, lzfse) with the energy days and the settings, saved where you
+// choose with iOS's "save a file" screen (iCloud Drive › VoltTime). A weekly reminder nudges you to save one.
+// On the iPhone: a compressed copy each day (last 3) and one before every restore, in Application Support/Snapshots,
+// left out of iCloud backups. Restore also reads the CSV backups of builds 24–29.
+
+/// Where the app keeps its own data.
+enum AppData {
+    static var support: URL {
+        let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+        return u
+    }
+    static var energy: URL { support.appendingPathComponent("energy.plist") }
+
+    /// Settings that go into a backup (the Home Assistant token stays in the Keychain, never in a file).
+    private static let settingPrefixes = ["home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", HAClient.urlKey]
+
+    static func settingsData() -> Data? {
+        let all = UserDefaults.standard.dictionaryRepresentation()
+        let mine = all.filter { k, _ in settingPrefixes.contains { k.hasPrefix($0) } }
+        return try? PropertyListSerialization.data(fromPropertyList: mine, format: .binary, options: 0)
+    }
+
+    @discardableResult
+    static func applySettings(_ data: Data) -> Int {
+        guard let dict = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else { return 0 }
+        var n = 0
+        for (k, v) in dict where settingPrefixes.contains(where: { k.hasPrefix($0) }) {
+            UserDefaults.standard.set(v, forKey: k)
+            n += 1
+        }
+        return n
+    }
+}
+
+/// What a backup or snapshot file holds once unpacked.
+struct BackupContents {
+    var curves: [String: DayCurve]
+    var settings: Data?
+}
+
+enum VoltArchive {
+    static let ext = "aar"
+    static let type = UTType(filenameExtension: "aar") ?? .data
+
+    struct BadFile: LocalizedError {
+        var errorDescription: String? { "That isn't a VoltTime backup." }
+    }
+
+    /// Packs energy.plist and settings.plist into one compressed file at `out`.
+    static func make(at out: URL) throws {
+        let fm = FileManager.default
+        let stage = fm.temporaryDirectory.appendingPathComponent("pack-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: stage, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: stage) }
+        if fm.fileExists(atPath: AppData.energy.path) {
+            try fm.copyItem(at: AppData.energy, to: stage.appendingPathComponent("energy.plist"))
+        }
+        if let s = AppData.settingsData() { try s.write(to: stage.appendingPathComponent("settings.plist")) }
+
+        try? fm.removeItem(at: out)
+        guard let fileStream = ArchiveByteStream.fileStream(path: FilePath(out.path), mode: .writeOnly,
+                                                            options: [.create], permissions: FilePermissions(rawValue: 0o644)),
+              let compressStream = ArchiveByteStream.compressionStream(using: .lzfse, writingTo: fileStream),
+              let encodeStream = ArchiveStream.encodeStream(writingTo: compressStream),
+              let keySet = ArchiveHeader.FieldKeySet("TYP,PAT,DAT,MTM") else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        var failure: Error?
+        do { try encodeStream.writeDirectoryContents(archiveFrom: FilePath(stage.path), keySet: keySet) } catch { failure = error }
+        try? encodeStream.close()
+        try? compressStream.close()
+        try? fileStream.close()
+        if let failure { throw failure }
+    }
+
+    /// Unpacks a backup or snapshot (security-scoped URLs are handled here).
+    static func read(_ file: URL) throws -> BackupContents {
+        let fm = FileManager.default
+        let ok = file.startAccessingSecurityScopedResource()
+        defer { if ok { file.stopAccessingSecurityScopedResource() } }
+        let dest = fm.temporaryDirectory.appendingPathComponent("unpack-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dest) }
+        guard let readStream = ArchiveByteStream.fileStream(path: FilePath(file.path), mode: .readOnly,
+                                                            options: [], permissions: FilePermissions(rawValue: 0o644)),
+              let decompressStream = ArchiveByteStream.decompressionStream(readingFrom: readStream),
+              let decodeStream = ArchiveStream.decodeStream(readingFrom: decompressStream),
+              let extractStream = ArchiveStream.extractStream(extractingTo: FilePath(dest.path),
+                                                              flags: [.ignoreOperationNotPermitted]) else {
+            throw BadFile()
+        }
+        var failure: Error?
+        do { _ = try ArchiveStream.process(readingFrom: decodeStream, writingTo: extractStream) } catch { failure = error }
+        try? extractStream.close()
+        try? decodeStream.close()
+        try? decompressStream.close()
+        try? readStream.close()
+        if failure != nil { throw BadFile() }
+
+        let energy = (try? Data(contentsOf: dest.appendingPathComponent("energy.plist"))).flatMap { StoreFile.curves(from: $0) }
+        let settings = try? Data(contentsOf: dest.appendingPathComponent("settings.plist"))
+        guard energy != nil || settings != nil else { throw BadFile() }
+        return BackupContents(curves: energy ?? [:], settings: settings)
+    }
+
+    /// A VoltTime backup of either kind: .aar (build 30 on) or the older CSV.
+    static func readAny(_ file: URL) throws -> BackupContents {
+        if file.pathExtension.lowercased() == "csv" || file.pathExtension.lowercased() == "txt" {
+            let ok = file.startAccessingSecurityScopedResource()
+            defer { if ok { file.stopAccessingSecurityScopedResource() } }
+            let text = try String(contentsOf: file, encoding: .utf8)
+            return BackupContents(curves: try EnergyCSV.parse(text), settings: nil)
+        }
+        return try read(file)
+    }
+
+    static func stamp(_ d: Date = Date()) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd_HH-mm"
+        return f.string(from: d)
+    }
+}
+
+// MARK: - Local snapshots (on this iPhone, left out of iCloud backups)
+
+struct Snapshot: Identifiable {
+    let url: URL
+    let date: Date
+    let beforeRestore: Bool
+    let bytes: Int64
+    var id: String { url.lastPathComponent }
+}
+
+/// One compressed copy a day (last 3) plus one taken before every restore (last 1).
+/// Each is a few hundred KB at most, so together they stay well under 4× the data.
+enum Snapshots {
+    static let keepDaily = 3
+    static let keepSafety = 1
+    private static let dailyPrefix = "daily-"
+    private static let safetyPrefix = "before-restore-"
+
+    static var folder: URL {
+        var u = AppData.support.appendingPathComponent("Snapshots", isDirectory: true)
+        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+        var v = URLResourceValues()
+        v.isExcludedFromBackup = true
+        try? u.setResourceValues(v)
+        return u
+    }
+
+    static func takeDailyIfNeeded() {
+        guard FileManager.default.fileExists(atPath: AppData.energy.path) else { return }
+        let today = String(VoltArchive.stamp().prefix(10))
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        guard !names.contains(where: { $0.hasPrefix(dailyPrefix + today) }) else { return }
+        take(dailyPrefix, keep: keepDaily)
+    }
+
+    static func safetyCopy() {
+        take(safetyPrefix, keep: keepSafety)
+    }
+
+    private static func take(_ prefix: String, keep: Int) {
+        let dir = folder
+        try? VoltArchive.make(at: dir.appendingPathComponent(prefix + VoltArchive.stamp() + "." + VoltArchive.ext))
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+            .filter { $0.hasPrefix(prefix) }
+            .sorted(by: >)
+        for n in names.dropFirst(keep) { try? FileManager.default.removeItem(at: dir.appendingPathComponent(n)) }
+    }
+
+    static func list() -> [Snapshot] {
+        let dir = folder
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd_HH-mm"
+        let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        return urls.compactMap { u -> Snapshot? in
+            var n = u.deletingPathExtension().lastPathComponent
+            let safety = n.hasPrefix(safetyPrefix)
+            if safety { n.removeFirst(safetyPrefix.count) } else if n.hasPrefix(dailyPrefix) { n.removeFirst(dailyPrefix.count) } else { return nil }
+            guard let d = f.date(from: n) else { return nil }
+            let size = Int64((try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            return Snapshot(url: u, date: d, beforeRestore: safety, bytes: size)
+        }
+        .sorted { $0.date > $1.date }
+    }
+}
+
+// MARK: - Weekly reminder
+
+enum BackupReminder {
+    static let enabledKey = "backupReminder.on"
+    static let weekdayKey = "backupReminder.weekday"    // 1 = Sunday … 7 = Saturday
+    static let minutesKey = "backupReminder.minutes"    // minutes after midnight
+    private static let id = "volttime-weekly-backup"
+
+    static func registerDefaults() {
+        UserDefaults.standard.register(defaults: [enabledKey: true, weekdayKey: 1, minutesKey: 21 * 60])
+    }
+
+    static func apply() async {
+        let d = UserDefaults.standard
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        guard d.bool(forKey: enabledKey) else { return }
+        guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Back up VoltTime"
+        content.body = "Save this week's energy data to iCloud Drive."
+        content.sound = .default
+        var when = DateComponents()
+        when.weekday = max(1, min(7, d.integer(forKey: weekdayKey)))
+        when.hour = d.integer(forKey: minutesKey) / 60
+        when.minute = d.integer(forKey: minutesKey) % 60
+        let trigger = UNCalendarNotificationTrigger(dateMatching: when, repeats: true)
+        try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+    }
+}
 
 enum EnergyCSV {
     static let header = "start,step_min,solar_kwh,grid_import_kwh,grid_export_kwh,model3_kwh"
-
-    /// Every slot the app has, in kWh. All-zero slots are skipped (restore fills them with 0);
-    /// the first slot of each day is always written so the day and its step survive.
-    static func backup(_ curves: [String: DayCurve]) -> String {
-        var out = header + "\n"
-        for k in curves.keys.sorted() {
-            guard let c = curves[k] else { continue }
-            for i in 0..<c.count {
-                let s = c.solar[i], im = c.imp[i], ex = c.exp[i], ca = c.car[i]
-                if i > 0 && s == 0 && im == 0 && ex == 0 && ca == 0 { continue }
-                let t = i * c.minutes
-                out += String(format: "%@ %02d:%02d,%d,%.3f,%.3f,%.3f,%.3f\n", k, t / 60, t % 60, c.minutes, s, im, ex, ca)
-            }
-        }
-        return out
-    }
 
     /// One row per day, the same figures as the Energy tiles.
     static func daily(_ curves: [String: DayCurve]) -> String {
@@ -69,182 +274,90 @@ enum EnergyCSV {
 final class BackupManager: ObservableObject {
     static let shared = BackupManager()
 
-    @Published var auto: Bool { didSet { defaults.set(auto, forKey: "backup.auto") } }
-    @Published private(set) var customFolderName: String?
     @Published private(set) var lastDate: Date?
-    @Published private(set) var lastError: String?
-    @Published private(set) var kept = 0
+    @Published private(set) var lastBytes: Int64 = 0
     @Published private(set) var working = false
+    @Published var status: String?
 
     private let defaults = UserDefaults.standard
-    private let bookmarkKey = "backup.folderBookmark"
-    static let keep = 3
-    static let prefix = "VoltTime_backup_"
-    static let defaultName = "On My iPhone › VoltTime"
-
-    /// The app's own folder, shown in the Files app as On My iPhone › VoltTime.
-    static var appFolder: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
 
     private init() {
-        auto = defaults.object(forKey: "backup.auto") as? Bool ?? true
-        customFolderName = defaults.data(forKey: "backup.folderBookmark") == nil ? nil : defaults.string(forKey: "backup.folderName")
-        if defaults.object(forKey: "backup.lastDate") != nil {
-            lastDate = Date(timeIntervalSince1970: defaults.double(forKey: "backup.lastDate"))
+        if defaults.object(forKey: "backup.savedDate") != nil {
+            lastDate = Date(timeIntervalSince1970: defaults.double(forKey: "backup.savedDate"))
+            lastBytes = Int64(defaults.integer(forKey: "backup.savedBytes"))
         }
-        kept = defaults.integer(forKey: "backup.kept")
     }
 
-    var usesCustomFolder: Bool { defaults.data(forKey: bookmarkKey) != nil }
-    var folderName: String { customFolderName ?? Self.defaultName }
+    /// Due when nothing was saved in the last 7 days.
+    var isDue: Bool {
+        guard let d = lastDate else { return true }
+        return Date().timeIntervalSince(d) > 7 * 86_400
+    }
+
+    var lastText: String {
+        guard let d = lastDate else { return "Not saved yet" }
+        if Calendar.current.isDateInToday(d) { return "Today " + d.formatted(date: .omitted, time: .shortened) }
+        let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: d),
+                                                    to: Calendar.current.startOfDay(for: Date())).day ?? 0
+        return days == 1 ? "Yesterday" : "\(days) days ago"
+    }
 
     /// One line for the Settings row.
-    var summary: String {
-        if let lastError { return lastError }
-        guard auto else { return "Auto backup off" }
-        return "Auto · " + lastText
-    }
-    var summaryColor: Color? {
-        if lastError != nil { return Theme.orange }
-        return auto ? TSurface.green : nil
-    }
-    var lastText: String {
-        guard let d = lastDate else { return "not yet" }
-        return Calendar.current.isDateInToday(d)
-            ? "today " + d.formatted(date: .omitted, time: .shortened)
-            : d.formatted(date: .abbreviated, time: .shortened)
-    }
+    var summary: String { lastDate == nil ? "Not saved yet" : "Saved to iCloud · " + lastText.lowercased() }
+    var summaryColor: Color { isDue ? Theme.orange : TSurface.green }
 
-    // MARK: Folder
+    // MARK: Save
 
-    func setFolder(_ url: URL) {
-        let ok = url.startAccessingSecurityScopedResource()
-        defer { if ok { url.stopAccessingSecurityScopedResource() } }
-        let data: Data
-        do {
-            data = try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
-        } catch {
-            do { data = try url.bookmarkData() } catch {
-                lastError = "Couldn't use that folder: \(error.localizedDescription)"
-                return
-            }
-        }
-        defaults.set(data, forKey: bookmarkKey)
-        let name = Self.displayName(url)
-        defaults.set(name, forKey: "backup.folderName")
-        customFolderName = name
-        lastError = nil
-    }
-
-    func useAppFolder() {
-        defaults.removeObject(forKey: bookmarkKey)
-        defaults.removeObject(forKey: "backup.folderName")
-        customFolderName = nil
-        lastError = nil
-    }
-
-    func reportNoFolder() {
-        lastError = "The picker didn't return a folder. Backups stay in \(Self.defaultName)."
-    }
-
-    private func customFolderURL() -> URL? {
-        guard let data = defaults.data(forKey: bookmarkKey) else { return nil }
-        var stale = false
-        guard let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale) else { return nil }
-        if stale {
-            let ok = url.startAccessingSecurityScopedResource()
-            if let fresh = try? url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil) {
-                defaults.set(fresh, forKey: bookmarkKey)
-            }
-            if ok { url.stopAccessingSecurityScopedResource() }
-        }
-        return url
-    }
-
-    private static func displayName(_ url: URL) -> String {
-        let path = url.path
-        if path.contains("com~apple~CloudDocs") { return "iCloud Drive › " + url.lastPathComponent }
-        if path.contains("/File Provider Storage/") || path.contains("/Containers/Shared/AppGroup/") { return "On My iPhone › " + url.lastPathComponent }
-        return url.lastPathComponent
-    }
-
-    // MARK: Back up
-
-    /// Called each time the app opens, after the energy refresh.
-    func autoBackup(_ store: EnergyStore) async {
-        guard auto, !store.curves.isEmpty else { return }
-        await backUp(store)
-    }
-
-    func backUp(_ store: EnergyStore) async {
+    func save() {
         guard !working else { return }
         working = true
-        defer { working = false }
-        let curves = store.curves
-        let data = await Task.detached(priority: .utility) { Data(EnergyCSV.backup(curves).utf8) }.value
-        let name = Self.prefix + EnergyStore.keyFormatter.string(from: Date()) + ".csv"
-        let prefix = Self.prefix, keep = Self.keep
-
-        var target = customFolderURL() ?? Self.appFolder
-        var result = await Self.write(data, name: name, to: target, prefix: prefix, keep: keep)
-        var fellBack = false
-        if result.error != nil, target != Self.appFolder {
-            target = Self.appFolder
-            result = await Self.write(data, name: name, to: target, prefix: prefix, keep: keep)
-            fellBack = true
-        }
-        if let e = result.error {
-            lastError = "Backup failed: \(e)"
-        } else {
-            lastError = fellBack ? "Couldn't write to \(folderName); saved in \(Self.defaultName)" : nil
-            lastDate = Date()
-            kept = result.kept
-            defaults.set(lastDate!.timeIntervalSince1970, forKey: "backup.lastDate")
-            defaults.set(kept, forKey: "backup.kept")
+        status = "Packing…"
+        Task {
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent("VoltTime-backup-" + VoltArchive.stamp() + "." + VoltArchive.ext)
+            let made: Result<Int64, Error> = await Task.detached(priority: .userInitiated) {
+                do {
+                    try VoltArchive.make(at: out)
+                    return .success(Int64((try? out.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0))
+                } catch { return .failure(error) }
+            }.value
+            switch made {
+            case .failure(let e):
+                working = false
+                status = "The backup file couldn't be made: \(e.localizedDescription)"
+            case .success(let bytes):
+                status = nil
+                SystemSheets.shared.export(out) { [weak self] saved in
+                    guard let self else { return }
+                    self.working = false
+                    try? FileManager.default.removeItem(at: out)
+                    guard saved != nil else { self.status = "Not saved."; return }
+                    let now = Date()
+                    self.lastDate = now
+                    self.lastBytes = bytes
+                    self.defaults.set(now.timeIntervalSince1970, forKey: "backup.savedDate")
+                    self.defaults.set(Int(bytes), forKey: "backup.savedBytes")
+                    self.status = "Backup saved."
+                    Self.removeOldCSVBackups()
+                }
+            }
         }
     }
 
-    private static func write(_ data: Data, name: String, to folder: URL, prefix: String, keep: Int) async -> (error: String?, kept: Int) {
-        await Task.detached(priority: .utility) {
-            let ok = folder.startAccessingSecurityScopedResource()
-            defer { if ok { folder.stopAccessingSecurityScopedResource() } }
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let coordinator = NSFileCoordinator()
-            var coordError: NSError?
-            var writeError: Error?
-            coordinator.coordinate(writingItemAt: folder.appendingPathComponent(name), options: .forReplacing, error: &coordError) { url in
-                do { try data.write(to: url, options: .atomic) } catch { writeError = error }
-            }
-            if let e = writeError ?? coordError { return (e.localizedDescription, 0) }
-
-            // Keep the newest few (iCloud may list files it hasn't downloaded as ".name.icloud").
-            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-            func plainName(_ u: URL) -> String {
-                var n = u.lastPathComponent
-                if n.hasPrefix("."), n.hasSuffix(".icloud") { n = String(n.dropFirst().dropLast(7)) }
-                return n
-            }
-            let backups = files.filter { plainName($0).hasPrefix(prefix) && plainName($0).hasSuffix(".csv") }
-                .sorted { plainName($0) > plainName($1) }
-            for old in backups.dropFirst(keep) {
-                coordinator.coordinate(writingItemAt: old, options: .forDeleting, error: nil) { url in
-                    try? FileManager.default.removeItem(at: url)
-                }
-            }
-            return (nil, min(backups.count, keep))
-        }.value
+    /// Builds 24–29 wrote CSV backups into On My iPhone › VoltTime. Once a real backup is saved they go.
+    static func removeOldCSVBackups() {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        for u in (try? fm.contentsOfDirectory(at: docs, includingPropertiesForKeys: nil)) ?? []
+        where u.lastPathComponent.hasPrefix("VoltTime_backup_") && u.pathExtension == "csv" {
+            try? fm.removeItem(at: u)
+        }
+        for k in ["backup.auto", "backup.folderBookmark", "backup.folderName", "backup.kept", "backup.lastDate"] {
+            UserDefaults.standard.removeObject(forKey: k)
+        }
     }
 
     // MARK: Files to share
-
-    /// A fresh backup file in the temporary folder, for "Save a copy…".
-    func backupCopyFile(_ store: EnergyStore) async -> URL? {
-        let curves = store.curves
-        let text = await Task.detached(priority: .utility) { EnergyCSV.backup(curves) }.value
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(Self.prefix + EnergyStore.keyFormatter.string(from: Date()) + ".csv")
-        do { try Data(text.utf8).write(to: url, options: .atomic) } catch { return nil }
-        return url
-    }
 
     func dailyTotalsFile(_ store: EnergyStore) async -> URL? {
         let curves = store.curves
@@ -254,32 +367,15 @@ final class BackupManager: ObservableObject {
         do { try Data(text.utf8).write(to: url, options: .atomic) } catch { return nil }
         return url
     }
-
-    // MARK: Restore
-
-    static func read(_ url: URL) async throws -> [String: DayCurve] {
-        try await Task.detached(priority: .userInitiated) {
-            let ok = url.startAccessingSecurityScopedResource()
-            defer { if ok { url.stopAccessingSecurityScopedResource() } }
-            var coordError: NSError?
-            var text: String?
-            var readError: Error?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { u in
-                do { text = try String(contentsOf: u, encoding: .utf8) } catch { readError = error }
-            }
-            if let e = readError ?? coordError { throw e }
-            return try EnergyCSV.parse(text ?? "")
-        }.value
-    }
 }
 
 struct PendingRestore: Identifiable {
-    let curves: [String: DayCurve]
-    let fileName: String
-    var id: String { fileName }
+    let contents: BackupContents
+    let name: String
+    var id: String { name }
 }
 
-// MARK: - Pickers and share sheet, opened straight from UIKit (not inside a SwiftUI pop-up)
+// MARK: - Save screen, file picker and share sheet, opened straight from UIKit
 
 @MainActor
 final class SystemSheets: NSObject, UIDocumentPickerDelegate {
@@ -287,21 +383,30 @@ final class SystemSheets: NSObject, UIDocumentPickerDelegate {
     private var onPick: ((URL?) -> Void)?
 
     private static func top() -> UIViewController? {
-        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        var vc = scene?.windows.first { $0.isKeyWindow }?.rootViewController ?? scene?.windows.first?.rootViewController
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap { $0.windows }.first { $0.isKeyWindow } ?? scenes.first?.windows.first
+        var vc = window?.rootViewController
         while let next = vc?.presentedViewController { vc = next }
         return vc
     }
 
-    /// Picks one folder or file. `onPick(nil)` = cancelled.
-    func pick(_ types: [UTType], asCopy: Bool, onPick: @escaping (URL?) -> Void) {
-        guard let top = Self.top() else { onPick(nil); return }
-        let vc = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: asCopy)
+    /// iOS "save a file" screen. `done(nil)` = cancelled.
+    func export(_ url: URL, done: @escaping (URL?) -> Void) {
+        present(UIDocumentPickerViewController(forExporting: [url], asCopy: true), done)
+    }
+
+    /// Picks one file, copied into the app first.
+    func pickFile(_ types: [UTType], done: @escaping (URL?) -> Void) {
+        let vc = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         vc.allowsMultipleSelection = false
         vc.shouldShowFileExtensions = true
+        present(vc, done)
+    }
+
+    private func present(_ vc: UIDocumentPickerViewController, _ done: @escaping (URL?) -> Void) {
+        guard let top = Self.top() else { done(nil); return }
         vc.delegate = self
-        self.onPick = onPick
+        onPick = done
         top.present(vc, animated: true)
     }
 
@@ -312,104 +417,125 @@ final class SystemSheets: NSObject, UIDocumentPickerDelegate {
         top.present(vc, animated: true)
     }
 
-    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        let f = onPick
-        onPick = nil
-        f?(urls.first)
+    nonisolated func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        let first = urls.first
+        Task { @MainActor in self.finish(first) }
     }
 
-    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    nonisolated func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        Task { @MainActor in self.finish(nil) }
+    }
+
+    private func finish(_ url: URL?) {
         let f = onPick
         onPick = nil
-        f?(nil)
+        f?(url)
     }
 }
 
-// MARK: - Backup & restore page (Settings → Data)
+// MARK: - Backup & restore page (Settings → System)
 
 struct BackupPage: View {
     @ObservedObject var energy: EnergyStore
+    @ObservedObject var home: HomeModel
     @ObservedObject private var backup = BackupManager.shared
-    @State private var pendingRestore: PendingRestore?
+    @AppStorage(BackupReminder.enabledKey) private var remindOn = true
+    @AppStorage(BackupReminder.weekdayKey) private var remindDay = 1
+    @AppStorage(BackupReminder.minutesKey) private var remindMinutes = 21 * 60
+    @State private var pending: PendingRestore?
     @State private var note: String?
+    @State private var snapshots: [Snapshot] = []
+
+    private static let weekdays = Calendar.current.weekdaySymbols   // Sunday first
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                TCaption(text: "Automatic")
-                TRow("Auto backup", icon: "arrow.triangle.2.circlepath") {
-                    Toggle("", isOn: $backup.auto).labelsHidden().tint(TSurface.green)
-                }
-                Button(action: chooseFolder) {
-                    TRow("Backup folder", icon: "folder", subtitle: backup.folderName) { chevron }
-                }
-                .buttonStyle(.plain)
-                if backup.usesCustomFolder {
-                    Button { backup.useAppFolder() } label: {
-                        TRow("Use \(BackupManager.defaultName) instead", icon: nil) { EmptyView() }
+                TCaption(text: "iCloud Drive")
+                Button { backup.save() } label: {
+                    TRow("Save backup to iCloud Drive…", icon: "icloud.and.arrow.up", subtitle: saveLine,
+                         dot: backup.summaryColor) {
+                        if backup.working { ProgressView().tint(.white).scaleEffect(0.8) } else { chevron }
                     }
-                    .buttonStyle(.plain)
-                }
-                TRow("Last backup", icon: nil, subtitle: lastLine,
-                     dot: backup.lastError != nil ? Theme.orange : (backup.lastDate == nil ? nil : TSurface.green), last: true) {
-                    if backup.working { ProgressView().tint(.white).scaleEffect(0.8) }
-                }
-                TFootnote(text: "To pick a folder: open it (go inside), then tap Open. Without one, backups go to \(BackupManager.defaultName) in the Files app.")
-
-                TCaption(text: "Manual")
-                Button { Task { await backup.backUp(energy) } } label: {
-                    TRow("Back up now", icon: "arrow.clockwise", subtitle: "To \(backup.folderName)") { chevron }
                 }
                 .buttonStyle(.plain)
                 .disabled(backup.working)
-                Button {
-                    Task { if let u = await backup.backupCopyFile(energy) { SystemSheets.shared.share(u) } }
-                } label: {
-                    TRow("Save a copy…", icon: "square.and.arrow.up", subtitle: "Share sheet › Save to Files › iCloud Drive") { chevron }
+                Button(action: chooseRestore) {
+                    TRow("Restore from backup…", icon: "icloud.and.arrow.down", subtitle: note ?? "Pick a VoltTime backup file",
+                         last: true) { chevron }
                 }
                 .buttonStyle(.plain)
+                TFootnote(text: "One small file with every energy day and your settings. In the save screen pick iCloud Drive › VoltTime. Restore also reads the older CSV backups.")
+
+                TCaption(text: "Reminder")
+                TRow("Weekly reminder", icon: "bell") {
+                    Toggle("", isOn: $remindOn).labelsHidden().tint(TSurface.green)
+                }
+                if remindOn {
+                    TRow("Day", icon: nil) {
+                        Menu {
+                            ForEach(1...7, id: \.self) { d in
+                                Button(Self.weekdays[d - 1]) { remindDay = d }
+                            }
+                        } label: {
+                            Text(Self.weekdays[max(1, min(7, remindDay)) - 1])
+                                .font(.system(size: 15)).foregroundStyle(TSurface.icon)
+                        }
+                    }
+                    TRow("Time", icon: nil, last: true) {
+                        DatePicker("", selection: timeBinding, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                    }
+                } else {
+                    Rectangle().fill(TSurface.line).frame(height: 0.5).padding(.leading, 58).padding(.trailing, 20)
+                }
+
+                TCaption(text: "On this iPhone", trailing: snapshotTotal)
+                if snapshots.isEmpty {
+                    TRow("No copies yet", icon: "clock.arrow.circlepath", subtitle: "The first one is made today", last: true) { EmptyView() }
+                }
+                ForEach(Array(snapshots.enumerated()), id: \.element.id) { i, s in
+                    Button { open(s) } label: {
+                        TRow(dayText(s.date), icon: i == 0 ? "clock.arrow.circlepath" : nil,
+                             subtitle: (s.beforeRestore ? "Before restore" : "Daily") + " · " + size(s.bytes),
+                             last: i == snapshots.count - 1) { chevron }
+                    }
+                    .buttonStyle(.plain)
+                }
+                TFootnote(text: "A copy each day (last \(Snapshots.keepDaily)) and one before every restore. Kept only on this iPhone, left out of iCloud backups.")
+
+                TCaption(text: "Export")
                 Button {
                     Task { if let u = await backup.dailyTotalsFile(energy) { SystemSheets.shared.share(u) } }
                 } label: {
-                    TRow("Daily totals", icon: "tablecells", subtitle: "One row per day, for Excel or Numbers") { chevron }
+                    TRow("Daily totals", icon: "tablecells", subtitle: "One row per day, for Excel or Numbers", last: true) { chevron }
                 }
                 .buttonStyle(.plain)
-                Button(action: chooseRestore) {
-                    TRow("Restore from backup", icon: "square.and.arrow.down", subtitle: note, last: true) { chevron }
-                }
-                .buttonStyle(.plain)
-
-                TFootnote(text: "Backs up each time the app opens, after the data refreshes. One file per day, the latest \(BackupManager.keep) days kept. After a reset: Restore from backup, then pick the newest file.")
                 Spacer(minLength: 40)
             }
         }
         .teslaPage("Backup & restore", black: true)
-        .alert(item: $pendingRestore) { p in
-            Alert(title: Text("Restore \(p.curves.count) days?"),
-                  message: Text("From \(p.fileName). Days already on the iPhone keep whichever copy has more detail."),
-                  primaryButton: .default(Text("Restore")) {
-                      let r = energy.merge(p.curves)
-                      note = "Restored: \(r.added) days added, \(r.improved) improved"
-                  },
+        .onAppear { snapshots = Snapshots.list() }
+        .onChange(of: remindOn) { _, _ in Task { await BackupReminder.apply() } }
+        .onChange(of: remindDay) { _, _ in Task { await BackupReminder.apply() } }
+        .onChange(of: remindMinutes) { _, _ in Task { await BackupReminder.apply() } }
+        .alert(item: $pending) { p in
+            Alert(title: Text("Restore from \(p.name)?"),
+                  message: Text(restoreMessage(p.contents)),
+                  primaryButton: .default(Text("Restore")) { restore(p) },
                   secondaryButton: .cancel())
         }
     }
 
-    private func chooseFolder() {
-        SystemSheets.shared.pick([.folder], asCopy: false) { url in
-            guard let url else { return }
-            backup.setFolder(url)
-            Task { await backup.backUp(energy) }
-        }
-    }
+    // MARK: Actions
 
     private func chooseRestore() {
-        SystemSheets.shared.pick([.commaSeparatedText, .plainText, .text], asCopy: true) { url in
+        SystemSheets.shared.pickFile([VoltArchive.type, .commaSeparatedText, .plainText, .data]) { url in
             guard let url else { return }
             Task {
                 do {
-                    let curves = try await BackupManager.read(url)
-                    pendingRestore = PendingRestore(curves: curves, fileName: url.lastPathComponent)
+                    let c = try await Task.detached(priority: .userInitiated) { try VoltArchive.readAny(url) }.value
+                    pending = PendingRestore(contents: c, name: url.lastPathComponent)
                 } catch {
                     note = error.localizedDescription
                 }
@@ -417,11 +543,68 @@ struct BackupPage: View {
         }
     }
 
-    private var lastLine: String {
-        if let e = backup.lastError { return e }
-        guard backup.lastDate != nil else { return "Not yet" }
-        let t = backup.lastText
-        return t.prefix(1).uppercased() + String(t.dropFirst()) + " · \(backup.kept) kept"
+    private func open(_ s: Snapshot) {
+        Task {
+            do {
+                let c = try await Task.detached(priority: .userInitiated) { try VoltArchive.read(s.url) }.value
+                pending = PendingRestore(contents: c, name: "the copy of " + dayText(s.date))
+            } catch {
+                note = error.localizedDescription
+            }
+        }
+    }
+
+    private func restore(_ p: PendingRestore) {
+        Snapshots.safetyCopy()
+        var parts: [String] = []
+        if !p.contents.curves.isEmpty {
+            let r = energy.merge(p.contents.curves)
+            parts.append("\(r.added) days added, \(r.improved) improved")
+        }
+        if let s = p.contents.settings, AppData.applySettings(s) > 0 {
+            home.reloadSettings()
+            parts.append("settings back")
+        }
+        note = "Restored: " + (parts.isEmpty ? "nothing new" : parts.joined(separator: ", "))
+        snapshots = Snapshots.list()
+    }
+
+    // MARK: Text
+
+    private func restoreMessage(_ c: BackupContents) -> String {
+        var m = "\(c.curves.count) days of energy data"
+        if c.settings != nil { m += " and your settings" }
+        return m + ". A copy of what's on the iPhone now is kept first. Days already here keep whichever copy has more detail."
+    }
+
+    private var saveLine: String {
+        if let s = backup.status, s != "Backup saved." { return s }
+        guard backup.lastDate != nil else { return "Not saved yet" }
+        return backup.lastText + " · " + size(backup.lastBytes)
+    }
+
+    private var snapshotTotal: String {
+        snapshots.isEmpty ? "" : size(snapshots.reduce(0) { $0 + $1.bytes })
+    }
+
+    private func dayText(_ d: Date) -> String {
+        let t = d.formatted(date: .omitted, time: .shortened)
+        if Calendar.current.isDateInToday(d) { return "Today, " + t }
+        if Calendar.current.isDateInYesterday(d) { return "Yesterday, " + t }
+        return d.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)) + ", " + t
+    }
+
+    private func size(_ b: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: b, countStyle: .file)
+    }
+
+    private var timeBinding: Binding<Date> {
+        Binding(
+            get: { Calendar.current.startOfDay(for: Date()).addingTimeInterval(TimeInterval(remindMinutes * 60)) },
+            set: { d in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+                remindMinutes = (c.hour ?? 21) * 60 + (c.minute ?? 0)
+            })
     }
 
     private var chevron: some View {
