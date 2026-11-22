@@ -19,10 +19,10 @@ struct ChargePage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Model 3")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.app(size: 24, weight: .semibold))
                     .kerning(-0.3)
                 Text(status)
-                    .font(.system(size: 13))
+                    .font(.app(size: 13))
                     .foregroundStyle(charging ? TeslaDark.chargingGreen : TeslaDark.rowLabel)
                     .padding(.bottom, 18)
 
@@ -41,7 +41,7 @@ struct ChargePage: View {
                 startStopButton
 
                 if let error {
-                    Text(error).font(.system(size: 12)).foregroundStyle(TeslaDark.importing)
+                    Text(error).font(.app(size: 12)).foregroundStyle(TeslaDark.importing)
                         .padding(.top, 10)
                 }
             }
@@ -80,8 +80,8 @@ struct ChargePage: View {
         let limit = model.chargeLimit ?? 80
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(model.soc.map { "\(Int($0))%" } ?? "—").font(.system(size: 44, weight: .semibold))
-                Text("Limit \(Int(limit))%").font(.system(size: 11)).kerning(0.3).foregroundStyle(TeslaDark.rowLabel)
+                Text(model.soc.map { "\(Int($0))%" } ?? "—").font(.app(size: 44, weight: .semibold))
+                Text("Limit \(Int(limit))%").font(.app(size: 11)).kerning(0.3).foregroundStyle(TeslaDark.rowLabel)
             }
             GeometryReader { g in
                 ZStack(alignment: .leading) {
@@ -97,8 +97,8 @@ struct ChargePage: View {
 
     private func stat(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.system(size: 11)).kerning(0.3).foregroundStyle(TeslaDark.rowLabel)
-            Text(value).font(.system(size: 18, weight: .semibold))
+            Text(label).font(.app(size: 11)).kerning(0.3).foregroundStyle(TeslaDark.rowLabel)
+            Text(value).font(.app(size: 18, weight: .semibold))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -111,10 +111,10 @@ struct ChargePage: View {
     private var ampsCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Charging current").font(.system(size: 14))
+                Text("Charging current").font(.app(size: 14))
                 Spacer()
                 if sendingAmps { ProgressView().tint(.white).scaleEffect(0.7) }
-                Text("\(Int(amps)) A").font(.system(size: 24, weight: .semibold))
+                Text("\(Int(amps)) A").font(.app(size: 24, weight: .semibold))
             }
             Slider(value: $amps, in: 5...32, step: 1) { isEditing in
                 editing = isEditing
@@ -126,9 +126,9 @@ struct ChargePage: View {
                 Spacer()
                 Text("32 A")
             }
-            .font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+            .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
             Text("Set right away in the car. The Solar Excess automation may change it at its next run.")
-                .font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
                 .padding(.top, 4)
         }
         .padding(14)
@@ -159,7 +159,7 @@ struct ChargePage: View {
         } label: {
             HStack(spacing: 8) {
                 if wantCharging != nil { ProgressView().tint(.white) }
-                Text(buttonTitle).font(.system(size: 16, weight: .semibold))
+                Text(buttonTitle).font(.app(size: 16, weight: .semibold))
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)

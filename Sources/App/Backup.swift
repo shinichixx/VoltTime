@@ -489,7 +489,7 @@ struct BackupPage: View {
                             }
                         } label: {
                             Text(Self.weekdays[max(1, min(7, remindDay)) - 1])
-                                .font(.system(size: 15)).foregroundStyle(TSurface.icon)
+                                .font(.app(size: 15)).foregroundStyle(TSurface.icon)
                         }
                     }
                     TRow("Time", icon: nil, last: true) {

@@ -33,7 +33,7 @@ struct PublicView: View {
                     Spacer()
                     (Text("Charge to ") + Text("\(Int(goal))%").foregroundStyle(.white))
                 }
-                .font(.system(size: 13))
+                .font(.app(size: 13))
                 .foregroundStyle(TeslaDark.rowLabel)
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -56,7 +56,7 @@ struct PublicView: View {
                 } label: {
                     TRow("Charger", icon: "bolt", last: true) {
                         HStack(spacing: 8) {
-                            Text(chargerSummary).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                            Text(chargerSummary).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
                         }
                     }
@@ -89,7 +89,7 @@ struct PublicView: View {
                 Spacer()
                 Text("TOTAL COST").kerning(0.8)
             }
-            .font(.system(size: 11, weight: .medium))
+            .font(.app(size: 11, weight: .medium))
             .foregroundStyle(TeslaDark.rowLabel)
             .padding(.horizontal, 20)
             .padding(.top, 26)
@@ -100,28 +100,28 @@ struct PublicView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     let m = Int(minutes.rounded())
                     if m < 60 {
-                        Text("\(m)").font(.system(size: 50, weight: .bold))
-                        Text("min").font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
+                        Text("\(m)").font(.app(size: 50, weight: .bold))
+                        Text("min").font(.app(size: 17, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
                     } else {
-                        Text(Fmt.shortDuration(minutes)).font(.system(size: 40, weight: .bold))
+                        Text(Fmt.shortDuration(minutes)).font(.app(size: 40, weight: .bold))
                     }
                     Spacer()
-                    Text(Fmt.rm(cost)).font(.system(size: 32, weight: .bold)).foregroundStyle(Theme.orange)
+                    Text(Fmt.rm(cost)).font(.app(size: 32, weight: .bold)).foregroundStyle(Theme.orange)
                         .minimumScaleFactor(0.6).lineLimit(1)
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 20)
                 Text(String(format: "+%.1f kWh at %.0f kW average", delivered, minutes > 0 ? delivered / (minutes / 60) : 0))
-                    .font(.system(size: 13))
+                    .font(.app(size: 13))
                     .foregroundStyle(TeslaDark.rowLabel)
                     .padding(.horizontal, 20)
             case .incomplete:
                 Text("Fill in the charger speed and price to see the time and cost.")
-                    .font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                    .font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                     .padding(.horizontal, 20)
             case let .error(msg):
                 Label(msg, systemImage: "exclamationmark.triangle")
-                    .font(.system(size: 13)).foregroundStyle(Theme.rouge)
+                    .font(.app(size: 13)).foregroundStyle(Theme.rouge)
                     .padding(.horizontal, 20)
             }
         }
@@ -178,7 +178,7 @@ struct PublicChargerPage: View {
                 }
 
                 Text("Model 3 LR RWD 2026 · 79 kWh · 90% efficiency. Follows the charging curve: 250 kW up to 20%, tapering to 56 kW at 80%. Cost per kWh includes 10% charging loss.")
-                    .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20)

@@ -24,14 +24,14 @@ struct SystemTile: View {
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.dim)
             }
             .frame(height: 22)
-            Text(title).font(.system(size: 15, weight: .medium)).foregroundStyle(.white)
+            Text(title).font(.app(size: 15, weight: .medium)).foregroundStyle(.white)
                 .padding(.top, 8)
             HStack(spacing: 4) {
                 if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
-                Text(status).font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+                Text(status).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
             }
             .padding(.top, 3)
-            Text(detail).font(.system(size: 10)).foregroundStyle(TeslaDark.dim).lineLimit(1)
+            Text(detail).font(.app(size: 10)).foregroundStyle(TeslaDark.dim).lineLimit(1)
                 .padding(.top, 1)
         }
         .padding(12)
@@ -48,6 +48,11 @@ extension View {
             .background((black ? TSurface.page : TeslaDark.bg).ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {   // the title in Albert Sans (the system bar would draw it in SF Pro)
+                ToolbarItem(placement: .principal) {
+                    Text(title).font(.app(size: 17, weight: .semibold)).foregroundStyle(.white)
+                }
+            }
             .toolbarBackground(black ? TSurface.page : TeslaDark.bg, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
     }
@@ -74,7 +79,7 @@ struct SectionCaption: View {
             Spacer()
             if !trailing.isEmpty { Text(trailing) }
         }
-        .font(.system(size: 11, weight: .semibold))
+        .font(.app(size: 11, weight: .semibold))
         .kerning(0.5)
         .foregroundStyle(TeslaDark.dim)
         .padding(.horizontal, 24)
@@ -98,9 +103,9 @@ struct NavRow: View {
                     .foregroundStyle(TeslaDark.rowIcon)
                     .frame(width: 40, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 15, weight: .medium)).foregroundStyle(.white)
+                    Text(title).font(.app(size: 15, weight: .medium)).foregroundStyle(.white)
                     if !detail.isEmpty {
-                        Text(detail).font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                        Text(detail).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
                     }
                 }
                 Spacer()
@@ -131,9 +136,9 @@ struct ModeRow: View {
                     .foregroundStyle(selected ? Color.white : TeslaDark.dim)
                     .frame(width: 40, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(mode.title).font(.system(size: 15, weight: .medium))
+                    Text(mode.title).font(.app(size: 15, weight: .medium))
                         .foregroundStyle(selected ? Color.white : TeslaDark.rowLabel)
-                    Text(mode.detail).font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    Text(mode.detail).font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                 }
                 Spacer()
                 if model.pendingMode == mode.option { ProgressView().tint(.white).scaleEffect(0.8) }
@@ -165,14 +170,14 @@ struct SettingsPage: View {
                 modeTiles
                     .padding(.horizontal, 20)
                 Text(ChargingMode.named(myHome.pendingMode ?? myHome.mode ?? "Routine").detail)
-                    .font(.system(size: 12))
+                    .font(.app(size: 12))
                     .foregroundStyle(TeslaDark.rowLabel)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 10)
                     .padding(.horizontal, 20)
                 if let msg = myHome.message ?? home.message {
-                    Text(msg).font(.system(size: 12)).foregroundStyle(TeslaDark.importing)
+                    Text(msg).font(.app(size: 12)).foregroundStyle(TeslaDark.importing)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 6)
                 }
@@ -205,11 +210,11 @@ struct SettingsPage: View {
                 } label: {
                     VStack(spacing: 5) {
                         ZStack {
-                            Text(emoji).font(.system(size: 22)).opacity(myHome.pendingMode == option ? 0.25 : 1)
+                            Text(emoji).font(.app(size: 22)).opacity(myHome.pendingMode == option ? 0.25 : 1)
                             if myHome.pendingMode == option { ProgressView().tint(.white).scaleEffect(0.7) }
                         }
                         Text(option == "Excess Solar" ? "Solar" : option)
-                            .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                            .font(.app(size: 12, weight: selected ? .semibold : .regular))
                             .foregroundStyle(selected ? Color.white : TeslaDark.rowLabel)
                             .lineLimit(1)
                     }
@@ -236,7 +241,7 @@ struct SettingsPage: View {
             if !routine {
                 Label("Used in Routine mode only. Now on \(myHome.mode ?? "another mode"), so no night schedule is set.",
                       systemImage: "pause.circle")
-                    .font(.system(size: 12))
+                    .font(.app(size: 12))
                     .foregroundStyle(Theme.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
@@ -245,12 +250,12 @@ struct SettingsPage: View {
 
             VStack(spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("\(Int(nowSoc.rounded()))%").font(.system(size: 28, weight: .light)).foregroundStyle(.white)
-                    Text("now").font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                    Text("\(Int(nowSoc.rounded()))%").font(.app(size: 28, weight: .light)).foregroundStyle(.white)
+                    Text("now").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                     Spacer()
                     if home.settingLimit { ProgressView().tint(.white).scaleEffect(0.7) }
-                    Text("Limit").font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-                    Text("\(Int(home.limit.rounded()))%").font(.system(size: 15, weight: .medium)).foregroundStyle(.white)
+                    Text("Limit").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                    Text("\(Int(home.limit.rounded()))%").font(.app(size: 15, weight: .medium)).foregroundStyle(.white)
                 }
                 TBatteryBar(now: nowSoc, limit: home.limit)
             }
@@ -268,7 +273,7 @@ struct SettingsPage: View {
             }
             .padding(.horizontal, 20)
             Text("Where you're going tomorrow")
-                .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                 .padding(.top, 7)
                 .padding(.bottom, 14)
 
@@ -292,21 +297,21 @@ struct SettingsPage: View {
         if home.charging == true {
             // Charging now: show that and the current, not a start time that has already passed.
             VStack(alignment: .trailing, spacing: 1) {
-                Text("Charging").font(.system(size: 22, weight: .light)).foregroundStyle(TSurface.green)
+                Text("Charging").font(.app(size: 22, weight: .light)).foregroundStyle(TSurface.green)
                 if let a = myHome.currentNow ?? myHome.chargeAmps {
-                    Text("\(Int(a.rounded())) A").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    Text("\(Int(a.rounded())) A").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                 }
             }
         } else if r.minutes == 0 {
-            Text("Not needed").font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.labelGrey)
+            Text("Not needed").font(.app(size: 17, weight: .light)).foregroundStyle(TeslaDark.labelGrey)
         } else {
             // The time actually set in the car wins over the app's own estimate.
             let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
             let c = splitClock(Fmt.clock(start, calendar: .current))
             VStack(alignment: .trailing, spacing: 1) {
-                Text(c.time).font(.system(size: 28, weight: .light)).foregroundStyle(.white)
+                Text(c.time).font(.app(size: 28, weight: .light)).foregroundStyle(.white)
                 if !c.suffix.isEmpty {
-                    Text(c.suffix).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    Text(c.suffix).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                 }
             }
         }
@@ -370,23 +375,23 @@ struct ChargeDetailsPage: View {
                         Spacer()
                         Text("COST").kerning(0.8)
                     }
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.app(size: 11, weight: .medium))
                     .foregroundStyle(TeslaDark.rowLabel)
                     .padding(.top, 20)
                     .padding(.bottom, 4)
                     HStack(alignment: .firstTextBaseline) {
                         Text(r.minutes == 0 ? "Not needed" : Fmt.longDuration(r.minutes))
-                            .font(.system(size: r.minutes == 0 ? 30 : 42, weight: .bold))
+                            .font(.app(size: r.minutes == 0 ? 30 : 42, weight: .bold))
                             .foregroundStyle(.white)
                             .lineLimit(1).minimumScaleFactor(0.6)
                         Spacer()
-                        Text(Fmt.rm(r.cost)).font(.system(size: 28, weight: .bold)).foregroundStyle(TSurface.green)
+                        Text(Fmt.rm(r.cost)).font(.app(size: 28, weight: .bold)).foregroundStyle(TSurface.green)
                             .lineLimit(1).minimumScaleFactor(0.6)
                     }
                     Text(r.minutes == 0
                          ? "Already at \(Int(model.startSoc))%, limit \(Int(model.limit.rounded()))%"
                          : "+\(Int(r.deltaPct.rounded()))% (\(Int(model.startSoc))% → \(Int(model.limit.rounded()))%) · \(String(format: "%.1f", r.packKWh)) kWh into battery")
-                        .font(.system(size: 13))
+                        .font(.app(size: 13))
                         .foregroundStyle(TeslaDark.rowLabel)
                 }
                 .padding(.horizontal, 20)
@@ -395,7 +400,7 @@ struct ChargeDetailsPage: View {
                 NavigationLink { RemindersPage(model: model) } label: {
                     TRow("Reminders", icon: "bell") {
                         HStack(spacing: 8) {
-                            Text(reminderSummary).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                            Text(reminderSummary).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
                         }
                     }
@@ -411,7 +416,7 @@ struct ChargeDetailsPage: View {
                     TRow("Charger & battery", icon: "bolt", last: true) {
                         HStack(spacing: 8) {
                             Text("\(Int(model.amps))A · \(Int(model.volts))V · \(model.efficiency.plain)%")
-                                .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
                         }
                     }
@@ -419,7 +424,7 @@ struct ChargeDetailsPage: View {
                 .buttonStyle(.plain)
 
                 Text("Finishes \(model.bufferMinutes) min before your ready time. Saved to Home Assistant, which re-plans tonight's start when these change.")
-                    .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20)
@@ -538,7 +543,7 @@ struct ChargerBatteryPage: View {
                 }
 
                 Button("Reset to defaults") { model.resetDefaults() }
-                    .font(.system(size: 14)).foregroundStyle(Theme.rouge)
+                    .font(.app(size: 14)).foregroundStyle(Theme.rouge)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 20)
                 Spacer(minLength: 40)
@@ -559,7 +564,7 @@ struct ChargerBatteryPage: View {
         if let live = model.liveSoc {
             return AnyView(
                 Button("Use car \(Int(live.rounded()))%") { model.startSoc = live.rounded() }
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
+                    .font(.app(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
                     .buttonStyle(.plain)
             )
         }
@@ -579,15 +584,15 @@ struct LimitSheet: View {
     var body: some View {
         let now = model.liveSoc ?? model.startSoc
         VStack(spacing: 0) {
-            Text("Charge limit for tomorrow").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+            Text("Charge limit for tomorrow").font(.app(size: 16, weight: .semibold)).foregroundStyle(.white)
                 .padding(.top, 28)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text("\(Int(value))").font(.system(size: 60, weight: .light))
-                Text("%").font(.system(size: 24, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
+                Text("\(Int(value))").font(.app(size: 60, weight: .light))
+                Text("%").font(.app(size: 24, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
             }
             .foregroundStyle(.white)
             .padding(.top, 8)
-            Text("Drag the battery to set").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            Text("Drag the battery to set").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                 .padding(.bottom, 20)
 
             TBatteryBar(now: now, limit: max(value, now), range: 50...100) { value = $0 }
@@ -597,7 +602,7 @@ struct LimitSheet: View {
                 Spacer()
                 Text(value > now ? "+\(Int((value - now).rounded()))%" : "No charge needed")
             }
-            .font(.system(size: 13))
+            .font(.app(size: 13))
             .foregroundStyle(TeslaDark.rowLabel)
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -613,7 +618,7 @@ struct LimitSheet: View {
                 Task { await model.chooseTrip("Others", limit: v) }
                 dismiss()
             } label: {
-                Text("Set limit").font(.system(size: 16, weight: .medium)).foregroundStyle(.white)
+                Text("Set limit").font(.app(size: 16, weight: .medium)).foregroundStyle(.white)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
                     .background(RoundedRectangle(cornerRadius: 12).fill(TSurface.selected))
             }

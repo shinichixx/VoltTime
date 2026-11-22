@@ -74,14 +74,14 @@ struct TessiePage: View {
                             }.buttonStyle(.plain)
                         }
                     }
-                    .font(.system(size: 14)).frame(width: 190, alignment: .trailing)
+                    .font(.app(size: 14)).frame(width: 190, alignment: .trailing)
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
                 }
                 Button { Task { await saveAndFind() } } label: {
                     HStack(spacing: 8) {
                         if working { ProgressView().tint(.white).scaleEffect(0.8) }
-                        Text("Save & find my car").font(.system(size: 15, weight: .medium))
+                        Text("Save & find my car").font(.app(size: 15, weight: .medium))
                     }
                     .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 13)
                     .background(RoundedRectangle(cornerRadius: 12).fill(TSurface.selected))
@@ -101,7 +101,7 @@ struct TessiePage: View {
                     }
                 }
                 Text("Create a token at dash.tessie.com → Settings → Developer API → Generate Access Token. It's kept in the iPhone Keychain and never goes into backups. Reading the car uses Tessie's saved state, so opening VoltTime doesn't wake the car; only the buttons do.")
-                    .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20).padding(.top, 14)
             }
@@ -144,7 +144,7 @@ struct QuickControlsPage: View {
                         Button { slot = i } label: {
                             VStack(spacing: 3) {
                                 Image(systemName: c.icon(car.car)).font(.system(size: 18, weight: .light))
-                                Text(c.short).font(.system(size: 9)).lineLimit(1)
+                                Text(c.short).font(.app(size: 9)).lineLimit(1)
                             }
                             .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 52)
                             .background(RoundedRectangle(cornerRadius: 12).fill(slot == i ? TSurface.selected : TSurface.field))
@@ -158,7 +158,7 @@ struct QuickControlsPage: View {
                     Spacer()
                     Button { move(1) } label: { Label("Move right", systemImage: "arrow.right") }.disabled(slot == 5)
                 }
-                .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                 .padding(.horizontal, 20).padding(.top, 10)
                 TFootnote(text: "Tap a slot, then pick a button below for it.")
 
@@ -181,7 +181,7 @@ struct QuickControlsPage: View {
                 }
                 TFootnote(text: "The switch on each row = ask before doing it. On by default for unlock, trunks, windows, keyless driving, valet and preconditioning. The autogate's own setting is in My Car ☰ › Autogate.")
                 Button("Reset to default") { CarControl.save(CarControl.defaults); car.reloadControls() }
-                    .font(.system(size: 14)).foregroundStyle(CarColors.red).padding(.top, 16)
+                    .font(.app(size: 14)).foregroundStyle(CarColors.red).padding(.top, 16)
                 Spacer(minLength: 40)
             }
         }
@@ -223,7 +223,7 @@ struct AutogatePage: View {
                 TRow("RF switch", icon: "dot.radiowaves.left.and.right") {
                     TextField("switch.…", text: $entity)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .multilineTextAlignment(.trailing).font(.system(size: 13)).foregroundStyle(.white)
+                        .multilineTextAlignment(.trailing).font(.app(size: 13)).foregroundStyle(.white)
                         .frame(width: 220)
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
@@ -236,7 +236,7 @@ struct AutogatePage: View {
                      last: true) {
                     TextField("zone.…", text: $zone)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .multilineTextAlignment(.trailing).font(.system(size: 13)).foregroundStyle(.white)
+                        .multilineTextAlignment(.trailing).font(.app(size: 13)).foregroundStyle(.white)
                         .frame(width: 150)
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
@@ -256,7 +256,7 @@ struct AppVersionFooter: View {
             Text("VoltTime · " + CarModel.versionLine).foregroundStyle(TeslaDark.rowLabel)
             if !CarModel.releaseLine.isEmpty { Text(CarModel.releaseLine).foregroundStyle(TeslaDark.dim) }
         }
-        .font(.system(size: 11))
+        .font(.app(size: 11))
         .frame(maxWidth: .infinity)
         .padding(.top, 28)
         .padding(.bottom, 20)

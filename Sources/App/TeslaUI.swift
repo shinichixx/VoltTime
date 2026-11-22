@@ -23,7 +23,7 @@ struct TCaption: View {
             Spacer()
             if !trailing.isEmpty { Text(trailing) }
         }
-        .font(.system(size: 11, weight: .medium))
+        .font(.app(size: 11, weight: .medium))
         .foregroundStyle(TeslaDark.rowLabel)
         .padding(.horizontal, 20)
         .padding(.top, 26)
@@ -72,13 +72,13 @@ struct TRow<Trailing: View, Below: View>: View {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 7) {
-                                Text(title).font(.system(size: 15)).foregroundStyle(.white).lineLimit(1)
+                                Text(title).font(.app(size: 15)).foregroundStyle(.white).lineLimit(1)
                                 if let badge { badge }
                             }
                             if let subtitle {
                                 HStack(spacing: 5) {
                                     if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
-                                    Text(subtitle).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                                    Text(subtitle).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
@@ -140,14 +140,14 @@ struct TStats: View {
                 if i > 0 { Rectangle().fill(TSurface.line).frame(width: 0.5, height: 36) }
                 VStack(spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(items[i].value).font(.system(size: 25, weight: .light)).foregroundStyle(items[i].color)
+                        Text(items[i].value).font(.app(size: 25, weight: .light)).foregroundStyle(items[i].color)
                         if !items[i].unit.isEmpty {
-                            Text(items[i].unit).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                            Text(items[i].unit).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                         }
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                    Text(items[i].caption).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+                    Text(items[i].caption).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -170,9 +170,9 @@ struct TSegment: View {
                 let on = i == selected
                 Button { pick(i) } label: {
                     VStack(spacing: 1) {
-                        Text(items[i]).font(.system(size: 13, weight: .medium))
+                        Text(items[i]).font(.app(size: 13, weight: .medium))
                         if let subs, subs.indices.contains(i) {
-                            Text(subs[i]).font(.system(size: 10.5))
+                            Text(subs[i]).font(.app(size: 10.5))
                                 .foregroundStyle(on ? TeslaDark.labelGrey : TeslaDark.dim)
                         }
                     }
@@ -249,11 +249,11 @@ struct TNumberField: View {
             TextField("0", text: $text)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
-                .font(.system(size: 15))
+                .font(.app(size: 15))
                 .foregroundStyle(.white)
                 .frame(width: 58)
                 .focused(focus, equals: key)
-            Text(unit).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            Text(unit).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -272,11 +272,11 @@ struct TValueField: View {
             TextField("0", value: $value, format: .number.grouping(.never).precision(.fractionLength(0...4)))
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
-                .font(.system(size: 15))
+                .font(.app(size: 15))
                 .foregroundStyle(.white)
                 .frame(width: 64)
                 .focused(focus, equals: key)
-            Text(unit).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            Text(unit).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -293,8 +293,8 @@ struct TValue: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 3) {
-            Text(value).font(.system(size: size, weight: size > 17 ? .light : .regular)).foregroundStyle(color)
-            if !unit.isEmpty { Text(unit).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel) }
+            Text(value).font(.app(size: size, weight: size > 17 ? .light : .regular)).foregroundStyle(color)
+            if !unit.isEmpty { Text(unit).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel) }
         }
         .lineLimit(1)
     }
@@ -307,7 +307,7 @@ struct TFootnote: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11))
+            .font(.app(size: 11))
             .foregroundStyle(color)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -397,7 +397,7 @@ struct SwipeToDelete: ViewModifier {
                     withAnimation(.easeOut(duration: 0.2)) { x = 0; open = false }
                     onDelete()
                 } label: {
-                    Text("Delete").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                    Text("Delete").font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
                         .frame(width: max(width, -x))
                         .frame(maxHeight: .infinity)
                         .background(Theme.rouge)

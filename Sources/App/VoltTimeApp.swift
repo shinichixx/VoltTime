@@ -10,6 +10,7 @@ struct VoltTimeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .font(.app(size: 17))   // Albert Sans for any text without its own font
                 .tint(.white)
                 .preferredColorScheme(.dark)
         }
@@ -143,7 +144,7 @@ struct HomeAssistantPage: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .multilineTextAlignment(.trailing)
-                        .font(.system(size: 14))
+                        .font(.app(size: 14))
                         .foregroundStyle(.white)
                         .frame(width: 190)
                         .focused($focus, equals: "url")
@@ -169,7 +170,7 @@ struct HomeAssistantPage: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .font(.system(size: 14))
+                    .font(.app(size: 14))
                     .frame(width: 190, alignment: .trailing)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -184,7 +185,7 @@ struct HomeAssistantPage: View {
                 } label: {
                     HStack(spacing: 8) {
                         if testing { ProgressView().tint(.white).scaleEffect(0.8) }
-                        Text("Save & test connection").font(.system(size: 15, weight: .medium))
+                        Text("Save & test connection").font(.app(size: 15, weight: .medium))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -197,14 +198,14 @@ struct HomeAssistantPage: View {
                 .padding(.top, 16)
                 if let testResult {
                     Text(testResult)
-                        .font(.system(size: 12))
+                        .font(.app(size: 12))
                         .foregroundStyle(connected == true ? TSurface.green : Theme.orange)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
                 }
                 Text("Same address and token as Fleetly. Create a token in Home Assistant → your profile → Security → Long-lived access tokens. Kept in the iPhone Keychain.")
-                    .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20)
@@ -219,7 +220,7 @@ struct HomeAssistantPage: View {
                 TCaption(text: "About")
                 TRow("Version", icon: "info.circle", last: true) {
                     Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
-                        .font(.system(size: 14)).foregroundStyle(TeslaDark.rowLabel)
+                        .font(.app(size: 14)).foregroundStyle(TeslaDark.rowLabel)
                 }
                 Spacer(minLength: 40)
             }
@@ -243,14 +244,14 @@ struct HomeAssistantPage: View {
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(TSurface.icon)
             Text(connected == nil ? (testing ? "Checking…" : "Not checked") : (connected == true ? "Connected" : "Can't reach Home Assistant"))
-                .font(.system(size: 20, weight: .semibold))
+                .font(.app(size: 20, weight: .semibold))
                 .foregroundStyle(connected == false ? Theme.orange : .white)
             if let checkedAt {
                 HStack(spacing: 5) {
                     Circle().fill(connected == true ? TSurface.green : Theme.orange).frame(width: 6, height: 6)
                     Text("Checked at \(checkedAt.formatted(date: .omitted, time: .shortened))")
                 }
-                .font(.system(size: 12))
+                .font(.app(size: 12))
                 .foregroundStyle(TeslaDark.rowLabel)
             }
         }

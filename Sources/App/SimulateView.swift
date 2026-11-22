@@ -33,7 +33,7 @@ struct SimulateView: View {
                     Spacer()
                     (Text("Charge to ") + Text("\(Int(target))%").foregroundStyle(.white))
                 }
-                .font(.system(size: 13))
+                .font(.app(size: 13))
                 .foregroundStyle(TeslaDark.rowLabel)
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -60,7 +60,7 @@ struct SimulateView: View {
                     TRow("Charger", icon: "bolt", last: true) {
                         HStack(spacing: 8) {
                             Text("\(Int(model.amps))A · RM \(String(format: "%.4f", model.tariff))/kWh")
-                                .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
                         }
                     }
@@ -93,7 +93,7 @@ struct SimulateView: View {
         if abs(live - startSoc) < 0.5 { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
         return AnyView(
             Button("Use car \(Int(live.rounded()))%") { startSoc = min(99, live.rounded()) }
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
+                .font(.app(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
                 .buttonStyle(.plain)
         )
     }
@@ -107,33 +107,33 @@ struct SimulateView: View {
                 Spacer()
                 Text("TOTAL COST").kerning(0.8)
             }
-            .font(.system(size: 11, weight: .medium))
+            .font(.app(size: 11, weight: .medium))
             .foregroundStyle(TeslaDark.rowLabel)
             .padding(.top, 26)
             .padding(.bottom, 6)
 
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 if r.minutes == 0 {
-                    Text("—").font(.system(size: 50, weight: .bold))
+                    Text("—").font(.app(size: 50, weight: .bold))
                 } else {
                     let c = splitClock(Fmt.clock(minutes: sim.minutes))
-                    Text(c.time).font(.system(size: 50, weight: .bold))
-                    Text(c.suffix).font(.system(size: 17, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
+                    Text(c.time).font(.app(size: 50, weight: .bold))
+                    Text(c.suffix).font(.app(size: 17, weight: .light)).foregroundStyle(TeslaDark.rowLabel)
                 }
                 Spacer()
-                Text(Fmt.rm(r.cost)).font(.system(size: 32, weight: .bold)).foregroundStyle(TSurface.green)
+                Text(Fmt.rm(r.cost)).font(.app(size: 32, weight: .bold)).foregroundStyle(TSurface.green)
                     .minimumScaleFactor(0.6).lineLimit(1)
             }
             .foregroundStyle(.white)
 
             Text(r.minutes == 0 ? "Pick a target above the start level"
                  : "\(dayLabel(sim)) · full by \(Fmt.clock(minutes: finishMinutes)) · \(Fmt.longDuration(r.minutes))")
-                .font(.system(size: 13))
+                .font(.app(size: 13))
                 .foregroundStyle(TeslaDark.rowLabel)
                 .lineLimit(1).minimumScaleFactor(0.8)
             if r.minutes > 0 && inPeak(sim.minutes) {
                 Label("Starts in TNB peak (2pm–10pm, Mon–Fri)", systemImage: "exclamationmark.triangle")
-                    .font(.system(size: 12))
+                    .font(.app(size: 12))
                     .foregroundStyle(Theme.orange)
                     .padding(.top, 6)
             }
@@ -196,7 +196,7 @@ struct SimChargerPage: View {
                 TRow("Cost", last: true) { TValue(value: Fmt.rm(r.cost), color: TSurface.green) }
 
                 Text("Charger settings come from Charging → Charge details. Charging to 100% adds about 25 min for the slow last 1%.")
-                    .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20)

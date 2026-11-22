@@ -159,7 +159,7 @@ enum CarControl: String, CaseIterable, Identifiable {
     /// The centred confirmation: a plain question, one line of what happens, and the button word.
     func question(_ s: CarSnapshot) -> (title: String, message: String, action: String) {
         switch self {
-        case .gate: return ("Open or close the gate?", "This sends one signal to the gate through Home Assistant.", "Yes")
+        case .gate: return ("Open or close the front gate?", "", "Yes")
         case .lock: return s.locked == false ? ("Lock the car?", "All doors will lock.", "Lock")
                                              : ("Unlock the car?", "Anyone next to the car will be able to open it.", "Unlock")
         case .frunk: return s.frunkOpen ? ("Close the front trunk?", "Only cars with a powered front trunk can close it remotely.", "Close")
@@ -169,13 +169,14 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .windows: return s.anyWindowOpen ? ("Close the windows?", "Make sure nothing is in the way.", "Close")
                                               : ("Vent the windows?", "All four windows open a little.", "Vent")
         case .keyless: return ("Start keyless driving?", "You can drive without the phone key for the next 2 minutes.", "Start")
+        case .sentry: return s.sentry ? ("Turn off Sentry mode?", "", "Yes") : ("Turn on Sentry mode?", "", "Yes")
         case .valet: return s.valet ? ("Turn off valet mode?", "The car goes back to your normal settings.", "Turn off")
                                     : ("Turn on valet mode?", "Speed is limited and the glovebox locks.", "Turn on")
         case .precondition: return s.preconditioning ? ("Stop preconditioning?", "The A/C turns off.", "Stop")
                                                      : ("Precondition the battery?", "The A/C turns on and the cabin is set to 19°C.", "Start")
         case .chargePort: return s.portOpen ? ("Close the charge port?", "Unplug the cable first.", "Close")
                                             : ("Open the charge port?", "The port door opens and unlocks the cable.", "Open")
-        default: return ("\(title)?", "This is sent to the car through Tessie.", short)
+        default: return ("\(title)?", "", short)
         }
     }
 
@@ -232,7 +233,25 @@ final class CarModel: ObservableObject {
     static let recommendedBar = 2.9
     static let warnKey = "car.tyre.warn"
     static let unitKey = "car.tyre.unit"
-    static var lowBar: Double { UserDefaults.standard.object(forKey: warnKey) == nil ? 2.6 : UserDefaults.standard.double(forKey: warnKey) }
+
+    /// Tyre pressure bands (bar, read to one decimal): 2.9–3.3 normal, 2.0–2.8 low, 1.9 and below very low, 3.4 and above high.
+    enum TyreLevel { case ok, low, flat, high }
+    static func tyreLevel(_ bar: Double?) -> TyreLevel {
+        guard let b = bar else { return .ok }
+        let v = (b * 10).rounded() / 10
+        if v <= 1.9 { return .flat }
+        if v <= 2.8 { return .low }
+        if v <= 3.3 { return .ok }
+        return .high
+    }
+    /// Colour for a reading; `normal` is what an OK tyre uses (grey on My Car, white on the Tyres page).
+    static func tyreColor(_ bar: Double?, normal: Color) -> Color {
+        switch tyreLevel(bar) {
+        case .ok: return normal
+        case .low, .high: return CarColors.orange
+        case .flat: return CarColors.red
+        }
+    }
 
     private static var cacheURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("car-state.json")
@@ -323,9 +342,9 @@ final class CarModel: ObservableObject {
         if c == .gate, let away = gateAway {
             if let m = away.meters {
                 let dist = m < 1000 ? "\(Int((m / 10).rounded() * 10)) m" : String(format: "%.1f km", m / 1000)
-                return ("You're not at home", "\(car.name) is \(dist) away.\nOpen the gate anyway?", "Open Gate", true)
+                return ("You're not at home", "\(car.name) is \(dist) away.\nOpen the front gate anyway?", "Open Gate", true)
             }
-            return ("Open the gate?", "Couldn't check where the car is.", "Yes", false)
+            return ("Open the front gate?", "Couldn't check where the car is.", "Yes", false)
         }
         let q = c.question(car)
         return (q.title, q.message, q.action, false)
@@ -633,16 +652,20 @@ final class CarModel: ObservableObject {
         return m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(m) min"
     }
 
-    func tyreLow(_ i: Int) -> Bool {
-        guard let v = car.tyres[i] else { return false }
-        return v < Self.lowBar
-    }
+    func tyreLow(_ i: Int) -> Bool { Self.tyreLevel(car.tyres[i]) != .ok }
 
     var tyreNote: String {
         let names = ["FL", "FR", "RL", "RR"]
-        let low = (0..<4).filter { tyreLow($0) }.map { names[$0] }
         if car.tyres.allSatisfy({ $0 == nil }) { return "No reading yet" }
-        return low.isEmpty ? "All OK" : low.joined(separator: ", ") + " low"
+        let notes = (0..<4).compactMap { i -> String? in
+            switch Self.tyreLevel(car.tyres[i]) {
+            case .ok: return nil
+            case .low: return names[i] + " low"
+            case .flat: return names[i] + " very low"
+            case .high: return names[i] + " high"
+            }
+        }
+        return notes.isEmpty ? "All OK" : notes.joined(separator: " · ")
     }
 
     var updatedText: String {

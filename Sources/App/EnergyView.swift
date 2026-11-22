@@ -103,7 +103,7 @@ struct EnergyView: View {
                     if comp == .all {
                         HStack(spacing: 8) {
                             Text(period == .day ? "Power" : "Energy per \(period == .year || period == .lifetime ? "month" : "day")")
-                                .font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                                .font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                             if store.loading { ProgressView().tint(.white).scaleEffect(0.6) }
                         }
                         allChart(r)
@@ -116,13 +116,13 @@ struct EnergyView: View {
                         Text(period == .day
                              ? "Model 3 sits on top of Home (red line = everything used). Grid sits on top of Solar (grey line = everything supplied). Below 0 = solar exported to TNB."
                              : "Left bar = used (Home + Model 3). Right bar = supplied (Solar + Grid). Below 0 = solar exported to TNB.")
-                            .font(.system(size: 9.5))
+                            .font(.app(size: 9.5))
                             .foregroundStyle(Color(white: 0.36))
                             .padding(.top, 10)
                     } else {
-                        Text(comp.title).font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                        Text(comp.title).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(totalText(total)).font(.system(size: 32, weight: .semibold))
+                            Text(totalText(total)).font(.app(size: 32, weight: .semibold))
                             if store.loading { ProgressView().tint(.white).scaleEffect(0.7) }
                         }
                         .padding(.bottom, 10)
@@ -132,7 +132,7 @@ struct EnergyView: View {
                             .padding(.top, 14)
                     }
                     if let msg = store.message {
-                        Text(msg).font(.system(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
+                        Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -269,7 +269,7 @@ struct EnergyView: View {
         }
         .overlay {
             if curve == nil && !store.loading {
-                Text("No data for this day").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                Text("No data for this day").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
     }
@@ -288,16 +288,16 @@ struct EnergyView: View {
 
     private func scrubBox(_ title: String, _ rows: [(EnergyPart, String)]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.system(size: 11, weight: .semibold))
+            Text(title).font(.app(size: 11, weight: .semibold))
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
                 ForEach(rows, id: \.0.id) { row in
                     GridRow {
                         HStack(spacing: 5) {
                             Circle().fill(row.0.color).frame(width: 6, height: 6)
-                            Text(row.0.name).font(.system(size: 11)).foregroundStyle(TeslaDark.labelGrey)
+                            Text(row.0.name).font(.app(size: 11)).foregroundStyle(TeslaDark.labelGrey)
                                 .fixedSize()
                         }
-                        Text(row.1).font(.system(size: 11, weight: .medium).monospacedDigit())
+                        Text(row.1).font(.app(size: 11, weight: .medium).monospacedDigit())
                             .fixedSize()
                             .gridColumnAlignment(.trailing)
                     }
@@ -515,7 +515,7 @@ struct EnergyView: View {
         }
         .overlay {
             if points.isEmpty && !store.loading {
-                Text("No data for this period").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                Text("No data for this period").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
     }
@@ -550,7 +550,7 @@ struct EnergyView: View {
             ForEach([1, 2, 0, 3], id: \.self) { i in
                 HStack(spacing: 5) {
                     Circle().fill(Self.allColors[i]).frame(width: 8, height: 8)
-                    Text(Self.allNames[i]).font(.system(size: 12)).foregroundStyle(TeslaDark.labelGrey)
+                    Text(Self.allNames[i]).font(.app(size: 12)).foregroundStyle(TeslaDark.labelGrey)
                 }
             }
         }
@@ -574,10 +574,10 @@ struct EnergyView: View {
             HStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(color)
                     .frame(width: 22, height: 14)   // same slot for every icon (the car is the widest), so all six tiles match
-                Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
+                Text(title).font(.app(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
             }
-            Text(value).font(.system(size: 19, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
-            Text(caption).font(.system(size: 10.5)).foregroundStyle(TeslaDark.dim)
+            Text(value).font(.app(size: 19, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+            Text(caption).font(.app(size: 10.5)).foregroundStyle(TeslaDark.dim)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
@@ -645,18 +645,18 @@ struct EnergyView: View {
         let sum = ps.reduce(0) { $0 + $1.kwh }
         return VStack(alignment: .leading, spacing: 0) {
             if !comp.flowCaption.isEmpty {
-                Text(comp.flowCaption).font(.system(size: 11, weight: .semibold)).kerning(0.5)
+                Text(comp.flowCaption).font(.app(size: 11, weight: .semibold)).kerning(0.5)
                     .foregroundStyle(TeslaDark.dim).padding(.bottom, 4)
             }
             ForEach(ps) { p in
                 HStack(spacing: 10) {
                     Circle().fill(p.color).frame(width: 9, height: 9)
-                    Text(p.name).font(.system(size: 15))
+                    Text(p.name).font(.app(size: 15))
                     Spacer()
-                    Text(kwh(p.kwh)).font(.system(size: 15))
+                    Text(kwh(p.kwh)).font(.app(size: 15))
                     if comp != .grid {
                         Text(sum > 0 ? "\(Int((p.kwh / sum * 100).rounded()))%" : "—")
-                            .font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                            .font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                             .frame(width: 42, alignment: .trailing)
                     }
                 }
@@ -674,7 +674,7 @@ struct EnergyView: View {
                 Button { compRaw = c.rawValue } label: {
                     VStack(spacing: 3) {
                         Image(systemName: c.icon).font(.system(size: 19)).frame(height: 24)
-                        Text(c.name).font(.system(size: 10, weight: comp == c ? .semibold : .regular))
+                        Text(c.name).font(.app(size: 10, weight: comp == c ? .semibold : .regular))
                     }
                     .foregroundStyle(comp == c ? Color.white : TeslaDark.dim)
                     .frame(maxWidth: .infinity)

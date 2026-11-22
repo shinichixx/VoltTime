@@ -334,7 +334,7 @@ struct MyHomeView: View {
             .frame(width: w, height: height)
 
             Text("Home IM2 Kuantan")
-                .font(.system(size: 27, weight: .semibold))
+                .font(.app(size: 27, weight: .semibold))
                 .kerning(-0.3)
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
@@ -349,12 +349,12 @@ struct MyHomeView: View {
                     .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
                     .accessibilityLabel("My Home settings")
             }
-            .padding(.trailing, 31)
+            .padding(.trailing, 20.5)
             .frame(width: w, alignment: .trailing)
-            .padding(.top, 24 + 16 - 22)
+            .padding(.top, 24 + 16 - 23)
 
             Text(model.loaded ? model.status.text : " ")
-                .font(.system(size: 15))
+                .font(.app(size: 15))
                 .foregroundStyle(model.status.color)
                 .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
                 .padding(.leading, w * 0.07)
@@ -406,7 +406,7 @@ struct MyHomeView: View {
             VStack(spacing: 10) {
                 Image(systemName: "house.fill").font(.system(size: 64)).foregroundStyle(Color.white.opacity(0.08))
                 if model.loaded {
-                    Text("Loading photo from Home Assistant…").font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    Text("Loading photo from Home Assistant…").font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                 }
             }
             .frame(width: w, height: w * 2400 / 1792)
@@ -458,7 +458,7 @@ struct MyHomeView: View {
             }
             if let msg = model.message {
                 Text(msg)
-                    .font(.system(size: 12))
+                    .font(.app(size: 12))
                     .foregroundStyle(TeslaDark.importing)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 28)
@@ -478,11 +478,11 @@ struct FlowLabel: View {
     var body: some View {
         VStack(spacing: 1) {
             Text(title)
-                .font(.system(size: 9))
+                .font(.app(size: 9))
                 .kerning(0.3)
                 .foregroundStyle(TeslaDark.labelGrey)
             value
-                .font(.system(size: 13, weight: .semibold))
+                .font(.app(size: 13, weight: .semibold))
                 .lineLimit(1)
                 .foregroundStyle(.white) // view-level, so the green charging arrow keeps its colour
         }
@@ -517,8 +517,8 @@ struct TeslaRow: View {
                 .foregroundStyle(TeslaDark.rowIcon)
                 .frame(width: 44, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.system(size: 16, weight: .medium)).foregroundStyle(.white)
-                Text(label).font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                Text(name).font(.app(size: 16, weight: .semibold)).foregroundStyle(.white)
+                Text(label).font(.app(size: 12, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
             }
             Spacer()
         }

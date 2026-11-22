@@ -9,11 +9,11 @@ struct SimulationPage: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Simulation")
-                    .font(.system(size: 27, weight: .semibold))
+                    .font(.app(size: 27, weight: .semibold))
                     .kerning(-0.3)
                     .foregroundStyle(.white)
                 Text("Nothing is sent to the car")
-                    .font(.system(size: 15))
+                    .font(.app(size: 15))
                     .foregroundStyle(TeslaDark.rowLabel)
                 TSegment(items: ["Home charging", "Public charging"], selected: kind) { kind = $0 }
                     .padding(.top, 14)

@@ -88,8 +88,8 @@ struct ControlsPage: View {
     private func pill(_ t: String, _ sub: String, _ a: @escaping () -> Void) -> some View {
         Button(action: a) {
             VStack(spacing: 1) {
-                Text(t).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
-                Text(sub).font(.system(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+                Text(t).font(.app(size: 12, weight: .medium)).foregroundStyle(.white)
+                Text(sub).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
             }
             .padding(.horizontal, 16).padding(.vertical, 7)
             .background(Capsule().fill(TSurface.field))
@@ -101,8 +101,8 @@ struct ControlsPage: View {
                            _ a: @escaping () -> Void) -> some View {
         Button(action: a) {
             VStack(alignment: align, spacing: 1) {
-                Text(t).font(.system(size: 13, weight: .medium)).foregroundStyle(titleColored ? (color ?? .white) : .white)
-                Text(sub).font(.system(size: 10)).foregroundStyle(titleColored ? TeslaDark.rowLabel : (color ?? TeslaDark.rowLabel))
+                Text(t).font(.app(size: 13, weight: .medium)).foregroundStyle(titleColored ? (color ?? .white) : .white)
+                Text(sub).font(.app(size: 10)).foregroundStyle(titleColored ? TeslaDark.rowLabel : (color ?? TeslaDark.rowLabel))
             }
             .contentShape(Rectangle())
         }
@@ -117,8 +117,8 @@ struct ControlsPage: View {
                     else { Image(systemName: icon).font(.system(size: 18, weight: .light)).foregroundStyle(TSurface.icon) }
                 }
                 .frame(height: 22)
-                Text(t).font(.system(size: 13, weight: .medium)).foregroundStyle(.white).padding(.top, 8)
-                Text(sub).font(.system(size: 10)).foregroundStyle(subColor ?? TeslaDark.rowLabel).lineLimit(1).padding(.top, 2)
+                Text(t).font(.app(size: 13, weight: .medium)).foregroundStyle(.white).padding(.top, 8)
+                Text(sub).font(.app(size: 10)).foregroundStyle(subColor ?? TeslaDark.rowLabel).lineLimit(1).padding(.top, 2)
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,7 +136,7 @@ struct ControlsPage: View {
 /// Small grey pill button used at the end of a row.
 func pillButton(_ t: String, _ a: @escaping () -> Void) -> some View {
     Button(action: a) {
-        Text(t).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
+        Text(t).font(.app(size: 12, weight: .medium)).foregroundStyle(.white)
             .padding(.horizontal, 14).padding(.vertical, 6)
             .background(Capsule().fill(TSurface.selected))
     }
@@ -156,23 +156,23 @@ struct ClimateControlsPage: View {
         ScrollView {
             VStack(spacing: 0) {
                 Text("Inside \(deg(c.insideC)) · Outside \(deg(c.outsideC))")
-                    .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 14)
+                    .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 14)
                 HStack(spacing: 26) {
                     round("minus") { step(-0.5) }
                     HStack(alignment: .top, spacing: 2) {
-                        Text(String(format: "%.1f", shownTemp)).font(.system(size: 52, weight: .light)).monospacedDigit()
-                        Text("°C").font(.system(size: 15)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 10)
+                        Text(String(format: "%.1f", shownTemp)).font(.app(size: 52, weight: .light)).monospacedDigit()
+                        Text("°C").font(.app(size: 15)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 10)
                     }
                     .foregroundStyle(.white)
                     round("plus") { step(0.5) }
                 }
                 .padding(.top, 10)
-                Text("Set temperature").font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 2)
+                Text("Set temperature").font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 2)
                 Button { model.tap(.climate) } label: {
                     HStack(spacing: 10) {
                         if model.busy == .climate { ProgressView().tint(.white).scaleEffect(0.8) }
                         else { Image(systemName: "fanblades").font(.system(size: 17)) }
-                        Text(c.climateOn ? "Turn climate off" : "Turn climate on").font(.system(size: 15, weight: .semibold))
+                        Text(c.climateOn ? "Turn climate off" : "Turn climate on").font(.app(size: 15, weight: .semibold))
                     }
                     .foregroundStyle(c.climateOn ? Color.white : CarColors.blue)
                     .frame(maxWidth: .infinity).frame(height: 46)
@@ -298,7 +298,7 @@ struct SecurityModesPage: View {
         }
     }
 
-    private var askTag: some View { Text("asks first").font(.system(size: 10, weight: .medium)).foregroundStyle(CarColors.amber) }
+    private var askTag: some View { Text("asks first").font(.app(size: 10, weight: .medium)).foregroundStyle(CarColors.amber) }
 
     private func toggle(_ on: Bool, _ set: @escaping (Bool) -> Void) -> some View {
         Toggle("", isOn: Binding(get: { on }, set: set)).labelsHidden().tint(TSurface.green)
@@ -306,7 +306,7 @@ struct SecurityModesPage: View {
 
     private func big(_ t: String, _ a: @escaping () -> Void) -> some View {
         Button(action: a) {
-            Text(t).font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
+            Text(t).font(.app(size: 14, weight: .medium)).foregroundStyle(.white)
                 .frame(maxWidth: .infinity).frame(height: 52)
                 .background(RoundedRectangle(cornerRadius: 13).fill(TSurface.field))
         }
@@ -318,22 +318,21 @@ struct SecurityModesPage: View {
 
 struct TyresPage: View {
     @ObservedObject var model: CarModel
-    @AppStorage(CarModel.warnKey) private var warn = 2.6
     @AppStorage(CarModel.unitKey) private var unit = "bar"
     private var c: CarSnapshot { model.car }
     private let names = ["FRONT LEFT", "FRONT RIGHT", "REAR LEFT", "REAR RIGHT"]
     private let shortNames = ["Front left", "Front right", "Rear left", "Rear right"]
 
     var body: some View {
-        let cols = (0..<4).map { low($0) ? CarColors.amber : Color.white }
+        let cols = (0..<4).map { CarModel.tyreColor(c.tyres[$0], normal: .white) }
         let d = TyreDiagram(colors: cols, lengthPt: 236)
         return ScrollView {
             VStack(spacing: 0) {
                 HStack {
-                    Circle().fill(lowOnes.isEmpty ? TSurface.green : CarColors.amber).frame(width: 7, height: 7)
-                    Text(statusText).font(.system(size: 14, weight: .medium)).foregroundStyle(lowOnes.isEmpty ? Color.white : CarColors.amber)
+                    Circle().fill(lowOnes.isEmpty ? TSurface.green : worstColor).frame(width: 7, height: 7)
+                    Text(statusText).font(.app(size: 14, weight: .medium)).foregroundStyle(lowOnes.isEmpty ? Color.white : worstColor)
                     Spacer()
-                    Text(readText).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    Text(readText).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                 }
                 .padding(.horizontal, 20).padding(.top, 14)
 
@@ -362,16 +361,7 @@ struct TyresPage: View {
                 TRow("Recommended (cold)", icon: "gauge.with.dots.needle.50percent", subtitle: "Model 3 · on the door pillar") {
                     TValue(value: fmt(CarModel.recommendedBar), unit: unit)
                 }
-                TRow("Warn me below", icon: "bell", subtitle: "That tyre turns amber here and on My Car") {
-                    HStack(spacing: 0) {
-                        Button { warn = max(2.0, ((warn - 0.1) * 10).rounded() / 10) } label: { Image(systemName: "minus").frame(width: 34, height: 30) }
-                        Text(fmt(warn)).font(.system(size: 14, weight: .medium)).monospacedDigit().frame(minWidth: 34)
-                        Button { warn = min(3.2, ((warn + 0.1) * 10).rounded() / 10) } label: { Image(systemName: "plus").frame(width: 34, height: 30) }
-                    }
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                    .buttonStyle(.plain)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
-                }
+                TRow("Colours", icon: "paintpalette", subtitle: "Grey 2.9–3.3 · orange 2.0–2.8 or 3.4+ · red 1.9 and below (bar)") { EmptyView() }
                 TRow("Unit", icon: "ruler", last: true) {
                     TSegment(items: ["bar", "psi"], selected: unit == "psi" ? 1 : 0) { unit = $0 == 1 ? "psi" : "bar" }
                         .frame(width: 104)
@@ -383,14 +373,26 @@ struct TyresPage: View {
         }
     }
 
+    /// Tyres outside 2.9–3.3 bar (low, very low or high).
     private var lowOnes: [Int] { (0..<4).filter { low($0) } }
-    private func low(_ i: Int) -> Bool { (c.tyres[i] ?? 99) < warn }
+    private func low(_ i: Int) -> Bool { CarModel.tyreLevel(c.tyres[i]) != .ok }
+    private var worstColor: Color {
+        lowOnes.contains { CarModel.tyreLevel(c.tyres[$0]) == .flat } ? CarColors.red : CarColors.orange
+    }
+    private func word(_ i: Int) -> String {
+        switch CarModel.tyreLevel(c.tyres[i]) {
+        case .low: return "low"
+        case .flat: return "very low"
+        case .high: return "high"
+        case .ok: return "OK"
+        }
+    }
 
     private var statusText: String {
         if c.tyres.allSatisfy({ $0 == nil }) { return "No reading yet" }
         if lowOnes.isEmpty { return "All 4 tyres OK" }
-        if lowOnes.count == 1, let v = c.tyres[lowOnes[0]] { return "\(shortNames[lowOnes[0]]) low · \(fmt(v)) \(unit)" }
-        return "\(lowOnes.count) tyres low"
+        if lowOnes.count == 1, let v = c.tyres[lowOnes[0]] { return "\(shortNames[lowOnes[0]]) \(word(lowOnes[0])) · \(fmt(v)) \(unit)" }
+        return "\(lowOnes.count) tyres need checking"
     }
 
     private var readText: String {
@@ -402,14 +404,14 @@ struct TyresPage: View {
         let v = c.tyres[i]
         let diff = v.map { $0 - CarModel.recommendedBar }
         return VStack(alignment: align, spacing: 2) {
-            Text(names[i]).font(.system(size: 10, weight: .medium)).kerning(0.5).foregroundStyle(TeslaDark.rowLabel)
+            Text(names[i]).font(.app(size: 10, weight: .medium)).kerning(0.5).foregroundStyle(TeslaDark.rowLabel)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(v.map { fmt($0) } ?? "–").font(.system(size: 32, weight: .light)).foregroundStyle(low(i) ? CarColors.amber : .white)
-                Text(unit).font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                Text(v.map { fmt($0) } ?? "–").font(.app(size: 32, weight: .light)).foregroundStyle(CarModel.tyreColor(v, normal: .white))
+                Text(unit).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
             if let diff {
                 Text((diff >= 0 ? "+" : "−") + fmt(abs(diff)) + " vs " + fmt(CarModel.recommendedBar))
-                    .font(.system(size: 11, weight: .medium)).foregroundStyle(low(i) ? CarColors.amber : TSurface.green)
+                    .font(.app(size: 11, weight: .medium)).foregroundStyle(CarModel.tyreColor(v, normal: TSurface.green))
             }
         }
         .frame(height: 68, alignment: .top)
@@ -423,7 +425,7 @@ struct TyresPage: View {
         return HStack(spacing: 0) {
             stat(hi.map { fmt($0) } ?? "–", "Highest", .white)
             Rectangle().fill(TSurface.line).frame(width: 0.5, height: 28)
-            stat(lo.map { fmt($0) } ?? "–", "Lowest", lo.map { $0 < warn } == true ? CarColors.amber : .white)
+            stat(lo.map { fmt($0) } ?? "–", "Lowest", CarModel.tyreColor(lo, normal: .white))
             Rectangle().fill(TSurface.line).frame(width: 0.5, height: 28)
             stat(spread.map { fmt($0) } ?? "–", "Difference", warnSpread ? CarColors.amber : .white)
         }
@@ -433,8 +435,8 @@ struct TyresPage: View {
 
     private func stat(_ v: String, _ cap: String, _ col: Color) -> some View {
         VStack(spacing: 2) {
-            Text(v).font(.system(size: 17, weight: .light)).foregroundStyle(col)
-            Text(cap).font(.system(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+            Text(v).font(.app(size: 17, weight: .light)).foregroundStyle(col)
+            Text(cap).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
         }
         .frame(maxWidth: .infinity)
     }

@@ -37,7 +37,7 @@ struct ImpactView: View {
                 if model.curves.isEmpty && model.loading {
                     VStack(spacing: 10) {
                         ProgressView().tint(.white)
-                        Text("Loading energy history from Home Assistant…").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                        Text("Loading energy history from Home Assistant…").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                     }
                     .frame(maxWidth: .infinity, minHeight: 200)
                 } else {
@@ -47,7 +47,7 @@ struct ImpactView: View {
                 }
                 forecastCard
                 if let msg = model.message {
-                    Text(msg).font(.system(size: 11)).foregroundStyle(TeslaDark.importing)
+                    Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
                 }
             }
@@ -69,7 +69,7 @@ struct ImpactView: View {
     private func card<C: View>(_ title: String, _ icon: String, action: (() -> Void)? = nil, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(title).font(.system(size: 14)).foregroundStyle(TeslaDark.labelGrey)
+                Text(title).font(.app(size: 14)).foregroundStyle(TeslaDark.labelGrey)
                 Spacer()
                 if let action {
                     Button(action: action) { Image(systemName: icon) }.buttonStyle(.plain)
@@ -88,7 +88,7 @@ struct ImpactView: View {
     }
 
     private func big(_ text: String) -> some View {
-        Text(text).font(.system(size: 38, weight: .semibold)).padding(.top, 4)
+        Text(text).font(.app(size: 38, weight: .semibold)).padding(.top, 4)
     }
 
     private func split(_ a: Double, _ b: Double, _ aLabel: String, _ bLabel: String) -> some View {
@@ -114,7 +114,7 @@ struct ImpactView: View {
     private func legend(_ c: Color, _ text: String) -> some View {
         HStack(spacing: 6) {
             Circle().fill(c).frame(width: 8, height: 8)
-            Text(text).font(.system(size: 12)).foregroundStyle(TeslaDark.labelGrey)
+            Text(text).font(.app(size: 12)).foregroundStyle(TeslaDark.labelGrey)
         }
     }
 
@@ -128,11 +128,11 @@ struct ImpactView: View {
         card("Self-Powered", "info.circle", action: { withAnimation { showInfo.toggle() } }) {
             big(pct(t.selfPowered))
             Text("of the energy your home and Model 3 used came from solar")
-                .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             split(t.solarUsed, t.imp, "Solar", "Grid")
             if showInfo {
                 Text("Used = solar generated + bought from TNB − exported. Solar exported to TNB doesn't count here; it shows in CO₂ avoided.")
-                    .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 10)
             }
         }
@@ -142,15 +142,15 @@ struct ImpactView: View {
         card("Model 3 on solar", "car.side") {
             if t.car < 0.05 {
                 big("—")
-                Text("No home charging in this period").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                Text("No home charging in this period").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             } else {
                 big(pct(t.carSolarShare))
-                Text("of home charging came from solar").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                Text("of home charging came from solar").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                 split(t.carSolar, max(t.car - t.carSolar, 0), "Solar", "Grid")
                 if let perKm = model.kWhPerKm, t.carSolar > 0 {
                     let km = t.carSolar * ImpactStat.chargeEfficiency / perKm
                     Text("≈ \(km.formatted(.number.precision(.fractionLength(0)))) km driven on sunshine")
-                        .font(.system(size: 14)).padding(.top, 12)
+                        .font(.app(size: 14)).padding(.top, 12)
                 }
             }
         }
@@ -162,11 +162,11 @@ struct ImpactView: View {
         return card("CO₂ avoided", "leaf") {
             big(kg >= 1000 ? String(format: "%.2f t", kg / 1000) : String(format: "%.0f kg", kg))
             Text("\(kwh(t.solar)) solar × \(String(format: "%.3f", ImpactStat.gridKgPerKWh)) kg/kWh (Peninsular grid)")
-                .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             HStack(spacing: 8) {
                 Image(systemName: "tree.fill").foregroundStyle(TeslaDark.exporting).font(.system(size: 18))
                 Text("Like planting \(trees < 10 ? String(format: "%.1f", trees) : String(format: "%.0f", trees)) trees")
-                    .font(.system(size: 14))
+                    .font(.app(size: 14))
             }
             .padding(.top, 12)
         }
@@ -176,12 +176,12 @@ struct ImpactView: View {
         card("Solar forecast", "sun.max") {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 big(model.forecastTomorrow.map { String(format: "%.1f kWh", $0) } ?? "—")
-                Text("tomorrow").font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                Text("tomorrow").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
             Text([model.peakTomorrow.map { "Peak around \($0.formatted(date: .omitted, time: .shortened))" },
                   home.dailyYield.map { String(format: "today %.1f kWh", $0) }]
                 .compactMap { $0 }.joined(separator: " · "))
-                .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
         }
     }
 }

@@ -19,10 +19,10 @@ struct AskCard: View {
                             .background(Color(red: 0.84, green: 0.08, blue: 0.18))
                             .clipShape(RoundedRectangle(cornerRadius: 11))
                         Text("Where are you going tomorrow?")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.app(size: 17, weight: .semibold))
                             .multilineTextAlignment(.center)
                         Text(subtitle)
-                            .font(.system(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                            .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                     }
                     .frame(maxWidth: .infinity)
                     Button { model.dismissAsk() } label: {
@@ -44,11 +44,11 @@ struct AskCard: View {
                 .padding(.top, 16)
                 .disabled(model.settingLimit)
                 Button("Not now") { model.dismissAsk() }
-                    .font(.system(size: 14))
+                    .font(.app(size: 14))
                     .foregroundStyle(TeslaDark.labelGrey)
                     .padding(.top, 14)
                 Text("No answer by 10 pm = GPS 73%")
-                    .font(.system(size: 10.5)).foregroundStyle(TeslaDark.dim)
+                    .font(.app(size: 10.5)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 6)
             }
             .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 14)
@@ -66,8 +66,8 @@ struct AskCard: View {
     private func choice(_ name: String, _ detail: String, highlighted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
-                Text(name).font(.system(size: 15, weight: .semibold))
-                Text(detail).font(.system(size: 11))
+                Text(name).font(.app(size: 15, weight: .semibold))
+                Text(detail).font(.app(size: 11))
                     .foregroundStyle(highlighted ? Color.white.opacity(0.85) : TeslaDark.rowLabel)
             }
             .foregroundStyle(.white)

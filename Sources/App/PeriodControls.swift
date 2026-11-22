@@ -51,7 +51,7 @@ struct PeriodBar: View {
                 .foregroundStyle(canBack ? TeslaDark.rowLabel : Color(white: 0.23))
                 .opacity(period == .lifetime ? 0 : 1)
             Spacer()
-            Text(range.label).font(.system(size: 15, weight: .medium))
+            Text(range.label).font(.app(size: 15, weight: .medium))
             Spacer()
             Button { offset += 1 } label: { Image(systemName: "chevron.right").padding(10) }
                 .disabled(!canForward)
@@ -76,7 +76,7 @@ struct PeriodMenu: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text(period.rawValue).font(.system(size: 15))
+                Text(period.rawValue).font(.app(size: 15))
                 Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
             }
             .foregroundStyle(.white)

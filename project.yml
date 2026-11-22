@@ -8,7 +8,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "37"
+    CURRENT_PROJECT_VERSION: "38"
 targets:
   VoltTime:
     type: application
@@ -31,6 +31,12 @@ targets:
         UIFileSharingEnabled: true               # On My iPhone › VoltTime (old CSV backups are cleared from here)
         LSSupportsOpeningDocumentsInPlace: true  # open picked backup files in place
         VTReleaseDate: 22 Nov 2026
+        UIAppFonts:                              # Albert Sans (SIL OFL), closest free match to the Tesla app's Universal Sans
+          - AlbertSans-Light.ttf
+          - AlbertSans-Regular.ttf
+          - AlbertSans-Medium.ttf
+          - AlbertSans-SemiBold.ttf
+          - AlbertSans-Bold.ttf
         NSLocalNetworkUsageDescription: Connects to Home Assistant on your network to read the car's battery and set tonight's charge.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

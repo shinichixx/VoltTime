@@ -51,14 +51,14 @@ struct CarSecurityPage: View {
                 .foregroundStyle(secure ? TSurface.green : CarColors.amber)
                 .frame(width: 36)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 22, weight: .semibold)).foregroundStyle(K.title)
-                Text(line).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).lineLimit(2)
+                Text(title).font(.app(size: 22, weight: .semibold)).foregroundStyle(K.title)
+                Text(line).font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey).lineLimit(2)
             }
             Spacer(minLength: 8)
             Button { model.tap(.lock) } label: {
                 Group {
                     if model.busy == .lock { ProgressView().tint(.white).scaleEffect(0.8) }
-                    else { Text(locked ? "Unlock" : "Lock").font(.system(size: 13, weight: .medium)).foregroundStyle(K.title) }
+                    else { Text(locked ? "Unlock" : "Lock").font(.app(size: 13, weight: .medium)).foregroundStyle(K.title) }
                 }
                 .frame(width: 84, height: 32)
                 .background(Capsule().fill(K.track))
@@ -71,7 +71,7 @@ struct CarSecurityPage: View {
     }
 
     private func caption(_ t: String) -> some View {
-        Text(t.uppercased()).font(.system(size: 11, weight: .semibold)).kerning(0.8).foregroundStyle(Color(white: 0.4))
+        Text(t.uppercased()).font(.app(size: 11, weight: .semibold)).kerning(0.8).foregroundStyle(Color(white: 0.4))
             .padding(.top, 24).padding(.bottom, 8).padding(.leading, 4)
     }
 
@@ -79,7 +79,7 @@ struct CarSecurityPage: View {
     private var carCard: some View {
         VStack(spacing: 8) {
             Text("Frunk · " + (c.frunkOpen ? "Open" : "Closed"))
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(c.frunkOpen ? CarColors.amber : K.grey)
+                .font(.app(size: 12, weight: .medium)).foregroundStyle(c.frunkOpen ? CarColors.amber : K.grey)
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 34) { cornerLabel(0); cornerLabel(2) }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -91,7 +91,7 @@ struct CarSecurityPage: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             Text("Trunk · " + (c.trunkOpen ? "Open" : "Closed"))
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(c.trunkOpen ? CarColors.amber : K.grey)
+                .font(.app(size: 12, weight: .medium)).foregroundStyle(c.trunkOpen ? CarColors.amber : K.grey)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -102,8 +102,8 @@ struct CarSecurityPage: View {
         let state = c.doorOpen(i) ? "Door open" : (c.windowsOpen[i] ? "Window open" : "Closed")
         let open = state != "Closed"
         return VStack(alignment: i % 2 == 0 ? .leading : .trailing, spacing: 2) {
-            Text(Self.corners[i]).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
-            Text(state).font(.system(size: 15, weight: .medium)).foregroundStyle(open ? CarColors.amber : K.title)
+            Text(Self.corners[i]).font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey)
+            Text(state).font(.app(size: 15, weight: .medium)).foregroundStyle(open ? CarColors.amber : K.title)
         }
     }
 
@@ -122,8 +122,8 @@ struct CarSecurityPage: View {
         HStack(spacing: 14) {
             icon.frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 16, weight: .medium)).foregroundStyle(K.title)
-                Text(sub).font(.system(size: 12)).foregroundStyle(K.grey)
+                Text(title).font(.app(size: 16, weight: .medium)).foregroundStyle(K.title)
+                Text(sub).font(.app(size: 12)).foregroundStyle(K.grey)
             }
             Spacer()
             if model.busy == control {
@@ -209,8 +209,8 @@ struct CarLocationPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 map
                 HStack(alignment: .center, spacing: 10) {
-                    Text(model.placeWord).font(.system(size: 26, weight: .semibold)).foregroundStyle(K.title).lineLimit(1)
-                    Text(tag.0).font(.system(size: 12, weight: .medium)).foregroundStyle(tag.1)
+                    Text(model.placeWord).font(.app(size: 26, weight: .semibold)).foregroundStyle(K.title).lineLimit(1)
+                    Text(tag.0).font(.app(size: 12, weight: .medium)).foregroundStyle(tag.1)
                         .padding(.horizontal, 10).frame(height: 24)
                         .background(Capsule().fill(K.track))
                 }
@@ -218,7 +218,7 @@ struct CarLocationPage: View {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(addressLines, id: \.self) { Text($0) }
                 }
-                .font(.system(size: 15)).foregroundStyle(Color(white: 0.85))
+                .font(.app(size: 15)).foregroundStyle(Color(white: 0.85))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 6)
                 .textSelection(.enabled)
@@ -226,15 +226,15 @@ struct CarLocationPage: View {
                 // Exact position, 5 decimals (about 1 m)
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("GPS").font(.system(size: 11, weight: .semibold)).kerning(0.6).foregroundStyle(K.grey)
-                        Text(gpsText).font(.system(size: 17, weight: .regular).monospacedDigit()).foregroundStyle(K.title)
+                        Text("GPS").font(.app(size: 11, weight: .semibold)).kerning(0.6).foregroundStyle(K.grey)
+                        Text(gpsText).font(.app(size: 17, weight: .regular).monospacedDigit()).foregroundStyle(K.title)
                     }
                     Spacer()
                     Button {
                         UIPasteboard.general.string = gpsText
                         model.show(Banner(title: "Coordinates copied", detail: gpsText, icon: "doc.on.doc", tint: TSurface.green))
                     } label: {
-                        Text("Copy").font(.system(size: 13, weight: .medium)).foregroundStyle(K.title)
+                        Text("Copy").font(.app(size: 13, weight: .medium)).foregroundStyle(K.title)
                             .frame(width: 66, height: 32).background(Capsule().fill(K.track))
                     }
                     .buttonStyle(.plain)
@@ -250,7 +250,7 @@ struct CarLocationPage: View {
                 }
                 .padding(.top, 12)
 
-                Text(updated).font(.system(size: 12)).foregroundStyle(K.grey).padding(.top, 14)
+                Text(updated).font(.app(size: 12)).foregroundStyle(K.grey).padding(.top, 14)
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 20)
@@ -289,7 +289,7 @@ struct CarLocationPage: View {
                 .padding(12)
             } else {
                 Color(red: 0.06, green: 0.08, blue: 0.07)
-                Text("No position yet").font(.system(size: 13)).foregroundStyle(K.grey)
+                Text("No position yet").font(.app(size: 13)).foregroundStyle(K.grey)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -298,7 +298,7 @@ struct CarLocationPage: View {
     }
 
     private func big(_ t: String) -> some View {
-        Text(t).font(.system(size: 15, weight: .medium)).foregroundStyle(K.title)
+        Text(t).font(.app(size: 15, weight: .medium)).foregroundStyle(K.title)
             .frame(maxWidth: .infinity).frame(height: 46)
             .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
     }

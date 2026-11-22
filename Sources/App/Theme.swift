@@ -49,8 +49,8 @@ struct AppHeader<Trailing: View>: View {
                 Circle().fill(Color.white).frame(width: 30, height: 30)
                     .overlay(Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(color))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white)
-                    Text(subtitle).font(.system(size: 10.5)).foregroundStyle(Color.white.opacity(0.85))
+                    Text(title).font(.app(size: 12.5, weight: .medium)).foregroundStyle(.white)
+                    Text(subtitle).font(.app(size: 10.5)).foregroundStyle(Color.white.opacity(0.85))
                 }
             }
             .padding(.horizontal, 8)
@@ -95,10 +95,10 @@ struct CardTitle: View {
         HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 9).fill(color).frame(width: 30, height: 30)
                 .overlay(Image(systemName: icon).foregroundStyle(.white).font(.system(size: 14, weight: .semibold)))
-            Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(color)
+            Text(title).font(.app(size: 14, weight: .semibold)).foregroundStyle(color)
             Spacer()
             if !trailing.isEmpty {
-                Text(trailing).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(trailing).font(.app(size: 11)).foregroundStyle(.secondary)
             }
         }
     }
@@ -111,8 +111,8 @@ struct Figure: View {
     var color: Color = .primary
     var body: some View {
         VStack(spacing: 3) {
-            Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 15, weight: .bold)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
+            Text(label).font(.app(size: 10)).foregroundStyle(.secondary)
+            Text(value).font(.app(size: 15, weight: .bold)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 9)
@@ -131,15 +131,15 @@ struct NumberRow: View {
 
     var body: some View {
         HStack {
-            Text(label).font(.system(size: 13))
+            Text(label).font(.app(size: 13))
             Spacer()
             TextField("0", text: $text)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.app(size: 14, weight: .semibold))
                 .frame(width: 90)
                 .focused(focus, equals: key)
-            Text(unit).font(.system(size: 12)).foregroundStyle(Theme.teal).frame(width: 52, alignment: .leading)
+            Text(unit).font(.app(size: 12)).foregroundStyle(Theme.teal).frame(width: 52, alignment: .leading)
         }
         .padding(.vertical, 2)
     }
@@ -155,15 +155,15 @@ struct ValueRow: View {
 
     var body: some View {
         HStack {
-            Text(label).font(.system(size: 13))
+            Text(label).font(.app(size: 13))
             Spacer()
             TextField("0", value: $value, format: .number.grouping(.never).precision(.fractionLength(0...4)))
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.app(size: 14, weight: .semibold))
                 .frame(width: 90)
                 .focused(focus, equals: key)
-            Text(unit).font(.system(size: 12)).foregroundStyle(Theme.teal).frame(width: 52, alignment: .leading)
+            Text(unit).font(.app(size: 12)).foregroundStyle(Theme.teal).frame(width: 52, alignment: .leading)
         }
         .padding(.vertical, 2)
     }
@@ -175,7 +175,7 @@ struct Badge: View {
     let color: Color
     var body: some View {
         Text(text)
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(.app(size: 10.5, weight: .semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)

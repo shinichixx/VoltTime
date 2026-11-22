@@ -47,9 +47,9 @@ struct BannerView: View {
             }
             .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(banner.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                Text(banner.title).font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
                 if let d = banner.detail {
-                    Text(d).font(.system(size: 13)).foregroundStyle(Color(white: 0.6))
+                    Text(d).font(.app(size: 13)).foregroundStyle(Color(white: 0.6))
                 }
             }
             .lineLimit(2)

@@ -35,7 +35,8 @@ struct CarConfirm: ViewModifier {
             let q = model.question(c)
             Button(q.action, role: q.destructive ? .destructive : nil) { Task { await model.run(c) } }
         } message: { c in
-            Text(model.question(c).message)
+            let m = model.question(c).message
+            if !m.isEmpty { Text(m) }
         }
     }
 }
@@ -136,7 +137,7 @@ struct CarView2: View {
                         rows.padding(.top, 22)
                         carInfo.padding(.top, 20)
                         Text(model.error ?? model.updatedText + " · pull to refresh")
-                            .font(.system(size: 11)).foregroundStyle(model.error == nil ? K.grey : CarColors.amber)
+                            .font(.app(size: 11)).foregroundStyle(model.error == nil ? K.grey : CarColors.amber)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 24)
@@ -189,8 +190,8 @@ struct CarView2: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("My Car settings")
                 }
-                .padding(.top, 24 + 16 - 22)
-                .padding(.trailing, 31)   // lines end in line with the gate icon below
+                .padding(.top, 24 + 16 - 23)
+                .padding(.trailing, 20.5)   // lines end 34 pt from the edge, where the Tesla app's ☰ ends
                 .opacity(headerOpacity)
                 .allowsHitTesting(headerOpacity > 0.5)
             }
@@ -204,7 +205,7 @@ struct CarView2: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
                 Text(c.name)
-                    .font(.system(size: 27, weight: .semibold))
+                    .font(.app(size: 27, weight: .semibold))
                     .kerning(-0.3)
                     .foregroundStyle(.white)
                 Spacer()
@@ -217,15 +218,15 @@ struct CarView2: View {
                 }
                 .overlay(alignment: .trailing) { RoundedRectangle(cornerRadius: 1).fill(K.batteryBody).frame(width: 1.5, height: 5.5).offset(x: 2.5) }
                 HStack(spacing: 6) {
-                    Text("\(Int(c.soc ?? 0))%").font(.system(size: 13, weight: .semibold)).foregroundStyle(socColor)
+                    Text("\(Int(c.soc ?? 0))%").font(.app(size: 13, weight: .semibold)).foregroundStyle(socColor)
                     if c.charging { Image(systemName: "bolt.fill").font(.system(size: 14)).foregroundStyle(K.green) }
-                    Text("· \(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "—")").font(.system(size: 13, weight: .medium)).foregroundStyle(K.grey)
+                    Text("· \(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "—")").font(.app(size: 13, weight: .medium)).foregroundStyle(K.grey)
                 }
                 .padding(.leading, 4)
             }
             .frame(height: 15.5)
             .padding(.top, 6)
-            Text(subline).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).lineLimit(1)
+            Text(subline).font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey).lineLimit(1)
                 .padding(.top, 8.5)
         }
         .padding(.leading, w * 0.07)
@@ -261,11 +262,11 @@ struct CarView2: View {
         return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
-                    Text("Charge limit: \(Int(limit))%").font(.system(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
-                    Text("  ·  " + boxState).font(.system(size: 13, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
+                    Text("Charge limit: \(Int(limit))%").font(.app(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
+                    Text("  ·  " + boxState).font(.app(size: 13, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
                 }
                 .frame(height: 16)
-                Text(chargeLine).font(.system(size: 12, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
+                Text(chargeLine).font(.app(size: 12, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
                     .frame(height: 15)
                     .padding(.top, 6)
                 GeometryReader { g in
@@ -292,7 +293,7 @@ struct CarView2: View {
                     }
                     .opacity(amps <= 5 ? 0 : 1).disabled(amps <= 5)
                     Spacer()
-                    Text("\(amps) A").font(.system(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
+                    Text("\(amps) A").font(.app(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
                     Spacer()
                     Button { Task { await model.setAmps(amps + 1) } } label: {
                         Image(systemName: "chevron.right").frame(width: 44, height: 45)
@@ -352,7 +353,7 @@ struct CarView2: View {
 
     private func panelButton(_ t: String, _ a: @escaping () -> Void) -> some View {
         Button(action: a) {
-            Text(t).font(.system(size: 13, weight: .medium)).foregroundStyle(K.buttonText)
+            Text(t).font(.app(size: 13, weight: .medium)).foregroundStyle(K.buttonText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         }
@@ -371,7 +372,7 @@ struct CarView2: View {
         return VStack(spacing: 0) {
             row("car.side", "Controls", nil) { path.append(.carDetail(.controls)) }
             row("fanblades", "Climate", "Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC)) · \(c.climateOn ? "On" : "Off")") { path.append(.carDetail(.climate)) }
-            row("circle.circle", "Tyres", tyres, tag: model.tyreNote.hasSuffix("low") ? model.tyreNote : nil) { path.append(.carDetail(.tyres)) }
+            row("circle.circle", "Tyres", tyres, rich: tyreLine) { path.append(.carDetail(.tyres)) }
             row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · ")) { path.append(.carDetail(.battery)) }
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
                                             "Sentry \(c.sentry ? "on" : "off")"].joined(separator: " · ")) { path.append(.carDetail(.security)) }
@@ -389,13 +390,13 @@ struct CarView2: View {
                      c.software.map { "Software: " + $0 }].compactMap { $0 }
         return VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Color(white: 0.133)).frame(height: 1)
-            Text(c.modelName).font(.system(size: 14, weight: .semibold)).kerning(4.5).foregroundStyle(K.title)
+            Text(c.modelName).font(.app(size: 14, weight: .semibold)).kerning(4.5).foregroundStyle(K.title)
                 .padding(.top, 29)
             if let t = c.trimName {
-                Text(t).font(.system(size: 17, weight: .medium)).foregroundStyle(K.grey).padding(.top, 9)
+                Text(t).font(.app(size: 17, weight: .medium)).foregroundStyle(K.grey).padding(.top, 9)
             }
             VStack(alignment: .leading, spacing: 1.5) {
-                ForEach(lines, id: \.self) { Text($0).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey) }
+                ForEach(lines, id: \.self) { Text($0).font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey) }
             }
             .padding(.top, 22)
             HStack(spacing: 10) {
@@ -415,7 +416,7 @@ struct CarView2: View {
 
     private func pill(_ t: String, _ a: @escaping () -> Void) -> some View {
         Button(action: a) {
-            Text(t).font(.system(size: 13, weight: .medium)).foregroundStyle(Color(white: 0.59))
+            Text(t).font(.app(size: 13, weight: .medium)).foregroundStyle(Color(white: 0.59))
                 .padding(.horizontal, 10).frame(height: 25)
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color(red: 42 / 255, green: 43 / 255, blue: 45 / 255)))
         }
@@ -439,17 +440,30 @@ struct CarView2: View {
         return "Starts " + Fmt.clock(start, calendar: .current) + " · " + ready
     }
 
-    private func row(_ icon: String, _ title: String, _ sub: String?, tag: String? = nil, _ action: @escaping () -> Void) -> some View {
+    /// Each tyre in its own colour: grey normal, orange low or high, red very low.
+    private var tyreLine: Text {
+        var t = Text("")
+        for i in 0..<4 {
+            let v = c.tyres[i]
+            t = t + Text(v.map { String(format: "%.1f", $0) } ?? "–").foregroundColor(CarModel.tyreColor(v, normal: K.grey))
+            t = t + Text(i < 3 ? " · " : " bar").foregroundColor(K.grey)
+        }
+        return t
+    }
+
+    private func row(_ icon: String, _ title: String, _ sub: String?, tag: String? = nil, rich: Text? = nil, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 0) {
                 Image(systemName: icon).font(.system(size: 20)).foregroundStyle(K.grey)
                     .frame(width: 44)
                     .padding(.leading, 15)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.system(size: 17, weight: .medium)).foregroundStyle(K.title)
-                    if let sub {
+                    Text(title).font(.app(size: 16, weight: .semibold)).foregroundStyle(K.title)
+                    if let rich {
+                        rich.font(.app(size: 12, weight: .semibold)).lineLimit(1)
+                    } else if let sub {
                         (Text(sub).foregroundColor(K.grey) + Text(tag.map { "  · \($0)" } ?? "").foregroundColor(CarColors.amber))
-                            .font(.system(size: 12, weight: .medium)).lineLimit(1)
+                            .font(.app(size: 12, weight: .semibold)).lineLimit(1)
                     }
                 }
                 .padding(.leading, 5)
@@ -524,13 +538,13 @@ struct CarDetailPage: View {
             // Charge now, range and limit, with a bar marked at the limit
             HStack(alignment: .lastTextBaseline) {
                 HStack(alignment: .lastTextBaseline, spacing: 4) {
-                    Text("\(Int(soc))").font(.system(size: 46, weight: .light)).foregroundStyle(K.title)
-                    Text("%").font(.system(size: 17, weight: .medium)).foregroundStyle(K.grey)
+                    Text("\(Int(soc))").font(.app(size: 46, weight: .light)).foregroundStyle(K.title)
+                    Text("%").font(.app(size: 17, weight: .medium)).foregroundStyle(K.grey)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "–").font(.system(size: 17)).foregroundStyle(K.title)
-                    Text("Limit \(Int(limit))%").font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
+                    Text(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "–").font(.app(size: 17)).foregroundStyle(K.title)
+                    Text("Limit \(Int(limit))%").font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey)
                 }
                 .padding(.bottom, 6)
             }
@@ -542,7 +556,7 @@ struct CarDetailPage: View {
                 }
             }
             .frame(height: 10)
-            Text(batteryStatus).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).padding(.top, 10)
+            Text(batteryStatus).font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey).padding(.top, 10)
 
             // Precondition: A/C on at 19°C, asks first. Red while it's on.
             Button { model.confirming = .precondition } label: {
@@ -553,7 +567,7 @@ struct CarDetailPage: View {
                         PreconditionGlyph(on: c.preconditioning, size: 22, color: K.grey)
                     }
                     Text(c.preconditioning ? "Stop preconditioning" : "Precondition battery")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.app(size: 14, weight: .medium))
                         .foregroundStyle(c.preconditioning ? CarColors.red : K.title)
                 }
                 .frame(maxWidth: .infinity)
@@ -586,14 +600,14 @@ struct CarDetailPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline) {
                     HStack(alignment: .lastTextBaseline, spacing: 4) {
-                        Text(h.healthPercent.map { String(format: "%.1f", $0) } ?? "–").font(.system(size: 28, weight: .light)).foregroundStyle(K.title)
-                        Text("%").font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
+                        Text(h.healthPercent.map { String(format: "%.1f", $0) } ?? "–").font(.app(size: 28, weight: .light)).foregroundStyle(K.title)
+                        Text("%").font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         if let now = h.capacityKWh, let new = h.originalCapacityKWh {
-                            Text(String(format: "%.1f of %.1f kWh", now, new)).font(.system(size: 12, weight: .medium)).foregroundStyle(K.title)
-                            Text(String(format: "%.1f%% lost", max(0, (1 - now / new) * 100))).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
+                            Text(String(format: "%.1f of %.1f kWh", now, new)).font(.app(size: 12, weight: .medium)).foregroundStyle(K.title)
+                            Text(String(format: "%.1f%% lost", max(0, (1 - now / new) * 100))).font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey)
                         }
                     }
                 }
@@ -635,9 +649,9 @@ struct CarDetailPage: View {
                         .frame(width: 22)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(K.title)
+                    Text(title).font(.app(size: 13, weight: .medium)).foregroundStyle(K.title)
                         .lineLimit(1).minimumScaleFactor(0.8)
-                    Text(on ? "On" : "Off").font(.system(size: 12, weight: .medium)).foregroundStyle(on ? green : K.grey)
+                    Text(on ? "On" : "Off").font(.app(size: 12, weight: .medium)).foregroundStyle(on ? green : K.grey)
                 }
                 Spacer(minLength: 0)
             }
@@ -665,16 +679,16 @@ struct CarDetailPage: View {
     }
 
     private func caption(_ t: String) -> some View {
-        Text(t.uppercased()).font(.system(size: 11, weight: .semibold)).kerning(0.8).foregroundStyle(Color(white: 0.4))
+        Text(t.uppercased()).font(.app(size: 11, weight: .semibold)).kerning(0.8).foregroundStyle(Color(white: 0.4))
             .padding(.top, 20).padding(.bottom, 8).padding(.leading, 4)
     }
 
     private func tile(_ k: String, _ v: String?, _ u: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(k).font(.system(size: 11, weight: .medium)).foregroundStyle(TeslaApp.grey).lineLimit(1)
+            Text(k).font(.app(size: 11, weight: .medium)).foregroundStyle(TeslaApp.grey).lineLimit(1)
             HStack(alignment: .lastTextBaseline, spacing: 3) {
-                Text(v ?? "–").font(.system(size: 21, weight: .light)).foregroundStyle(TeslaApp.title)
-                Text(u).font(.system(size: 11, weight: .medium)).foregroundStyle(TeslaApp.grey)
+                Text(v ?? "–").font(.app(size: 21, weight: .light)).foregroundStyle(TeslaApp.title)
+                Text(u).font(.app(size: 11, weight: .medium)).foregroundStyle(TeslaApp.grey)
             }
             .lineLimit(1).minimumScaleFactor(0.7)
         }
@@ -688,10 +702,10 @@ struct CarDetailPage: View {
         VStack(spacing: 0) {
             Rectangle().fill(TeslaApp.track).frame(height: 1)
             HStack(alignment: .lastTextBaseline) {
-                Text(k).font(.system(size: 14)).foregroundStyle(TeslaApp.title)
+                Text(k).font(.app(size: 14)).foregroundStyle(TeslaApp.title)
                 Spacer()
-                Text(v).font(.system(size: 14)).foregroundStyle(TeslaApp.title)
-                if !u.isEmpty { Text(u).font(.system(size: 11)).foregroundStyle(TeslaApp.grey) }
+                Text(v).font(.app(size: 14)).foregroundStyle(TeslaApp.title)
+                if !u.isEmpty { Text(u).font(.app(size: 11)).foregroundStyle(TeslaApp.grey) }
             }
             .frame(height: 37)
         }
