@@ -51,7 +51,7 @@ enum VoltArchive {
     static let type = UTType(filenameExtension: "aar") ?? .data
 
     struct BadFile: LocalizedError {
-        var errorDescription: String? { "That isn't a VoltTime backup." }
+        var errorDescription: String? { "That isn't a TesLah backup." }
     }
 
     /// Packs energy.plist and settings.plist into one compressed file at `out`.
@@ -224,7 +224,7 @@ enum BackupReminder {
         guard d.bool(forKey: enabledKey) else { return }
         guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Back up VoltTime"
+        content.title = "Back up TesLah"
         content.body = "Save this week's energy data to iCloud Drive."
         content.sound = .default
         var when = DateComponents()
@@ -252,7 +252,7 @@ enum EnergyCSV {
     }
 
     struct BadFile: LocalizedError {
-        var errorDescription: String? { "This isn't a VoltTime backup file." }
+        var errorDescription: String? { "This isn't a TesLah backup file." }
     }
 
     static func parse(_ text: String) throws -> [String: DayCurve] {
@@ -324,7 +324,7 @@ final class BackupManager: ObservableObject {
         status = "Packing…"
         Task {
             let out = FileManager.default.temporaryDirectory
-                .appendingPathComponent("VoltTime-backup-" + VoltArchive.stamp() + "." + VoltArchive.ext)
+                .appendingPathComponent("TesLah-backup-" + VoltArchive.stamp() + "." + VoltArchive.ext)
             let made: Result<Int64, Error> = await Task.detached(priority: .userInitiated) {
                 do {
                     try VoltArchive.make(at: out)
@@ -471,11 +471,11 @@ struct BackupPage: View {
                 .buttonStyle(.plain)
                 .disabled(backup.working)
                 Button(action: chooseRestore) {
-                    TRow("Restore from backup…", icon: "icloud.and.arrow.down", subtitle: note ?? "Pick a VoltTime backup file",
+                    TRow("Restore from backup…", icon: "icloud.and.arrow.down", subtitle: note ?? "Pick a TesLah backup file",
                          last: true) { chevron }
                 }
                 .buttonStyle(.plain)
-                TFootnote(text: "One small file with every energy day and your settings. In the save screen pick iCloud Drive › VoltTime. Restore also reads the older CSV backups.")
+                TFootnote(text: "One small file with every energy day and your settings. In the save screen pick your backup folder in iCloud Drive. Restore also reads older VoltTime backups.")
 
                 TCaption(text: "Reminder")
                 TRow("Weekly reminder", icon: "bell") {

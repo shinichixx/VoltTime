@@ -11,6 +11,7 @@ struct VoltTimeApp: App {
         WindowGroup {
             ContentView()
                 .font(.app(size: 17))   // Albert Sans for any text without its own font
+                .scrollBounceBehavior(.always)   // every page can be dragged and springs back, even when it fits
                 .tint(.white)
                 .preferredColorScheme(.dark)
         }

@@ -356,7 +356,7 @@ struct CarView2: View {
             .padding(.horizontal, 20)
             .padding(.top, 15)
             .padding(.bottom, 25)
-            .frame(height: 178.3, alignment: .top)
+            .frame(height: c.charging ? 178.3 : 158.3, alignment: .top)   // shorter when the kW / amps line is hidden
             let full = (c.soc ?? 0) >= limit
             // Left: stop while charging; start only with the cable in and room below the limit.
             let left: String? = c.charging ? "Stop Charging" : (c.cableConnected && !full ? "Start Charging" : nil)
@@ -417,12 +417,12 @@ struct CarView2: View {
         return VStack(spacing: 0) {
             row("car.side", "Controls", nil) { path.append(.carDetail(.controls)) }
             row("fanblades", "Climate", "Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC)) · \(c.climateOn ? "On" : "Off")") { path.append(.carDetail(.climate)) }
-            row("circle.circle", "Tyres", tyres, rich: tyreLine) { path.append(.carDetail(.tyres)) }
+            row("bolt", "Charging", chargingSub) { path.append(.settings) }
             row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · ")) { path.append(.carDetail(.battery)) }
+            row("circle.circle", "Tyres", tyres, rich: tyreLine) { path.append(.carDetail(.tyres)) }
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
                                             "Sentry \(c.sentry ? "on" : "off")"].joined(separator: " · ")) { path.append(.carDetail(.security)) }
             row("location.north.fill", "Location", [street, model.placeWord].compactMap { $0 }.joined(separator: " · ")) { path.append(.carDetail(.location)) }
-            row("bolt", "Charging", chargingSub) { path.append(.settings) }
         }
     }
 

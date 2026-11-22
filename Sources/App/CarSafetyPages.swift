@@ -80,16 +80,24 @@ struct CarSecurityPage: View {
         VStack(spacing: 8) {
             Text("Frunk · " + (c.frunkOpen ? "Open" : "Closed"))
                 .font(.app(size: 12, weight: .medium)).foregroundStyle(c.frunkOpen ? CarColors.amber : K.grey)
+            let car = TopDownCar(open: (0..<4).map { c.doorOpen($0) || c.windowsOpen[$0] },
+                                 doorOpen: (0..<4).map { c.doorOpen($0) },
+                                 frunk: c.frunkOpen, trunk: c.trunkOpen, lengthPt: 250)
             HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 34) { cornerLabel(0); cornerLabel(2) }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                TopDownCar(open: (0..<4).map { c.doorOpen($0) || c.windowsOpen[$0] },
-                           doorOpen: (0..<4).map { c.doorOpen($0) },
-                           frunk: c.frunkOpen, trunk: c.trunkOpen)
-                    .frame(width: 104, height: 236)
-                VStack(alignment: .trailing, spacing: 34) { cornerLabel(1); cornerLabel(3) }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                // labels centred on the middle of each door
+                ZStack(alignment: .topLeading) {
+                    cornerLabel(0).offset(y: car.frontMid - 17)
+                    cornerLabel(2).offset(y: car.rearMid - 17)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                car
+                ZStack(alignment: .topTrailing) {
+                    cornerLabel(1).offset(y: car.frontMid - 17)
+                    cornerLabel(3).offset(y: car.rearMid - 17)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
+            .frame(height: car.lengthPt)
             Text("Trunk · " + (c.trunkOpen ? "Open" : "Closed"))
                 .font(.app(size: 12, weight: .medium)).foregroundStyle(c.trunkOpen ? CarColors.amber : K.grey)
         }
@@ -146,42 +154,72 @@ struct TopDownCar: View {
     let doorOpen: [Bool]
     let frunk: Bool
     let trunk: Bool
+    var lengthPt: CGFloat = 236
+
+    // Model 3 to scale (same outline as the Tyres page): 4720 × 1848 mm, 2089 mm across the mirrors.
+    static let frontDoor: (CGFloat, CGFloat) = (0.275, 0.50)   // fraction of the length from the nose
+    static let rearDoor: (CGFloat, CGFloat) = (0.515, 0.70)
+    var width: CGFloat { TyreDiagram.Wm * lengthPt / TyreDiagram.L + 6 }
+    /// Middle of the front and rear doors, for lining up the labels.
+    var frontMid: CGFloat { (Self.frontDoor.0 + Self.frontDoor.1) / 2 * lengthPt }
+    var rearMid: CGFloat { (Self.rearDoor.0 + Self.rearDoor.1) / 2 * lengthPt }
 
     var body: some View {
+        let L = TyreDiagram.L, Wb = TyreDiagram.Wb, Wm = TyreDiagram.Wm
+        let k = lengthPt / L
         Canvas { ctx, sz in
-            let w = sz.width, h = sz.height
-            let line = Color(white: 0.42)
-            let glass = Color(white: 0.30)
-            let inset: CGFloat = 8
-            let shell = CGRect(x: inset, y: 2, width: w - inset * 2, height: h - 4)
-            ctx.stroke(Path(roundedRect: shell, cornerRadius: 30), with: .color(line), lineWidth: 2)
-            // glass roof and the split between front and rear glass
-            let roof = CGRect(x: shell.minX + 10, y: h * 0.25, width: shell.width - 20, height: h * 0.56)
-            ctx.stroke(Path(roundedRect: roof, cornerRadius: 16), with: .color(glass), lineWidth: 2)
-            var split = Path(); split.move(to: CGPoint(x: roof.minX, y: h * 0.5)); split.addLine(to: CGPoint(x: roof.maxX, y: h * 0.5))
-            ctx.stroke(split, with: .color(glass), lineWidth: 2)
-            // frunk and trunk lids
-            for (y, isOpen) in [(h * 0.17, frunk), (h * 0.88, trunk)] {
-                var p = Path(); p.move(to: CGPoint(x: shell.minX + 16, y: y)); p.addLine(to: CGPoint(x: shell.maxX - 16, y: y))
-                ctx.stroke(p, with: .color(isOpen ? CarColors.amber : line), lineWidth: isOpen ? 3 : 2)
+            let mx = sz.width / 2
+            let hw = Wb / 2 * k, hm = Wm / 2 * k, Lp = L * k
+            func P(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: mx + x, y: y) }
+            var shell = Path()
+            shell.move(to: P(-hw * 0.80, Lp * 0.035))
+            shell.addCurve(to: P(hw * 0.80, Lp * 0.035), control1: P(-hw * 0.55, 0), control2: P(hw * 0.55, 0))
+            shell.addCurve(to: P(hw, Lp * 0.22), control1: P(hw * 0.97, Lp * 0.07), control2: P(hw, Lp * 0.14))
+            shell.addLine(to: P(hw, Lp * 0.86))
+            shell.addCurve(to: P(0, Lp), control1: P(hw, Lp * 0.95), control2: P(hw * 0.85, Lp))
+            shell.addCurve(to: P(-hw, Lp * 0.86), control1: P(-hw * 0.85, Lp), control2: P(-hw, Lp * 0.95))
+            shell.addLine(to: P(-hw, Lp * 0.22))
+            shell.addCurve(to: P(-hw * 0.80, Lp * 0.035), control1: P(-hw, Lp * 0.14), control2: P(-hw * 0.97, Lp * 0.07))
+            ctx.fill(shell, with: .color(Color(white: 0.10)))
+            ctx.stroke(shell, with: .color(Color(white: 0.42)), lineWidth: 1.6)
+            // windscreen, glass roof, rear glass
+            let glass = Color(red: 0.17, green: 0.20, blue: 0.25)
+            func quad(_ y0: CGFloat, _ c0: CGFloat, _ y1: CGFloat, _ c1: CGFloat, _ w0: CGFloat, _ w1: CGFloat, _ col: Color) {
+                var p = Path()
+                p.move(to: P(-hw * w0, Lp * y0)); p.addQuadCurve(to: P(hw * w0, Lp * y0), control: P(0, Lp * c0))
+                p.addLine(to: P(hw * w1, Lp * y1)); p.addQuadCurve(to: P(-hw * w1, Lp * y1), control: P(0, Lp * c1))
+                p.closeSubpath(); ctx.fill(p, with: .color(col))
             }
-            // doors: front half and rear half of each side
-            let green = TSurface.green
-            let spans: [(CGFloat, CGFloat)] = [(h * 0.30, h * 0.49), (h * 0.51, h * 0.70)]
+            quad(0.30, 0.25, 0.42, 0.40, 0.82, 0.76, glass)
+            quad(0.43, 0.41, 0.64, 0.655, 0.76, 0.76, Color(red: 0.12, green: 0.14, blue: 0.17))
+            quad(0.65, 0.665, 0.78, 0.81, 0.76, 0.80, glass)
+            // mirrors
+            let my = Lp * 0.31
+            for s in [-1.0, 1.0] as [CGFloat] {
+                var m = Path()
+                m.move(to: P(s * hw, my)); m.addLine(to: P(s * hm, my + 1)); m.addLine(to: P(s * hm, my + 3.5)); m.addLine(to: P(s * hw, my + 3.5)); m.closeSubpath()
+                ctx.fill(m, with: .color(Color(white: 0.29)))
+            }
+            // frunk and trunk lid edges (amber when open)
+            for (y, bow, isOpen) in [(Lp * 0.27, -Lp * 0.012, frunk), (Lp * 0.80, Lp * 0.012, trunk)] {
+                var p = Path(); p.move(to: P(-hw * 0.82, y)); p.addQuadCurve(to: P(hw * 0.82, y), control: P(0, y + bow * 2))
+                ctx.stroke(p, with: .color(isOpen ? CarColors.amber : Color(white: 0.35)), lineWidth: isOpen ? 3 : 1.4)
+            }
+            // doors where the real ones are: green closed, amber open (door or window)
+            let spans = [Self.frontDoor, Self.rearDoor]
             for i in 0..<4 {
-                let leftSide = i % 2 == 0
-                let (y0, y1) = spans[i / 2]
-                let x = leftSide ? shell.minX : shell.maxX
-                var p = Path(); p.move(to: CGPoint(x: x, y: y0)); p.addLine(to: CGPoint(x: x, y: y1))
-                ctx.stroke(p, with: .color(open[i] ? CarColors.amber : green), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                let s: CGFloat = i % 2 == 0 ? -1 : 1
+                let (f0, f1) = spans[i / 2]
+                let y0 = Lp * f0 + 2, y1 = Lp * f1 - 2
+                var p = Path(); p.move(to: P(s * hw, y0)); p.addLine(to: P(s * hw, y1))
+                ctx.stroke(p, with: .color(open[i] ? CarColors.amber : TSurface.green), style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 if doorOpen[i] {   // the door swung out
-                    var d = Path()
-                    d.move(to: CGPoint(x: x, y: y0))
-                    d.addLine(to: CGPoint(x: x + (leftSide ? -7 : 7), y: y1 - 4))
+                    var d = Path(); d.move(to: P(s * hw, y0)); d.addLine(to: P(s * (hw + 8), y1 - 4))
                     ctx.stroke(d, with: .color(CarColors.amber), style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 }
             }
         }
+        .frame(width: width, height: lengthPt)
     }
 }
 

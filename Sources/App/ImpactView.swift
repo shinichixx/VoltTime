@@ -55,7 +55,6 @@ struct ImpactView: View {
             .padding(.top, 4)
             .padding(.bottom, 8)
         }
-        .scrollDisabled(true)   // fixed page, like the Tesla app
         .scrollIndicators(.hidden)
         .teslaPage("Impact")
         .toolbar {

@@ -35,7 +35,6 @@ struct CarSettingsPage: View {
                 AppVersionFooter()
             }
         }
-        .scrollBounceBehavior(.basedOnSize)
         .teslaPage("My Car", black: true)
     }
 
@@ -253,7 +252,7 @@ struct AutogatePage: View {
 struct AppVersionFooter: View {
     var body: some View {
         VStack(spacing: 3) {
-            Text("VoltTime · " + CarModel.versionLine).foregroundStyle(TeslaDark.rowLabel)
+            Text("TesLah · " + CarModel.versionLine).foregroundStyle(TeslaDark.rowLabel)
             if !CarModel.releaseLine.isEmpty { Text(CarModel.releaseLine).foregroundStyle(TeslaDark.dim) }
         }
         .font(.app(size: 11))
@@ -294,7 +293,6 @@ struct HomeSettingsPage: View {
                 AppVersionFooter()
             }
         }
-        .scrollBounceBehavior(.basedOnSize)
         .teslaPage("My Home", black: true)
         .task { await home.refresh() }
     }

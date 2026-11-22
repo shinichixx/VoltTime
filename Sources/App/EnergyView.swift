@@ -138,7 +138,6 @@ struct EnergyView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
             }
-            .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
             componentBar
         }

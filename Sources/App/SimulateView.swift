@@ -69,7 +69,6 @@ struct SimulateView: View {
             }
             .padding(.bottom, 60)
         }
-        .scrollBounceBehavior(.basedOnSize)   // fixed when it fits on screen
         .background(TSurface.page)
         .onAppear {
             if !seeded {

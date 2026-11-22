@@ -189,7 +189,6 @@ struct SettingsPage: View {
                 Spacer(minLength: 12)
             }
         }
-        .scrollBounceBehavior(.basedOnSize)   // fixed when it fits; scrolls only if something makes it taller
         .teslaPage("Charging", black: true)
         .task {
             await home.refresh()

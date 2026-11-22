@@ -361,7 +361,13 @@ struct TyresPage: View {
                 TRow("Recommended (cold)", icon: "gauge.with.dots.needle.50percent", subtitle: "Model 3 · on the door pillar") {
                     TValue(value: fmt(CarModel.recommendedBar), unit: unit)
                 }
-                TRow("Colours", icon: "paintpalette", subtitle: "Grey 2.9–3.3 · orange 2.0–2.8 or 3.4+ · red 1.9 and below (bar)") { EmptyView() }
+                TRow("Colours", icon: "paintpalette", trailing: { EmptyView() }, below: {
+                    VStack(spacing: 7) {
+                        legend(Color(white: 0.55), "Normal", range(2.9, 3.3))
+                        legend(CarColors.orange, "Low or high", range(2.0, 2.8) + "  ·  " + fmt(3.4) + " and above")
+                        legend(CarColors.red, "Very low", fmt(1.9) + " and below")
+                    }
+                })
                 TRow("Unit", icon: "ruler", last: true) {
                     TSegment(items: ["bar", "psi"], selected: unit == "psi" ? 1 : 0) { unit = $0 == 1 ? "psi" : "bar" }
                         .frame(width: 104)
@@ -439,6 +445,18 @@ struct TyresPage: View {
             Text(cap).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func range(_ a: Double, _ b: Double) -> String { fmt(a) + " – " + fmt(b) + (unit == "psi" ? " psi" : " bar") }
+
+    /// One line of the colour key: dot, what it means, the range on the right.
+    private func legend(_ col: Color, _ name: String, _ r: String) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(col).frame(width: 8, height: 8)
+            Text(name).font(.app(size: 13, weight: .medium)).foregroundStyle(Color(white: 0.8))
+            Spacer(minLength: 8)
+            Text(r).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1).minimumScaleFactor(0.8)
+        }
     }
 
     /// Pressure in the chosen unit (bar with one decimal, psi whole numbers).
