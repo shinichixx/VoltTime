@@ -61,8 +61,9 @@ struct TessieClient {
     }
 
     /// Full state, as Tessie last saw it (doesn't wake the car).
-    func state(_ vin: String) async throws -> [String: Any] {
-        json(try await get("/\(vin)/state", query: ["use_cache": "true"]))
+    /// `live` asks the car itself (used just after a command, when the car is awake anyway).
+    func state(_ vin: String, live: Bool = false) async throws -> [String: Any] {
+        json(try await get("/\(vin)/state", query: ["use_cache": live ? "false" : "true"]))
     }
 
     func battery(_ vin: String) async throws -> [String: Any] { json(try await get("/\(vin)/battery")) }
@@ -175,6 +176,9 @@ struct CarSnapshot: Codable, Equatable {
     var doors: [Bool]? = nil             // FL FR RL RR (df, pf, dr, pr)
     var heading: Double? = nil           // degrees, 0 = north
     var located: Date? = nil             // last /location read
+    // Build 37: power modes (from the car when Tessie reports them, otherwise the last one VoltTime sent)
+    var lowPower: Bool? = nil
+    var accessoryPower: Bool? = nil
 
     var modelName: String {
         switch carType?.lowercased() {
@@ -258,6 +262,10 @@ struct CarSnapshot: Codable, Equatable {
             defrost = (cl?["is_front_defroster_on"] as? Bool) ?? defrost
         }
         if let g = vs?["guest_mode_enabled"] as? Bool { guest = g }
+        for o in [vs, cs, j] {
+            if let v = (o?["low_power_mode"] as? Bool) ?? (o?["low_power_mode_enabled"] as? Bool) { lowPower = v }
+            if let v = (o?["keep_accessory_power_mode"] as? Bool) ?? (o?["accessory_power"] as? Bool) { accessoryPower = v }
+        }
         let seen = ["tpms_last_seen_pressure_time_fl", "tpms_last_seen_pressure_time_fr",
                     "tpms_last_seen_pressure_time_rl", "tpms_last_seen_pressure_time_rr"].compactMap { d(vs, $0) }
         if let last = seen.max(), last > 0 { tyresRead = Date(timeIntervalSince1970: last) }

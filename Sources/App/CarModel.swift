@@ -128,8 +128,8 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .sentry: return s.sentry ? "record.circle.fill" : "record.circle"
         case .valet: return "person.badge.key"
         case .guest: return "person.2"
-        case .lowPower: return "leaf"
-        case .accessoryPower: return "powerplug"
+        case .lowPower: return s.lowPower == true ? "leaf.fill" : "leaf"
+        case .accessoryPower: return s.accessoryPower == true ? "powerplug.fill" : "powerplug"
         }
     }
 
@@ -142,6 +142,8 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .precondition: return s.preconditioning ? CarColors.red : .white
         case .sentry: return s.sentry ? CarColors.red : .white
         case .valet: return s.valet ? CarColors.amber : .white
+        case .lowPower: return s.lowPower == true ? TSurface.green : .white
+        case .accessoryPower: return s.accessoryPower == true ? TSurface.green : .white
         default: return .white
         }
     }
@@ -157,7 +159,7 @@ enum CarControl: String, CaseIterable, Identifiable {
     /// The centred confirmation: a plain question, one line of what happens, and the button word.
     func question(_ s: CarSnapshot) -> (title: String, message: String, action: String) {
         switch self {
-        case .gate: return ("Open or close the gate?", "This sends one signal to the gate through Home Assistant.", "Send")
+        case .gate: return ("Open or close the gate?", "This sends one signal to the gate through Home Assistant.", "Yes")
         case .lock: return s.locked == false ? ("Lock the car?", "All doors will lock.", "Lock")
                                              : ("Unlock the car?", "Anyone next to the car will be able to open it.", "Unlock")
         case .frunk: return s.frunkOpen ? ("Close the front trunk?", "Only cars with a powered front trunk can close it remotely.", "Close")
@@ -222,6 +224,8 @@ final class CarModel: ObservableObject {
     @Published var gateSent = false      // top-row gate icon shows radio waves for a few seconds
 
     private var lastHealth: Date?
+    private var liveUntil: Date?          // straight after a command: read the car itself, not Tessie's cache
+    private var liveTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var limitTask: Task<Void, Never>?
 
@@ -250,7 +254,14 @@ final class CarModel: ObservableObject {
 
     func reloadControls() { controls = CarControl.load() }
 
-    func refresh() async {
+    /// How often the page reads the car: 15 s just after a command, 20 s while charging, else 60 s.
+    var pollInterval: Double {
+        if let u = liveUntil, u > Date() { return 15 }
+        return car.charging ? 20 : 60
+    }
+
+    func refresh(live: Bool = false) async {
+        let useLive = live || (liveUntil.map { $0 > Date() } ?? false)
         guard let t = TessieClient.configured(), let vin else {
             error = "Add your Tessie token: ☰ → Tessie"
             return
@@ -258,7 +269,7 @@ final class CarModel: ObservableObject {
         refreshing = true
         defer { refreshing = false }
         do {
-            async let s = t.state(vin)
+            async let s = t.state(vin, live: useLive)
             async let b = try? t.battery(vin)
             async let l = try? t.location(vin)
             var c = car
@@ -314,7 +325,7 @@ final class CarModel: ObservableObject {
                 let dist = m < 1000 ? "\(Int((m / 10).rounded() * 10)) m" : String(format: "%.1f km", m / 1000)
                 return ("You're not at home", "\(car.name) is \(dist) away.\nOpen the gate anyway?", "Open Gate", true)
             }
-            return ("Open the gate?", "Couldn't check where the car is.", "Send", false)
+            return ("Open the gate?", "Couldn't check where the car is.", "Yes", false)
         }
         let q = c.question(car)
         return (q.title, q.message, q.action, false)
@@ -405,14 +416,58 @@ final class CarModel: ObservableObject {
             case .sentry: try await t.command(vin, s.sentry ? "disable_sentry" : "enable_sentry")
             case .valet: try await t.command(vin, s.valet ? "disable_valet" : "enable_valet")
             case .guest: try await t.command(vin, s.guest == true ? "disable_guest" : "enable_guest")
-            case .lowPower: try await t.command(vin, "enable_low_power_mode")
-            case .accessoryPower: try await t.command(vin, "enable_keep_accessory_power_mode")
+            case .lowPower: try await t.command(vin, s.lowPower == true ? "disable_low_power_mode" : "enable_low_power_mode")
+            case .accessoryPower: try await t.command(vin, s.accessoryPower == true ? "disable_keep_accessory_power_mode" : "enable_keep_accessory_power_mode")
             case .gate: break
             }
             show(doneBanner(c, s))
-            await refresh()
+            var n = car; Self.optimistic(c, s, &n); car = n
+            save()
+            followUp()
         } catch {
             show(.failed(error))
+        }
+    }
+
+    /// After a command: read the car itself in 2 s, and keep reading it directly for 90 s.
+    private func followUp() {
+        liveUntil = Date().addingTimeInterval(90)
+        liveTask?.cancel()
+        liveTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await refresh(live: true)
+        }
+    }
+
+    /// What the car will look like once the command is done, so the icons change straight away.
+    static func optimistic(_ c: CarControl, _ s: CarSnapshot, _ n: inout CarSnapshot) {
+        switch c {
+        case .lock: n.locked = s.locked == false
+        case .climate: n.climateOn = !s.climateOn; if s.climateOn { n.batteryHeater = false }
+        case .charge: n.chargingState = s.charging ? "Stopped" : "Charging"
+        case .precondition:
+            if s.preconditioning { n.climateOn = false; n.batteryHeater = false } else { n.climateOn = true; n.setTempC = 19 }
+        case .setTemp: n.setTempC = 22
+        case .defrost: n.defrost = !(s.defrost == true)
+        case .seatCool: var a = s.seatCool ?? [0, 0]; a[0] = a[0] > 0 ? 0 : 3; n.seatCool = a
+        case .seatCoolPassenger: var a = s.seatCool ?? [0, 0]; a[1] = a[1] > 0 ? 0 : 3; n.seatCool = a
+        case .dogMode: n.keeperMode = s.keeperMode == "dog" ? "off" : "dog"
+        case .campMode: n.keeperMode = s.keeperMode == "camp" ? "off" : "camp"
+        case .keepMode: n.keeperMode = s.keeperMode == "on" ? "off" : "on"
+        case .chargePort: n.portOpen = !s.portOpen
+        case .chargeLimit80: n.limit = 80
+        case .amps5: n.chargeAmps = 5
+        case .amps32: n.chargeAmps = 32
+        case .sentry: n.sentry = !s.sentry
+        case .valet: n.valet = !s.valet
+        case .guest: n.guest = !(s.guest == true)
+        case .lowPower: n.lowPower = !(s.lowPower == true)
+        case .accessoryPower: n.accessoryPower = !(s.accessoryPower == true)
+        case .frunk: n.frunkOpen = !s.frunkOpen
+        case .trunk: n.trunkOpen = !s.trunkOpen
+        case .windows: n.windowsOpen = Array(repeating: !s.anyWindowOpen, count: 4)
+        default: break
         }
     }
 
@@ -459,6 +514,13 @@ final class CarModel: ObservableObject {
         case .trunk: return .ok(s.trunkOpen ? "Rear trunk closing" : "Rear trunk open")
         case .windows: return .ok(s.anyWindowOpen ? "Windows closing" : "Windows vented")
         case .wake: return .ok("Car is awake")
+        case .lowPower:
+            return Banner(title: s.lowPower == true ? "Low Power Mode off" : "Low Power Mode on", icon: "leaf.fill",
+                          tint: s.lowPower == true ? grey : TSurface.green)
+        case .accessoryPower:
+            return Banner(title: s.accessoryPower == true ? "Accessory Power off" : "Accessory Power on",
+                          detail: s.accessoryPower == true ? nil : "USB and 12 V stay on after you leave",
+                          icon: "powerplug.fill", tint: s.accessoryPower == true ? grey : TSurface.green)
         default: return .ok(c.title, "Done")
         }
     }
@@ -491,9 +553,9 @@ final class CarModel: ObservableObject {
         do {
             show(.sending("Sending to the car…"))
             try await t.command(vin, name, params)
-            if let update { var c = car; update(&c); car = c }
+            if let update { var c = car; update(&c); car = c; save() }
             show(.ok(done))
-            await refresh()
+            followUp()
         } catch {
             show(.failed(error))
         }

@@ -83,7 +83,11 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
-        .banner(home.toast) { home.toast = nil }
+        // One banner for the whole app, laid out inside the safe area so the status bar and
+        // Dynamic Island never cover it (car pages draw edge to edge underneath).
+        .banner(car.toast ?? home.toast) {
+            if car.toast != nil { car.dismissBanner() } else { home.toast = nil }
+        }
         .animation(.easeInOut(duration: 0.25), value: home.shouldAsk)
         .sheet(isPresented: $home.showLimitSheet) {
             LimitSheet(model: home)

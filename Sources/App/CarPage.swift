@@ -15,10 +15,9 @@ struct CarPage: View {
                 guard phase == .active else { return }
                 while !Task.isCancelled {
                     await car.refresh()
-                    try? await Task.sleep(for: .seconds(car.car.charging ? 20 : 60))
+                    try? await Task.sleep(for: .seconds(car.pollInterval))
                 }
             }
-            .banner(car.toast) { car.dismissBanner() }
             .modifier(CarConfirm(model: car))
     }
 }
@@ -92,6 +91,7 @@ struct CarView2: View {
     @State private var sliderLimit: Double?
     @State private var scroll: CGFloat = 0
     @State private var portAsk: PortAsk?
+    @State private var onScreen = true       // live copy of `active` for the delayed scroll reset
     private var c: CarSnapshot { model.car }
     typealias K = TeslaApp
 
@@ -164,7 +164,16 @@ struct CarView2: View {
                 .ignoresSafeArea(.container, edges: .bottom)   // rows run to the very bottom edge, no fade
                 // Swiped away to My Home: back to the top, so the car page always opens at the top.
                 .onChange(of: active) { _, on in
-                    if !on { proxy.scrollTo("top", anchor: .top) }
+                    // Back to the top only once the swipe has settled on another page (out of sight),
+                    // and not if you've swiped back to My Car in the meantime.
+                    onScreen = on
+                    guard !on else { return }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(650))
+                        guard !onScreen else { return }
+                        var t = Transaction(); t.disablesAnimations = true
+                        withTransaction(t) { proxy.scrollTo("top", anchor: .top) }
+                    }
                 }
                 }
 
@@ -490,7 +499,6 @@ struct CarDetailPage: View {
         }
         .teslaPage(title, black: true)
         .modifier(CarConfirm(model: model))
-        .banner(model.toast) { model.dismissBanner() }
     }
 
     private var title: String {
@@ -516,25 +524,25 @@ struct CarDetailPage: View {
             // Charge now, range and limit, with a bar marked at the limit
             HStack(alignment: .lastTextBaseline) {
                 HStack(alignment: .lastTextBaseline, spacing: 4) {
-                    Text("\(Int(soc))").font(.system(size: 56, weight: .light)).foregroundStyle(K.title)
-                    Text("%").font(.system(size: 20, weight: .medium)).foregroundStyle(K.grey)
+                    Text("\(Int(soc))").font(.system(size: 46, weight: .light)).foregroundStyle(K.title)
+                    Text("%").font(.system(size: 17, weight: .medium)).foregroundStyle(K.grey)
                 }
                 Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: 3) {
                     Text(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "–").font(.system(size: 17)).foregroundStyle(K.title)
                     Text("Limit \(Int(limit))%").font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
                 }
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
             }
             GeometryReader { g in
                 ZStack(alignment: .leading) {
                     Capsule().fill(K.track)
                     Capsule().fill(K.sliderGreen).frame(width: g.size.width * soc / 100)
-                    Rectangle().fill(K.title).frame(width: 2, height: 18).offset(x: g.size.width * limit / 100 - 1)
+                    Rectangle().fill(K.title).frame(width: 2, height: 16).offset(x: g.size.width * limit / 100 - 1)
                 }
             }
             .frame(height: 10)
-            Text(batteryStatus).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).padding(.top, 14)
+            Text(batteryStatus).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).padding(.top, 10)
 
             // Precondition: A/C on at 19°C, asks first. Red while it's on.
             Button { model.confirming = .precondition } label: {
@@ -549,16 +557,23 @@ struct CarDetailPage: View {
                         .foregroundStyle(c.preconditioning ? CarColors.red : K.title)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(height: 42)
                 .background(RoundedRectangle(cornerRadius: 10).fill(K.panel))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(model.busy == .precondition)
-            .padding(.top, 14)
+            .padding(.top, 12)
+
+            // Low Power Mode and Accessory Power, side by side. Green outline while on.
+            HStack(spacing: 10) {
+                modeButton(.lowPower, "Low Power Mode", on: c.lowPower == true)
+                modeButton(.accessoryPower, "Accessory Power", on: c.accessoryPower == true)
+            }
+            .padding(.top, 8)
 
             caption("Live")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                 tile("Voltage", c.packVoltage.map { "\(Int($0.rounded()))" }, "V")
                 tile("Current", c.packCurrent.map { "\(Int(abs($0).rounded()))" }, "A")
                 tile("Power", power.map { String(format: "%.1f", $0) }, "kW")
@@ -571,11 +586,11 @@ struct CarDetailPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline) {
                     HStack(alignment: .lastTextBaseline, spacing: 4) {
-                        Text(h.healthPercent.map { String(format: "%.1f", $0) } ?? "–").font(.system(size: 30, weight: .light)).foregroundStyle(K.title)
-                        Text("%").font(.system(size: 13, weight: .medium)).foregroundStyle(K.grey)
+                        Text(h.healthPercent.map { String(format: "%.1f", $0) } ?? "–").font(.system(size: 28, weight: .light)).foregroundStyle(K.title)
+                        Text("%").font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
                     }
                     Spacer()
-                    VStack(alignment: .trailing, spacing: 3) {
+                    VStack(alignment: .trailing, spacing: 2) {
                         if let now = h.capacityKWh, let new = h.originalCapacityKWh {
                             Text(String(format: "%.1f of %.1f kWh", now, new)).font(.system(size: 12, weight: .medium)).foregroundStyle(K.title)
                             Text(String(format: "%.1f%% lost", max(0, (1 - now / new) * 100))).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
@@ -589,17 +604,54 @@ struct CarDetailPage: View {
                     }
                 }
                 .frame(height: 6)
-                .padding(.top, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
                 healthRow("Max range at 100%", h.maxRangeKm.map { "\(Int($0.rounded()))" } ?? "–", "km")
                 healthRow("Cycles (lifetime ÷ capacity)", h.cycles(lifetimeKWh: c.lifetimeKWh).map { "≈\(Int($0.rounded()))" } ?? "–", "")
                 healthRow("Lifetime energy", c.lifetimeKWh.map { Int($0.rounded()).formatted() } ?? "–", "kWh")
             }
-            .padding(14)
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 2)
             .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
         }
         .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 30)
+        .padding(.top, 4)
+        .padding(.bottom, 24)
+    }
+
+    /// Half-width toggle box: icon, name, and On / Off under it. Goes through the same send path as the quick controls.
+    private func modeButton(_ ctl: CarControl, _ title: String, on: Bool) -> some View {
+        let K = TeslaApp.self
+        let green = TSurface.green
+        return Button { Task { await model.run(ctl) } } label: {
+            HStack(spacing: 10) {
+                if model.busy == ctl {
+                    ProgressView().tint(.white).scaleEffect(0.75).frame(width: 22)
+                } else {
+                    Image(systemName: ctl.icon(c))
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(on ? green : K.grey)
+                        .frame(width: 22)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(K.title)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Text(on ? "On" : "Off").font(.system(size: 12, weight: .medium)).foregroundStyle(on ? green : K.grey)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(
+                RoundedRectangle(cornerRadius: 10).fill(K.panel)
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(on ? green.opacity(0.8) : .clear, lineWidth: 1.2))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.busy != nil)
     }
 
     private var batteryStatus: String {
@@ -614,19 +666,21 @@ struct CarDetailPage: View {
 
     private func caption(_ t: String) -> some View {
         Text(t.uppercased()).font(.system(size: 11, weight: .semibold)).kerning(0.8).foregroundStyle(Color(white: 0.4))
-            .padding(.top, 26).padding(.bottom, 8).padding(.leading, 4)
+            .padding(.top, 20).padding(.bottom, 8).padding(.leading, 4)
     }
 
     private func tile(_ k: String, _ v: String?, _ u: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(k).font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaApp.grey)
-            HStack(alignment: .lastTextBaseline, spacing: 4) {
-                Text(v ?? "–").font(.system(size: 24, weight: .light)).foregroundStyle(TeslaApp.title)
-                Text(u).font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaApp.grey)
+        VStack(alignment: .leading, spacing: 5) {
+            Text(k).font(.system(size: 11, weight: .medium)).foregroundStyle(TeslaApp.grey).lineLimit(1)
+            HStack(alignment: .lastTextBaseline, spacing: 3) {
+                Text(v ?? "–").font(.system(size: 21, weight: .light)).foregroundStyle(TeslaApp.title)
+                Text(u).font(.system(size: 11, weight: .medium)).foregroundStyle(TeslaApp.grey)
             }
+            .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14).padding(.vertical, 11)
+        .frame(height: 58)
+        .padding(.horizontal, 11)
         .background(RoundedRectangle(cornerRadius: 12).fill(TeslaApp.panel))
     }
 
@@ -634,14 +688,13 @@ struct CarDetailPage: View {
         VStack(spacing: 0) {
             Rectangle().fill(TeslaApp.track).frame(height: 1)
             HStack(alignment: .lastTextBaseline) {
-                Text(k).font(.system(size: 15)).foregroundStyle(TeslaApp.title)
+                Text(k).font(.system(size: 14)).foregroundStyle(TeslaApp.title)
                 Spacer()
-                Text(v).font(.system(size: 15)).foregroundStyle(TeslaApp.title)
-                if !u.isEmpty { Text(u).font(.system(size: 12)).foregroundStyle(TeslaApp.grey) }
+                Text(v).font(.system(size: 14)).foregroundStyle(TeslaApp.title)
+                if !u.isEmpty { Text(u).font(.system(size: 11)).foregroundStyle(TeslaApp.grey) }
             }
-            .frame(height: 43)
+            .frame(height: 37)
         }
-        .padding(.top, 12)
     }
 
     private var odometer: some View {

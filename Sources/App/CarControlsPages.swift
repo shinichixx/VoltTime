@@ -257,8 +257,6 @@ struct ClimateControlsPage: View {
 
 struct SecurityModesPage: View {
     @ObservedObject var model: CarModel
-    @State private var lowPower = false
-    @State private var accessory = false
     private var c: CarSnapshot { model.car }
 
     var body: some View {
@@ -280,13 +278,10 @@ struct SecurityModesPage: View {
 
                 TCaption(text: "Power")
                 TRow("Low power mode", icon: "leaf", subtitle: "Saves energy when parked long") {
-                    toggle(lowPower) { on in lowPower = on
-                        Task { await model.send(on ? "enable_low_power_mode" : "disable_low_power_mode", done: on ? "Low power mode on" : "Low power mode off") } }
+                    toggle(c.lowPower == true) { _ in Task { await model.run(.lowPower) } }
                 }
                 TRow("Keep accessory power", icon: "powerplug", subtitle: "USB and 12 V stay on after you leave", last: true) {
-                    toggle(accessory) { on in accessory = on
-                        Task { await model.send(on ? "enable_keep_accessory_power_mode" : "disable_keep_accessory_power_mode",
-                                                done: on ? "Accessory power stays on" : "Accessory power normal") } }
+                    toggle(c.accessoryPower == true) { _ in Task { await model.run(.accessoryPower) } }
                 }
 
                 TCaption(text: "Find the car")

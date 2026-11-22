@@ -74,11 +74,20 @@ extension View {
     /// Shows the banner at the top of the screen, sliding down and away.
     func banner(_ b: Banner?, dismiss: @escaping () -> Void) -> some View {
         overlay(alignment: .top) {
-            if let b {
-                BannerView(banner: b, dismiss: dismiss)
-                    .padding(.top, 6)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+            // Sits 8 pt under the safe area: below the clock, battery and Dynamic Island.
+            GeometryReader { g in
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: max(g.safeAreaInsets.top, 54) + 8)
+                    if let b {
+                        BannerView(banner: b, dismiss: dismiss)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity)
+                .ignoresSafeArea(.container, edges: .top)
             }
+            .allowsHitTesting(b != nil)
         }
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: b)
     }
