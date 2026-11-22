@@ -22,22 +22,65 @@ struct CarPage: View {
     }
 }
 
-/// Centred iOS alert for buttons that ask first, with a plain question.
+/// Centred question for buttons that ask first: title and line centred, Cancel and the action side by side
+/// (drawn by VoltTime, like the iOS alert, so the title can be centred and set in Albert Sans).
 struct CarConfirm: ViewModifier {
     @ObservedObject var model: CarModel
 
     func body(content: Content) -> some View {
-        let q = model.confirming.map { model.question($0) }
-        content.alert(q?.title ?? "", isPresented: Binding(get: { model.confirming != nil },
-                                                          set: { if !$0 { model.confirming = nil; model.gateAway = nil } }),
-                      presenting: model.confirming) { c in
-            Button("Cancel", role: .cancel) { model.confirming = nil; model.gateAway = nil }
-            let q = model.question(c)
-            Button(q.action, role: q.destructive ? .destructive : nil) { Task { await model.run(c) } }
-        } message: { c in
-            let m = model.question(c).message
-            if !m.isEmpty { Text(m) }
+        content
+            .overlay {
+                if let c = model.confirming {
+                    let q = model.question(c)
+                    ZStack {
+                        Color.black.opacity(0.5).ignoresSafeArea()
+                            .onTapGesture { cancel() }
+                        VStack(spacing: 0) {
+                            Text(q.title)
+                                .font(.app(size: 19, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                            if !q.message.isEmpty {
+                                Text(q.message)
+                                    .font(.app(size: 15))
+                                    .foregroundStyle(Color(white: 0.6))
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(3).minimumScaleFactor(0.85)
+                                    .padding(.top, 8)
+                            }
+                            HStack(spacing: 10) {
+                                button("Cancel", color: .white) { cancel() }
+                                button(q.action, color: q.destructive ? CarColors.red : .white) { Task { await model.run(c) } }
+                            }
+                            .padding(.top, 22)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 26)
+                        .padding(.bottom, 16)
+                        .frame(width: 310)
+                        .background(
+                            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                                .fill(Color(red: 44 / 255, green: 44 / 255, blue: 46 / 255))
+                                .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+                                .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
+                        )
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 1.06)))
+                }
+            }
+            .animation(.easeOut(duration: 0.18), value: model.confirming)
+    }
+
+    private func cancel() { model.confirming = nil; model.gateAway = nil }
+
+    private func button(_ t: String, color: Color, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(t).font(.app(size: 17, weight: .semibold)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity).frame(height: 48)
+                .background(Capsule().fill(Color(white: 0.3)))
+                .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -266,9 +309,11 @@ struct CarView2: View {
                     Text("  ·  " + boxState).font(.app(size: 13, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
                 }
                 .frame(height: 16)
-                Text(chargeLine).font(.app(size: 12, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
-                    .frame(height: 15)
-                    .padding(.top, 6)
+                if c.charging {   // like the Tesla app: kW / amps / volts only while charging
+                    Text(chargeLine).font(.app(size: 12, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
+                        .frame(height: 15)
+                        .padding(.top, 6)
+                }
                 GeometryReader { g in
                     let w = g.size.width
                     ZStack(alignment: .leading) {
@@ -393,10 +438,12 @@ struct CarView2: View {
             Text(c.modelName).font(.app(size: 14, weight: .semibold)).kerning(4.5).foregroundStyle(K.title)
                 .padding(.top, 29)
             if let t = c.trimName {
-                Text(t).font(.app(size: 17, weight: .medium)).foregroundStyle(K.grey).padding(.top, 9)
+                Text(t).font(.app(size: 13, weight: .semibold)).foregroundStyle(K.grey).padding(.top, 10)
             }
-            VStack(alignment: .leading, spacing: 1.5) {
-                ForEach(lines, id: \.self) { Text($0).font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey) }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(lines, id: \.self) {
+                    Text($0).font(.app(size: 10.5, weight: .semibold)).foregroundStyle(K.grey).frame(height: 13, alignment: .leading)
+                }
             }
             .padding(.top, 22)
             HStack(spacing: 10) {

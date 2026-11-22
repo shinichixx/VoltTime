@@ -173,7 +173,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .valet: return s.valet ? ("Turn off valet mode?", "The car goes back to your normal settings.", "Turn off")
                                     : ("Turn on valet mode?", "Speed is limited and the glovebox locks.", "Turn on")
         case .precondition: return s.preconditioning ? ("Stop preconditioning?", "The A/C turns off.", "Stop")
-                                                     : ("Precondition the battery?", "The A/C turns on and the cabin is set to 19°C.", "Start")
+                                                     : ("Precondition the battery?", "A/C on, cabin set to 19°C.", "Start")
         case .chargePort: return s.portOpen ? ("Close the charge port?", "Unplug the cable first.", "Close")
                                             : ("Open the charge port?", "The port door opens and unlocks the cable.", "Open")
         default: return ("\(title)?", "", short)
