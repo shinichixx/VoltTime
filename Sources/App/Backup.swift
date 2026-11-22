@@ -19,7 +19,7 @@ enum AppData {
     static var energy: URL { support.appendingPathComponent("energy.plist") }
 
     /// Settings that go into a backup (the Home Assistant token stays in the Keychain, never in a file).
-    private static let settingPrefixes = ["home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", HAClient.urlKey]
+    private static let settingPrefixes = ["home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", "car.", HAClient.urlKey]
 
     static func settingsData() -> Data? {
         let all = UserDefaults.standard.dictionaryRepresentation()
@@ -43,6 +43,7 @@ enum AppData {
 struct BackupContents {
     var curves: [String: DayCurve]
     var settings: Data?
+    var carPhotos: [String: Data] = [:]   // "car.png", "car-charging.png"
 }
 
 enum VoltArchive {
@@ -54,7 +55,8 @@ enum VoltArchive {
     }
 
     /// Packs energy.plist and settings.plist into one compressed file at `out`.
-    static func make(at out: URL) throws {
+    /// `includePhotos`: the car photo goes into iCloud backups only, not the daily copies on the iPhone (it rarely changes).
+    static func make(at out: URL, includePhotos: Bool = true) throws {
         let fm = FileManager.default
         let stage = fm.temporaryDirectory.appendingPathComponent("pack-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: stage, withIntermediateDirectories: true)
@@ -63,6 +65,10 @@ enum VoltArchive {
             try fm.copyItem(at: AppData.energy, to: stage.appendingPathComponent("energy.plist"))
         }
         if let s = AppData.settingsData() { try s.write(to: stage.appendingPathComponent("settings.plist")) }
+        for name in ["car.png", "car-charging.png"] where includePhotos {
+            let src = CarArt.folder.appendingPathComponent(name)
+            if fm.fileExists(atPath: src.path) { try fm.copyItem(at: src, to: stage.appendingPathComponent(name)) }
+        }
 
         try? fm.removeItem(at: out)
         guard let fileStream = ArchiveByteStream.fileStream(path: FilePath(out.path), mode: .writeOnly,
@@ -106,8 +112,12 @@ enum VoltArchive {
 
         let energy = (try? Data(contentsOf: dest.appendingPathComponent("energy.plist"))).flatMap { StoreFile.curves(from: $0) }
         let settings = try? Data(contentsOf: dest.appendingPathComponent("settings.plist"))
-        guard energy != nil || settings != nil else { throw BadFile() }
-        return BackupContents(curves: energy ?? [:], settings: settings)
+        var photos: [String: Data] = [:]
+        for name in ["car.png", "car-charging.png"] {
+            if let d = try? Data(contentsOf: dest.appendingPathComponent(name)) { photos[name] = d }
+        }
+        guard energy != nil || settings != nil || !photos.isEmpty else { throw BadFile() }
+        return BackupContents(curves: energy ?? [:], settings: settings, carPhotos: photos)
     }
 
     /// A VoltTime backup of either kind: .aar (build 30 on) or the older CSV.
@@ -165,12 +175,12 @@ enum Snapshots {
     }
 
     static func safetyCopy() {
-        take(safetyPrefix, keep: keepSafety)
+        take(safetyPrefix, keep: keepSafety, photos: true)   // one copy, so a restore can't lose your car photo
     }
 
-    private static func take(_ prefix: String, keep: Int) {
+    private static func take(_ prefix: String, keep: Int, photos: Bool = false) {
         let dir = folder
-        try? VoltArchive.make(at: dir.appendingPathComponent(prefix + VoltArchive.stamp() + "." + VoltArchive.ext))
+        try? VoltArchive.make(at: dir.appendingPathComponent(prefix + VoltArchive.stamp() + "." + VoltArchive.ext), includePhotos: photos)
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
             .filter { $0.hasPrefix(prefix) }
             .sorted(by: >)
@@ -565,6 +575,10 @@ struct BackupPage: View {
             home.reloadSettings()
             parts.append("settings back")
         }
+        if !p.contents.carPhotos.isEmpty {
+            for (name, data) in p.contents.carPhotos { try? data.write(to: CarArt.folder.appendingPathComponent(name), options: .atomic) }
+            parts.append("car photo back")
+        }
         note = "Restored: " + (parts.isEmpty ? "nothing new" : parts.joined(separator: ", "))
         snapshots = Snapshots.list()
     }
@@ -574,6 +588,7 @@ struct BackupPage: View {
     private func restoreMessage(_ c: BackupContents) -> String {
         var m = "\(c.curves.count) days of energy data"
         if c.settings != nil { m += " and your settings" }
+        if !c.carPhotos.isEmpty { m += ", plus your car photo" }
         return m + ". A copy of what's on the iPhone now is kept first. Days already here keep whichever copy has more detail."
     }
 

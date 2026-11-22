@@ -3,6 +3,7 @@ import SwiftUI
 /// Pages pushed from My Home.
 enum Route: Hashable {
     case energy, settings, chargeDetails, homeAssistant, charge, impact
+    case carSettings, carDetail(CarDetail)
 }
 
 // MARK: - Shared dark building blocks
@@ -148,6 +149,9 @@ struct SettingsPage: View {
                     .opacity(routine ? 1 : 0.55)
 
                 TCaption(text: "System")
+                TNavRow(title: "Car", icon: "car", subtitle: "Tessie, layout, car photo, quick controls, autogate") {
+                    path.append(.carSettings)
+                }
                 TNavRow(title: "Home Assistant", icon: "house",
                         subtitle: home.haConfigured ? (home.message == nil ? "Connected" : "Can't reach Home Assistant") : "Not set up",
                         dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil) {

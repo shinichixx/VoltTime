@@ -4,7 +4,7 @@ iPhone app for Ultra Rouge (Tesla Model 3 LR RWD) charging, built from
 [tesla-home-charge-planner](https://github.com/shinichixx/tesla-home-charge-planner) and
 [Tesla-M3-Charger-Calculator](https://github.com/shinichixx/Tesla-M3-Charger-Calculator).
 
-Dark, Tesla-app style. Two pages, swiped left and right (no tab bar):
+Dark, Tesla-app style. Three pages, swiped left and right (no tab bar):
 
 - **My Home** – the "Home IM2 Kuantan" page (was the Tesla dashboard in Home Assistant): scenario photo with live
   Model 3 / Solar / Home / Grid power with animated pulses along the wires (direction = power flow, green = solar,
@@ -22,6 +22,18 @@ Dark, Tesla-app style. Two pages, swiped left and right (no tab bar):
     location tomorrow GPS 73% / TSET 63% / Others, ready time, start time) → *Charge details* (duration, energy,
     safety buffer, start %, cost, charger and battery parameters), and the Home Assistant connection.
   The 9 scenario photos are built in (`Sources/Photos`, JPEG at iPhone width, ~1 MB total).
+- **Ultra Rouge** (the car, straight from Tessie – not through Home Assistant) – two layouts, switched in
+  Settings → Car → Layout:
+  - *View 1* – script title, car photo pinned behind the page (dims to 18% as you scroll), 100-tick battery ring with a
+    draggable charge limit (centre fades to the limit and its range), 6 customisable buttons, Temperature | Tyres
+    (top-down car at real Model 3 proportions), Security | Battery health (10 cells, max range, capacity, cycles ≈
+    lifetime energy ÷ capacity), location, odometer, version and release date.
+  - *View 2* – list style like the rest of VoltTime: charging panel (limit slider, amps, start/stop, charge port),
+    5 buttons, rows for Controls, Climate, Tyres, Battery, Security, Location, Charging plan and Odometer.
+  Settings → Car: Tessie token (Keychain) and car, Layout, Car photo (your photo with the background lifted on the
+  iPhone, edge fade, brightness, size, optional plate blur; included in iCloud backups), Quick controls (every Tessie
+  command that makes sense as a button, ask-first per button), Autogate (one RF pulse on
+  `switch.porch_rf_controller_switch_1` through Home Assistant).
 - **Simulation** – *Home charging* (when to start for any % by any time) and *Public charging* (Supercharger / DC
   time and cost). Nothing is sent to the car or Home Assistant.
 

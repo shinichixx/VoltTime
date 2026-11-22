@@ -16,12 +16,13 @@ struct VoltTimeApp: App {
     }
 }
 
-/// Two pages, swiped left and right: My Home and Simulation. Everything else is pushed from My Home.
+/// Three pages, swiped left and right: My Home, the car (Ultra Rouge) and Simulation.
 struct ContentView: View {
     @Environment(\.scenePhase) private var phase
     @StateObject private var home = HomeModel()
     @StateObject private var myHome = MyHomeModel()
     @StateObject private var energy = EnergyStore()
+    @StateObject private var car = CarModel()
     @State private var path: [Route] = []
     @State private var page = 0
 
@@ -32,7 +33,7 @@ struct ContentView: View {
             Spacer()
             // 16.5 pt centre to centre, like the iOS page dots (7.5 dot + 2×4 tap padding + 1).
             HStack(spacing: 1) {
-                ForEach(0..<2, id: \.self) { i in
+                ForEach(0..<3, id: \.self) { i in
                     Circle()
                         .fill(page == i ? Color.white : Color(white: 0.45))
                         .frame(width: 7.5, height: 7.5)
@@ -51,8 +52,10 @@ struct ContentView: View {
             TabView(selection: $page) {
                 MyHomeView(model: myHome, path: $path)
                     .tag(0)
-                SimulationPage(home: home)
+                CarPage(car: car, path: $path)
                     .tag(1)
+                SimulationPage(home: home)
+                    .tag(2)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea(.container, edges: .bottom)
@@ -67,6 +70,8 @@ struct ContentView: View {
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
                 case .impact: ImpactView(model: energy, home: myHome)
+                case .carSettings: CarSettingsPage(car: car)
+                case .carDetail(let d): CarDetailPage(model: car, detail: d)
                 }
             }
         }
