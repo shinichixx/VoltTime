@@ -174,9 +174,11 @@ struct CarView2: View {
                         Color.clear.frame(height: buttonsTop)
                         ControlStrip(model: model, count: 5, plain: true)
                             .padding(.horizontal, 20)
-                        chargingPanel
-                            .padding(.horizontal, 10)
-                            .padding(.top, 19)
+                        if c.onAC {   // only while plugged into an AC charger (hidden unplugged and on DC fast chargers)
+                            chargingPanel
+                                .padding(.horizontal, 10)
+                                .padding(.top, 19)
+                        }
                         rows.padding(.top, 22)
                         carInfo.padding(.top, 20)
                         Text(model.error ?? model.updatedText + " · pull to refresh")
@@ -330,7 +332,7 @@ struct CarView2: View {
                 }
                 .frame(height: 30)
                 .padding(.top, 12.7)
-                let amps = Int(c.chargeAmps ?? 32)
+                let amps = Int(c.chargeAmps ?? Double(c.ampsCap))
                 HStack {
                     // 5–32 A: no left arrow at 5 A, no right arrow at 32 A.
                     Button { Task { await model.setAmps(amps - 1) } } label: {
@@ -343,7 +345,7 @@ struct CarView2: View {
                     Button { Task { await model.setAmps(amps + 1) } } label: {
                         Image(systemName: "chevron.right").frame(width: 44, height: 45)
                     }
-                    .opacity(amps >= 32 ? 0 : 1).disabled(amps >= 32)
+                    .opacity(amps >= c.ampsCap ? 0 : 1).disabled(amps >= c.ampsCap)
                 }
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(K.grey)

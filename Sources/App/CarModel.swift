@@ -602,7 +602,7 @@ final class CarModel: ObservableObject {
 
     func setAmps(_ a: Int) async {
         guard let t = TessieClient.configured(), let vin else { return }
-        let v = min(max(a, 5), 32)
+        let v = min(max(a, 5), max(car.ampsCap, Int(car.chargeAmps ?? 5)))
         car.chargeAmps = Double(v)
         do { try await t.command(vin, "set_charging_amps", ["amps": String(v)]) } catch { show(.failed(error)) }
     }

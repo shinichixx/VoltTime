@@ -179,6 +179,20 @@ struct CarSnapshot: Codable, Equatable {
     // Build 37: power modes (from the car when Tessie reports them, otherwise the last one VoltTime sent)
     var lowPower: Bool? = nil
     var accessoryPower: Bool? = nil
+    // Build 42: what the plugged-in charger allows
+    var fastCharger: Bool? = nil         // DC fast charger (Supercharger, CCS DC)
+    var pilotAmps: Double? = nil         // amps the AC charger offers the car
+
+    /// Plugged into an AC charger (Wall Connector, destination, third-party Type 2, 3-pin portable).
+    var onAC: Bool { cableConnected && fastCharger != true }
+
+    /// Highest amps VoltTime offers: what the charger offers (or the car's own maximum, if lower).
+    /// A charger offering 13 A or less is the 3-pin portable charger: stop at 10 A to go easy on the socket.
+    var ampsCap: Int {
+        let offered = [pilotAmps, chargeAmpsMax].compactMap { $0 }.filter { $0 >= 5 }.min() ?? 32
+        let cap = offered <= 13 ? min(offered, 10) : offered
+        return max(5, Int(cap))
+    }
 
     var modelName: String {
         switch carType?.lowercased() {
@@ -234,6 +248,10 @@ struct CarSnapshot: Codable, Equatable {
         minutesToLimit = d(cs, "minutes_to_full_charge")
         if let cable = cs?["conn_charge_cable"] as? String { cableConnected = cable != "<invalid>" && !cable.isEmpty }
         portOpen = (cs?["charge_port_door_open"] as? Bool) ?? portOpen
+        if cs != nil {
+            fastCharger = (cs?["fast_charger_present"] as? Bool) ?? fastCharger
+            pilotAmps = d(cs, "charger_pilot_current").flatMap { $0 > 0 ? $0 : nil } ?? (cableConnected ? pilotAmps : nil)
+        }
         insideC = d(cl, "inside_temp") ?? insideC
         outsideC = d(cl, "outside_temp") ?? outsideC
         climateOn = (cl?["is_climate_on"] as? Bool) ?? climateOn
