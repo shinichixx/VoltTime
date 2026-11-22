@@ -37,8 +37,20 @@ enum CarArt {
 /// Car picture with its edges faded into the page (left, right, top and bottom).
 struct FadedCar: View {
     let image: UIImage?
-    var fade: Double = UserDefaults.standard.object(forKey: CarArt.fadeKey) as? Double ?? 0.55
-    var bright: Double = UserDefaults.standard.double(forKey: CarArt.brightKey)
+    /// Pass values to preview unsaved settings; otherwise the saved ones are used (and followed live).
+    var fadeOverride: Double? = nil
+    var brightOverride: Double? = nil
+    @AppStorage(CarArt.fadeKey) private var savedFade = 0.55
+    @AppStorage(CarArt.brightKey) private var savedBright = 0.0
+
+    init(image: UIImage?, fade: Double? = nil, bright: Double? = nil) {
+        self.image = image
+        self.fadeOverride = fade
+        self.brightOverride = bright
+    }
+
+    private var fade: Double { fadeOverride ?? savedFade }
+    private var bright: Double { brightOverride ?? savedBright }
 
     var body: some View {
         if let image {
@@ -286,8 +298,8 @@ struct ControlStrip: View {
                             ProgressView().tint(.white)
                         } else {
                             Image(systemName: c.icon(model.car))
-                                .font(.system(size: plain ? 24 : 21, weight: .light))
-                                .foregroundStyle(plain ? Color(white: 0.79) : c.tint(model.car))
+                                .font(.system(size: 21, weight: plain ? .regular : .light))
+                                .foregroundStyle(plain ? TeslaApp.grey : c.tint(model.car))
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: 46)
@@ -297,7 +309,7 @@ struct ControlStrip: View {
                 .accessibilityLabel(c.title)
             }
         }
-        .padding(.horizontal, plain ? 4 : 6)
+        .padding(.horizontal, plain ? 0 : 6)
         .background {
             if !plain { Capsule().strokeBorder(CarColors.line, lineWidth: 1) }
         }

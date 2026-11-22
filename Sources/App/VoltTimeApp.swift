@@ -16,7 +16,7 @@ struct VoltTimeApp: App {
     }
 }
 
-/// Three pages, swiped left and right: My Home, the car (Ultra Rouge) and Simulation.
+/// Three pages, swiped left and right: My Car (opens first), My Home and Simulation.
 struct ContentView: View {
     @Environment(\.scenePhase) private var phase
     @StateObject private var home = HomeModel()
@@ -50,9 +50,9 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $path) {
             TabView(selection: $page) {
-                MyHomeView(model: myHome, path: $path)
+                CarPage(car: car, home: home, path: $path)
                     .tag(0)
-                CarPage(car: car, path: $path)
+                MyHomeView(model: myHome, path: $path)
                     .tag(1)
                 SimulationPage(home: home)
                     .tag(2)
@@ -65,7 +65,7 @@ struct ContentView: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .energy: EnergyView(store: energy)
-                case .settings: SettingsPage(home: home, myHome: myHome, energy: energy, path: $path)
+                case .settings: SettingsPage(home: home, myHome: myHome, energy: energy, car: car, path: $path)
                 case .chargeDetails: ChargeDetailsPage(model: home)
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
@@ -103,7 +103,7 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             // volttime://limit (notification "Others…") or volttime://home -> My Home → Settings
-            page = 0
+            page = 1   // My Home behind Settings
             path = [.settings]
             if url.host == "limit" { home.showLimitSheet = true }
             Task { await home.refresh() }

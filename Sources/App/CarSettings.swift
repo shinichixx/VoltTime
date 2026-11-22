@@ -39,7 +39,7 @@ struct CarSettingsPage: View {
             }
         }
         .scrollBounceBehavior(.basedOnSize)
-        .teslaPage("Car", black: true)
+        .teslaPage("My Car", black: true)
     }
 
     private func nav(_ t: String, _ icon: String, _ sub: String, dot: Color? = nil, last: Bool = false) -> some View {

@@ -8,6 +8,39 @@ enum Route: Hashable {
 
 // MARK: - Shared dark building blocks
 
+/// One of the three System tiles at the bottom of Settings (My Car, My Home, Backup).
+struct SystemTile: View {
+    let icon: String
+    let title: String
+    let status: String
+    let dot: Color?
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Image(systemName: icon).font(.system(size: 18, weight: .light)).foregroundStyle(TSurface.icon)
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+            }
+            .frame(height: 22)
+            Text(title).font(.system(size: 15, weight: .medium)).foregroundStyle(.white)
+                .padding(.top, 8)
+            HStack(spacing: 4) {
+                if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
+                Text(status).font(.system(size: 11)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+            }
+            .padding(.top, 3)
+            Text(detail).font(.system(size: 10)).foregroundStyle(TeslaDark.dim).lineLimit(1)
+                .padding(.top, 1)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 13).fill(TSurface.field))
+        .contentShape(Rectangle())
+    }
+}
+
 extension View {
     /// Dark page with a small centred title and the system back button (white).
     func teslaPage(_ title: String, black: Bool = false) -> some View {
@@ -120,8 +153,10 @@ struct SettingsPage: View {
     @ObservedObject var home: HomeModel
     @ObservedObject var myHome: MyHomeModel
     @ObservedObject var energy: EnergyStore
+    @ObservedObject var car: CarModel
     @Binding var path: [Route]
     @ObservedObject private var backup = BackupManager.shared
+    @AppStorage("car.layout") private var carLayout = 2
 
     private var routine: Bool { (myHome.mode ?? "Routine") == "Routine" }
 
@@ -149,21 +184,36 @@ struct SettingsPage: View {
                     .opacity(routine ? 1 : 0.55)
 
                 TCaption(text: "System")
-                TNavRow(title: "Car", icon: "car", subtitle: "Tessie, layout, car photo, quick controls, autogate") {
-                    path.append(.carSettings)
-                }
-                TNavRow(title: "Home Assistant", icon: "house",
-                        subtitle: home.haConfigured ? (home.message == nil ? "Connected" : "Can't reach Home Assistant") : "Not set up",
-                        dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil) {
-                    path.append(.homeAssistant)
-                }
-                NavigationLink { BackupPage(energy: energy, home: home) } label: {
-                    TRow("Backup & restore", icon: "arrow.triangle.2.circlepath", subtitle: backup.summary,
-                         dot: backup.summaryColor, last: true) {
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                HStack(spacing: 8) {
+                    Button { path.append(.carSettings) } label: {
+                        SystemTile(icon: "car", title: "My Car",
+                                   status: car.configured ? (car.error == nil ? car.car.name : "Can't reach Tessie") : "Not set up",
+                                   dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : nil,
+                                   detail: "Tessie · View \(carLayout)")
                     }
+                    .buttonStyle(.plain)
+                    Button { path.append(.homeAssistant) } label: {
+                        SystemTile(icon: "house", title: "My Home",
+                                   status: home.haConfigured ? (home.message == nil ? "Connected" : "Can't connect") : "Not set up",
+                                   dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil,
+                                   detail: "Home Assistant")
+                    }
+                    .buttonStyle(.plain)
+                    NavigationLink { BackupPage(energy: energy, home: home) } label: {
+                        SystemTile(icon: "arrow.triangle.2.circlepath", title: "Backup",
+                                   status: backup.lastDate == nil ? "Not saved yet" : backup.lastText,
+                                   dot: backup.summaryColor, detail: "iCloud Drive")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                VStack(spacing: 3) {
+                    Text("VoltTime · " + CarModel.versionLine).foregroundStyle(TeslaDark.rowLabel)
+                    if !CarModel.releaseLine.isEmpty { Text(CarModel.releaseLine).foregroundStyle(TeslaDark.dim) }
+                }
+                .font(.system(size: 11))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 18)
                 Spacer(minLength: 12)
             }
         }

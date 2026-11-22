@@ -4,13 +4,14 @@ import MapKit
 /// The car page: View 1 (ring and cards) or View 2 (list style), switched in Settings → Car → Layout.
 struct CarPage: View {
     @ObservedObject var car: CarModel
+    @ObservedObject var home: HomeModel
     @Binding var path: [Route]
     @AppStorage("car.layout") private var layout = 2
     @Environment(\.scenePhase) private var phase
 
     var body: some View {
         Group {
-            if layout == 1 { CarView1(model: car, path: $path) } else { CarView2(model: car, path: $path) }
+            if layout == 1 { CarView1(model: car, path: $path) } else { CarView2(model: car, home: home, path: $path) }
         }
         .task(id: phase) {
             guard phase == .active else { return }
@@ -46,6 +47,8 @@ struct CarView1: View {
     @ObservedObject var model: CarModel
     @Binding var path: [Route]
     @State private var scroll: CGFloat = 0
+    @AppStorage(CarArt.scaleKey) private var photoScale = 1.0
+    @AppStorage(CarArt.offsetKey) private var photoOffset = 0.0
     private var c: CarSnapshot { model.car }
 
     var body: some View {
@@ -56,8 +59,9 @@ struct CarView1: View {
                 Color.black.ignoresSafeArea()
                 // Car stays put and dims as the page scrolls over it (to 18%).
                 FadedCar(image: CarArt.image(charging: c.charging))
-                    .frame(width: w * CGFloat(UserDefaults.standard.object(forKey: CarArt.scaleKey) as? Double ?? 1))
-                    .offset(y: header + CGFloat(UserDefaults.standard.double(forKey: CarArt.offsetKey)))
+                    .frame(width: w * photoScale)
+                    .frame(width: w)
+                    .offset(y: header + photoOffset)
                     .opacity(max(0.18, 1 - Double(scroll) / Double(heroH) * 0.82))
                     .scaleEffect(1 - min(max(scroll, 0), heroH) / heroH * 0.04)
                     .allowsHitTesting(false)
@@ -78,9 +82,10 @@ struct CarView1: View {
                         locationCard.padding(.horizontal, 16)
                         odometerCard.padding(.horizontal, 16)
                         footer
-                        Spacer(minLength: 40)
+                        Color.clear.frame(height: 66)   // last line stops clear of the page dots
                     }
                 }
+                .ignoresSafeArea(.container, edges: .bottom)
                 .coordinateSpace(name: "v1")
                 .onPreferenceChange(ScrollY.self) { scroll = $0 }
                 .scrollIndicators(.hidden)
@@ -89,6 +94,7 @@ struct CarView1: View {
                 headerView
             }
         }
+        .overlay(alignment: .bottom) { BottomFade(color: .black) }
     }
 
     private var header: CGFloat { 140 }
@@ -102,7 +108,7 @@ struct CarView1: View {
                     Text(c.name).font(.system(size: 26, weight: .semibold)).foregroundStyle(.white)
                 }
                 Spacer()
-                Button { path.append(.carSettings) } label: {
+                Button { path.append(.settings) } label: {
                     Image(systemName: "gearshape").font(.system(size: 22, weight: .light)).foregroundStyle(CarColors.muted)
                 }
                 .buttonStyle(.plain)
@@ -327,16 +333,11 @@ struct CarView1: View {
     }
 
     private var footer: some View {
-        VStack(spacing: 4) {
-            Text(model.error ?? model.updatedText + " · pull to refresh").font(.system(size: 11))
-                .foregroundStyle(model.error == nil ? CarColors.muted : CarColors.amber)
-                .multilineTextAlignment(.center)
-            Rectangle().fill(CarColors.line).frame(width: 24, height: 1).padding(.vertical, 6)
-            Text(CarModel.versionLine).font(.system(size: 11)).foregroundStyle(CarColors.faint)
-            if !CarModel.releaseLine.isEmpty { Text(CarModel.releaseLine).font(.system(size: 11)).foregroundStyle(CarColors.faint) }
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 8)
+        Text(model.error ?? model.updatedText + " · pull to refresh").font(.system(size: 11))
+            .foregroundStyle(model.error == nil ? CarColors.muted : CarColors.amber)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
     }
 
     private func deg(_ v: Double?) -> String { v.map { String(format: "%.1f°", $0) } ?? "–" }
@@ -370,91 +371,148 @@ struct CarMap: View {
 
 // MARK: - View 2 (Tesla-app style list)
 
+/// Sizes, colours and spacing measured from the Tesla app (iPhone, 393 pt wide).
+enum TeslaApp {
+    static let bg = Color(red: 22 / 255, green: 23 / 255, blue: 24 / 255)
+    static let panel = Color(red: 33 / 255, green: 34 / 255, blue: 35 / 255)
+    static let amps = Color(red: 51 / 255, green: 51 / 255, blue: 51 / 255)
+    static let track = Color(red: 44 / 255, green: 45 / 255, blue: 47 / 255)
+    static let green = Color(red: 0, green: 226 / 255, blue: 134 / 255)          // battery %
+    static let sliderGreen = Color(red: 1 / 255, green: 215 / 255, blue: 128 / 255)
+    static let batteryBody = Color(red: 45 / 255, green: 47 / 255, blue: 52 / 255)
+    static let title = Color(white: 0.953)        // #F3F3F3
+    static let boxText = Color(white: 0.91)       // #E8E8E8
+    static let grey = Color(white: 0.541)         // #8A8B8B
+    static let boxGrey = Color(white: 0.52)       // #858585
+    static let buttonText = Color(white: 0.48)    // #7A7B7B
+    static let chevron = Color(white: 0.27)       // #454546
+    static let margin: CGFloat = 30
+}
+
 struct CarView2: View {
     @ObservedObject var model: CarModel
+    @ObservedObject var home: HomeModel
     @Binding var path: [Route]
     @State private var sliderLimit: Double?
+    @AppStorage(CarArt.scaleKey) private var photoScale = 1.0
+    @AppStorage(CarArt.offsetKey) private var photoOffset = 0.0
     private var c: CarSnapshot { model.car }
-    static let bg = Color(red: 23 / 255, green: 24 / 255, blue: 26 / 255)
-    static let panel = Color(red: 33 / 255, green: 34 / 255, blue: 37 / 255)
-    static let btn = Color(red: 44 / 255, green: 45 / 255, blue: 48 / 255)
-    private var bg: Color { Self.bg }
-    private var panel: Color { Self.panel }
-    private var btn: Color { Self.btn }
+    typealias K = TeslaApp
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                FadedCar(image: CarArt.image(charging: c.charging))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 4)
-                ControlStrip(model: model, count: 5, plain: true)
-                    .padding(.horizontal, 12)
-                    .padding(.top, -6)
+                hero
                 chargingPanel
-                    .padding(.horizontal, 12)
-                    .padding(.top, 14)
-                rows.padding(.top, 10)
-                VStack(spacing: 3) {
-                    Text(model.error ?? model.updatedText).foregroundStyle(model.error == nil ? CarColors.muted : CarColors.amber)
-                    Text("VoltTime · " + CarModel.versionLine + (CarModel.releaseLine.isEmpty ? "" : " · " + CarModel.releaseLine.replacingOccurrences(of: "Released ", with: "")))
-                        .foregroundStyle(CarColors.faint)
-                }
-                .font(.system(size: 11))
-                .frame(maxWidth: .infinity)
-                .padding(.top, 10)
-                Spacer(minLength: 50)
+                    .padding(.horizontal, 10)
+                rows.padding(.top, 22)
+                Text(model.error ?? model.updatedText + " · pull to refresh")
+                    .font(.system(size: 11)).foregroundStyle(model.error == nil ? K.grey : CarColors.amber)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                Color.clear.frame(height: 66)   // last line stops clear of the page dots
             }
         }
         .scrollIndicators(.hidden)
         .refreshable { await model.refresh() }
-        .background(bg.ignoresSafeArea())
+        .ignoresSafeArea(.container, edges: .bottom)   // run to the bottom edge of the screen
+        .background(K.bg.ignoresSafeArea())
+        .overlay(alignment: .bottom) { BottomFade(color: K.bg) }
     }
 
+    // MARK: Header (title ≈20 pt, battery line, one grey line)
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                Text(c.name).font(.system(size: 27, weight: .semibold)).foregroundStyle(.white)
+                Text(c.name).font(.system(size: 20, weight: .semibold)).foregroundStyle(K.title)
                 Spacer()
-                Button { path.append(.carSettings) } label: {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 21)).foregroundStyle(.white)
+                Button { path.append(.settings) } label: {
+                    Image(systemName: "slider.horizontal.3").font(.system(size: 19)).foregroundStyle(K.title)
+                        .frame(width: 44, height: 44, alignment: .trailing)
                 }
                 .buttonStyle(.plain)
             }
+            .frame(height: 30)
             HStack(spacing: 8) {
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4).strokeBorder(Color(white: 0.24), lineWidth: 1.5).frame(width: 34, height: 15)
-                    RoundedRectangle(cornerRadius: 2).fill(socColor).frame(width: max(2, 29 * (c.soc ?? 0) / 100), height: 10).padding(.leading, 2.5)
+                    RoundedRectangle(cornerRadius: 3.5).fill(K.batteryBody).frame(width: 35, height: 15.5)
+                    RoundedRectangle(cornerRadius: 2).fill(socColor).frame(width: max(2, 31 * (c.soc ?? 0) / 100), height: 11.5).padding(.leading, 2)
                 }
-                Text("\(Int(c.soc ?? 0))%").font(.system(size: 15, weight: .semibold)).foregroundStyle(socColor)
-                if c.charging { Image(systemName: "bolt.fill").foregroundStyle(TSurface.green) }
-                Text("· \(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "—")").font(.system(size: 15, weight: .medium)).foregroundStyle(CarColors.muted)
+                .overlay(alignment: .trailing) { RoundedRectangle(cornerRadius: 1).fill(K.batteryBody).frame(width: 1.5, height: 5.5).offset(x: 2.5) }
+                HStack(spacing: 6) {
+                    Text("\(Int(c.soc ?? 0))%").font(.system(size: 13, weight: .semibold)).foregroundStyle(socColor)
+                    if c.charging { Image(systemName: "bolt.fill").font(.system(size: 14)).foregroundStyle(K.green) }
+                    Text("· \(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "—")").font(.system(size: 13, weight: .medium)).foregroundStyle(K.grey)
+                }
+                .padding(.leading, 4)
             }
-            Text([model.statusWord, c.atHome ? "Parked at home" : model.placeWord, c.gear].joined(separator: " · "))
-                .font(.system(size: 14, weight: .medium)).foregroundStyle(CarColors.muted)
+            .padding(.top, 10)
+            Text(subline).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).lineLimit(1)
+                .padding(.top, 9)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 14)
+        .padding(.leading, K.margin)
+        .padding(.trailing, 20)
+        .padding(.top, 8)
     }
 
-    private var socColor: Color { c.charging ? TSurface.green : ((c.soc ?? 0) < 20 ? CarColors.amber : .white) }
+    private var socColor: Color {
+        if c.charging { return K.green }
+        return (c.soc ?? 0) < 20 ? CarColors.amber : K.title
+    }
+
+    private var subline: String {
+        if c.charging, let m = c.minutesToLimit, m > 0 {
+            let mm = Int(m.rounded())
+            return (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " remaining to charge limit"
+        }
+        if c.chargingState == "Complete" { return "Charge complete" }
+        let place = c.atHome ? "Parked at home" : (["D", "R", "N"].contains(c.gear) ? "Driving" : "Parked · " + model.placeWord)
+        return [model.statusWord, place].joined(separator: " · ")
+    }
+
+    // MARK: Car and buttons (fixed area; the buttons sit on the faded bottom of the car, like the Tesla app)
+
+    private var hero: some View {
+        ZStack(alignment: .bottom) {
+            FadedCar(image: CarArt.image(charging: c.charging))
+                .containerRelativeFrame(.horizontal) { w, _ in w * 0.81 }
+                .scaleEffect(photoScale)
+                .offset(y: photoOffset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+            ControlStrip(model: model, count: 5, plain: true)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+        }
+        .frame(height: 167)
+        .padding(.top, 6)
+    }
+
+    // MARK: Charging box (Tesla app: 10 pt margins, 4 pt corners, 178 + 1 + 46 pt)
 
     private var chargingPanel: some View {
         let limit = sliderLimit ?? model.pendingLimit ?? c.limit ?? 80
         return VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text("Charge limit: \(Int(limit))%").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                    Text("·  " + model.chargeWord).font(.system(size: 15, weight: .medium)).foregroundStyle(CarColors.muted).lineLimit(1)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 0) {
+                    Text("Charge limit: \(Int(limit))%").font(.system(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
+                    Text("  ·  " + boxState).font(.system(size: 13, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
                 }
-                Text(chargeLine).font(.system(size: 13)).foregroundStyle(CarColors.muted)
+                .frame(height: 16)
+                Text(chargeLine).font(.system(size: 12, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
+                    .frame(height: 15)
+                    .padding(.top, 6)
                 GeometryReader { g in
                     let w = g.size.width
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color(white: 0.2)).frame(height: 6)
-                        Capsule().fill(c.charging ? TSurface.green : CarColors.amber).frame(width: w * (c.soc ?? 0) / 100, height: 6)
-                        Circle().fill(Color(white: 0.92)).frame(width: 22, height: 22).offset(x: w * limit / 100 - 11)
+                        Capsule().fill(K.track).frame(height: 4.4)
+                        Capsule().fill(c.charging ? K.sliderGreen : (c.soc ?? 0) < 20 ? CarColors.amber : K.sliderGreen)
+                            .frame(width: max(4, w * (c.soc ?? 0) / 100), height: 4.4)
+                        Circle().fill(K.boxText).frame(width: 15, height: 15).offset(x: w * limit / 100 - 7.5)
                     }
                     .frame(height: 30)
                     .contentShape(Rectangle())
@@ -463,48 +521,71 @@ struct CarView2: View {
                         .onEnded { _ in if let s = sliderLimit { model.setLimit(s) }; sliderLimit = nil })
                 }
                 .frame(height: 30)
-                .padding(.vertical, 6)
+                .padding(.top, 12.7)
                 HStack {
-                    Button { Task { await model.setAmps(Int(c.chargeAmps ?? 32) - 1) } } label: { Image(systemName: "chevron.left") }
+                    Button { Task { await model.setAmps(Int(c.chargeAmps ?? 32) - 1) } } label: {
+                        Image(systemName: "chevron.left").frame(width: 44, height: 45)
+                    }
                     Spacer()
-                    Text("\(Int(c.chargeAmps ?? 32)) A").font(.system(size: 15, weight: .semibold))
+                    Text("\(Int(c.chargeAmps ?? 32)) A").font(.system(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
                     Spacer()
-                    Button { Task { await model.setAmps(Int(c.chargeAmps ?? 32) + 1) } } label: { Image(systemName: "chevron.right") }
+                    Button { Task { await model.setAmps(Int(c.chargeAmps ?? 32) + 1) } } label: {
+                        Image(systemName: "chevron.right").frame(width: 44, height: 45)
+                    }
                 }
                 .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(Color(white: 0.79))
-                .padding(.horizontal, 14).padding(.vertical, 12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(btn))
+                .foregroundStyle(K.grey)
+                .padding(.horizontal, 2)
+                .frame(height: 45)
+                .background(RoundedRectangle(cornerRadius: 7).fill(K.amps))
                 .buttonStyle(.plain)
+                .padding(.top, 14.6)
             }
-            .padding(20)
-            Rectangle().fill(Color(white: 0.16)).frame(height: 1)
+            .padding(.horizontal, 20)
+            .padding(.top, 15)
+            .padding(.bottom, 25)
+            .frame(height: 178.3, alignment: .top)
+            Rectangle().fill(K.bg).frame(height: 1)
             HStack(spacing: 0) {
-                panelButton(c.charging ? "Stop charging" : "Start charging") { Task { await model.run(.charge) } }
-                Rectangle().fill(Color(white: 0.16)).frame(width: 1)
-                panelButton(c.portOpen ? "Close charge port" : "Open charge port") { Task { await model.run(.chargePort) } }
+                panelButton(c.charging ? "Stop Charging" : "Start Charging") { Task { await model.run(.charge) } }
+                Rectangle().fill(K.bg).frame(width: 1)
+                panelButton(c.portOpen ? "Close Charge Port" : "Open Charge Port") { Task { await model.run(.chargePort) } }
             }
-            .frame(height: 50)
+            .frame(height: 46)
         }
-        .background(RoundedRectangle(cornerRadius: 14).fill(panel))
+        .background(RoundedRectangle(cornerRadius: 4).fill(K.panel))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var boxState: String {
+        switch c.chargingState {
+        case "Charging": return "Charging"
+        case "Complete": return "Complete"
+        case "NoPower": return "No power"
+        default: return c.cableConnected ? "Plugged in" : "Not plugged in"
+        }
     }
 
     private var chargeLine: String {
         var parts: [String] = []
-        parts.append(c.cableConnected ? "Plugged in" : "Unplugged")
-        if let p = c.chargerPowerKW { parts.append("\(Int(p)) kW") }
+        if let p = c.chargerPowerKW, c.charging { parts.append("\(Int(p.rounded())) kW") }
         if let e = c.energyAddedKWh, e > 0 { parts.append(String(format: "+%.0f kWh", e)) }
-        if let a = c.chargeAmpsMax { parts.append("\(Int(a)) A max") }
-        if let v = c.chargerVoltage, v > 0 { parts.append("\(Int(v)) V") }
-        return parts.joined(separator: " · ")
+        if let a = c.chargeAmps { parts.append("\(Int(a))/\(Int(c.chargeAmpsMax ?? a))A") }
+        if let v = c.chargerVoltage, v > 0 { parts.append("\(Int(v))V") }
+        if parts.isEmpty { parts.append(c.cableConnected ? "Plugged in" : "Unplugged") }
+        return parts.joined(separator: "  ·  ")
     }
 
     private func panelButton(_ t: String, _ a: @escaping () -> Void) -> some View {
         Button(action: a) {
-            Text(t).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color(white: 0.79)).frame(maxWidth: .infinity, maxHeight: .infinity)
+            Text(t).font(.system(size: 13, weight: .medium)).foregroundStyle(K.buttonText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
+
+    // MARK: Rows (title ≈17 pt, grey line 12 pt, text at 64 pt, one-line 60 pt, two-line 76 pt)
 
     private var rows: some View {
         let h = model.health
@@ -512,42 +593,63 @@ struct CarView2: View {
                       h.maxRangeKm.map { "Max \(Int($0.rounded())) km" },
                       h.cycles(lifetimeKWh: c.lifetimeKWh).map { "≈\(Int($0.rounded())) cycles" }].compactMap { $0 }
         let tyres = c.tyres.map { $0.map { String(format: "%.1f", $0) } ?? "–" }.joined(separator: " · ") + " bar"
+        let street = c.address?.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespaces) }
         return VStack(spacing: 0) {
-            row("car", "Controls", nil) { path.append(.carDetail(.controls)) }
-            row("thermometer.medium", "Climate", "Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC))") { path.append(.carDetail(.climate)) }
+            row("car.side", "Controls", nil) { path.append(.carDetail(.controls)) }
+            row("fanblades", "Climate", "Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC)) · \(c.climateOn ? "On" : "Off")") { path.append(.carDetail(.climate)) }
             row("circle.circle", "Tyres", tyres, tag: model.tyreNote.hasSuffix("low") ? model.tyreNote : nil) { path.append(.carDetail(.tyres)) }
             row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · ")) { path.append(.carDetail(.battery)) }
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
                                             "Sentry \(c.sentry ? "on" : "off")"].joined(separator: " · ")) { path.append(.carDetail(.security)) }
-            row("location.north", "Location", [model.placeWord, c.address?.split(separator: ",").dropFirst().first.map { String($0).trimmingCharacters(in: .whitespaces) }]
-                .compactMap { $0 }.joined(separator: " · ")) { path.append(.carDetail(.location)) }
-            row("calendar.badge.clock", "Charging plan", "Tonight's start time and ready time") { path.append(.settings) }
+            row("location.north.fill", "Location", [street, model.placeWord].compactMap { $0 }.joined(separator: " · ")) { path.append(.carDetail(.location)) }
+            row("bolt", "Charging plan", planLine) { path.append(.settings) }
             row("road.lanes", "Odometer", c.odometerKm.map { "\($0.formatted(.number.precision(.fractionLength(0)))) km" } ?? "—") { path.append(.carDetail(.odometer)) }
         }
+    }
+
+    private var planLine: String {
+        let ready = "ready by " + Fmt.clock(minutes: home.readyMinutes)
+        let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
+        return "Starts " + Fmt.clock(start, calendar: .current) + " · " + ready
     }
 
     private func row(_ icon: String, _ title: String, _ sub: String?, tag: String? = nil, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 0) {
-                Image(systemName: icon).font(.system(size: 22, weight: .light)).foregroundStyle(Color(white: 0.79)).frame(width: 46, alignment: .leading)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                Image(systemName: icon).font(.system(size: 20)).foregroundStyle(K.grey)
+                    .frame(width: 44)
+                    .padding(.leading, 15)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.system(size: 17, weight: .medium)).foregroundStyle(K.title)
                     if let sub {
-                        (Text(sub).foregroundColor(CarColors.muted) + Text(tag.map { "  · \($0)" } ?? "").foregroundColor(CarColors.amber))
-                            .font(.system(size: 13, weight: .medium)).lineLimit(1)
+                        (Text(sub).foregroundColor(K.grey) + Text(tag.map { "  · \($0)" } ?? "").foregroundColor(CarColors.amber))
+                            .font(.system(size: 12, weight: .medium)).lineLimit(1)
                     }
                 }
-                Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 16, weight: .semibold)).foregroundStyle(CarColors.faint)
+                .padding(.leading, 5)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(K.chevron)
+                    .padding(.trailing, 34)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, sub == nil ? 16 : 11)
+            .frame(minHeight: sub == nil ? 60 : 76)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
     private func deg(_ v: Double?) -> String { v.map { String(format: "%.1f°C", $0) } ?? "—" }
+}
+
+/// Fades the page out just behind the page dots, so text never collides with them.
+struct BottomFade: View {
+    let color: Color
+    var body: some View {
+        LinearGradient(stops: [.init(color: color.opacity(0), location: 0), .init(color: color, location: 0.55)],
+                       startPoint: .top, endPoint: .bottom)
+            .frame(height: 60)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+    }
 }
 
 // MARK: - Detail pages (opened from View 2's rows)
