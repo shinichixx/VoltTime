@@ -30,13 +30,22 @@ struct CarPage: View {
                     .transition(.opacity)
             }
         }
-        .confirmationDialog(car.confirming.map { "\($0.title)?" } ?? "",
-                            isPresented: Binding(get: { car.confirming != nil }, set: { if !$0 { car.confirming = nil } }),
-                            titleVisibility: .visible) {
-            if let c = car.confirming {
-                Button(c.short, role: c == .lock && car.car.locked != false ? .destructive : nil) { Task { await car.run(c) } }
-            }
-            Button("Cancel", role: .cancel) { car.confirming = nil }
+        .modifier(CarConfirm(model: car))
+    }
+}
+
+/// Centred iOS alert for buttons that ask first, with a plain question.
+struct CarConfirm: ViewModifier {
+    @ObservedObject var model: CarModel
+
+    func body(content: Content) -> some View {
+        let q = model.confirming?.question(model.car)
+        content.alert(q?.title ?? "", isPresented: Binding(get: { model.confirming != nil }, set: { if !$0 { model.confirming = nil } }),
+                      presenting: model.confirming) { c in
+            Button("Cancel", role: .cancel) { model.confirming = nil }
+            Button(c.question(model.car).action) { Task { await model.run(c) } }
+        } message: { c in
+            Text(c.question(model.car).message)
         }
     }
 }
@@ -94,7 +103,6 @@ struct CarView1: View {
                 headerView
             }
         }
-        .overlay(alignment: .bottom) { BottomFade(color: .black) }
     }
 
     private var header: CGFloat { 140 }
@@ -386,6 +394,7 @@ enum TeslaApp {
     static let boxGrey = Color(white: 0.52)       // #858585
     static let buttonText = Color(white: 0.48)    // #7A7B7B
     static let chevron = Color(white: 0.27)       // #454546
+    static let icon = Color(red: 205 / 255, green: 206 / 255, blue: 208 / 255)   // top-row buttons, readable on the car
     static let margin: CGFloat = 30
 }
 
@@ -394,49 +403,93 @@ struct CarView2: View {
     @ObservedObject var home: HomeModel
     @Binding var path: [Route]
     @State private var sliderLimit: Double?
+    @State private var scroll: CGFloat = 0
     @AppStorage(CarArt.scaleKey) private var photoScale = 1.0
     @AppStorage(CarArt.offsetKey) private var photoOffset = 0.0
     private var c: CarSnapshot { model.car }
     typealias K = TeslaApp
 
+    // Layout (points from the top of the page, the same reference as My Home's title):
+    private let headerBottom: CGFloat = 108      // title, battery line, "remaining…" line
+    private let carTop: CGFloat = 114            // car area, pinned
+    private let carHeight: CGFloat = 200
+    private let buttonsTop: CGFloat = 318        // first thing that scrolls
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                hero
-                chargingPanel
-                    .padding(.horizontal, 10)
-                rows.padding(.top, 22)
-                Text(model.error ?? model.updatedText + " · pull to refresh")
-                    .font(.system(size: 11)).foregroundStyle(model.error == nil ? K.grey : CarColors.amber)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-                Color.clear.frame(height: 66)   // last line stops clear of the page dots
+        GeometryReader { geo in
+            let w = geo.size.width
+            ZStack(alignment: .top) {
+                K.bg.ignoresSafeArea()
+
+                // Car: stays put, fades as the page scrolls over it (8% at the end, like the Tesla app).
+                FadedCar(image: CarArt.image(charging: c.charging))
+                    .frame(width: w * 0.763)
+                    .scaleEffect(photoScale)
+                    .offset(y: photoOffset)
+                    .frame(width: w, height: carHeight)
+                    .clipped()
+                    .opacity(max(0.08, 1 - Double(max(scroll, 0)) / 150))
+                    .padding(.top, carTop)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        GeometryReader { g in
+                            Color.clear.preference(key: ScrollY.self, value: -g.frame(in: .named("v2")).minY)
+                        }
+                        .frame(height: 0)
+                        Color.clear.frame(height: buttonsTop)
+                        ControlStrip(model: model, count: 5, plain: true)
+                            .padding(.horizontal, 20)
+                        chargingPanel
+                            .padding(.horizontal, 10)
+                            .padding(.top, 19)
+                        rows.padding(.top, 22)
+                        Text(model.error ?? model.updatedText + " · pull to refresh")
+                            .font(.system(size: 11)).foregroundStyle(model.error == nil ? K.grey : CarColors.amber)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 24)
+                            .padding(.top, 8)
+                        Color.clear.frame(height: 66)   // the last line stops clear of the page dots
+                    }
+                }
+                .coordinateSpace(name: "v2")
+                .onPreferenceChange(ScrollY.self) { scroll = $0 }
+                .scrollIndicators(.hidden)
+                .refreshable { await model.refresh() }
+                .ignoresSafeArea(.container, edges: .bottom)   // rows run to the very bottom edge, no fade
+
+                // Header: pinned. A page-colour backdrop appears once the content slides under it.
+                VStack(spacing: 0) {
+                    K.bg.frame(height: headerBottom).ignoresSafeArea(edges: .top)
+                    LinearGradient(colors: [K.bg, K.bg.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 18)
+                }
+                .opacity(Double(min(1, max(0, (headerBottom + 10 - (buttonsTop - scroll)) / 30))))
+                .allowsHitTesting(false)
+                header(w)
             }
         }
-        .scrollIndicators(.hidden)
-        .refreshable { await model.refresh() }
-        .ignoresSafeArea(.container, edges: .bottom)   // run to the bottom edge of the screen
-        .background(K.bg.ignoresSafeArea())
-        .overlay(alignment: .bottom) { BottomFade(color: K.bg) }
     }
 
-    // MARK: Header (title ≈20 pt, battery line, one grey line)
+    // MARK: Header: "Ultra Rouge" exactly like "Home IM2 Kuantan" (27 pt, 24 pt from the top, 7% from the left),
+    // then the battery line and the "remaining" line with the Tesla app's gaps (12 pt and 11.3 pt).
 
-    private var header: some View {
+    private func header(_ w: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                Text(c.name).font(.system(size: 20, weight: .semibold)).foregroundStyle(K.title)
+                Text(c.name)
+                    .font(.system(size: 27, weight: .semibold))
+                    .kerning(-0.3)
+                    .foregroundStyle(.white)
                 Spacer()
                 Button { path.append(.settings) } label: {
                     Image(systemName: "slider.horizontal.3").font(.system(size: 19)).foregroundStyle(K.title)
-                        .frame(width: 44, height: 44, alignment: .trailing)
+                        .frame(width: 44, height: 32, alignment: .trailing)
                 }
                 .buttonStyle(.plain)
             }
-            .frame(height: 30)
             HStack(spacing: 8) {
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 3.5).fill(K.batteryBody).frame(width: 35, height: 15.5)
@@ -450,13 +503,15 @@ struct CarView2: View {
                 }
                 .padding(.leading, 4)
             }
-            .padding(.top, 10)
+            .frame(height: 15.5)
+            .padding(.top, 6)
             Text(subline).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).lineLimit(1)
-                .padding(.top, 9)
+                .padding(.top, 8.5)
         }
-        .padding(.leading, K.margin)
+        .padding(.leading, w * 0.07)
         .padding(.trailing, 20)
-        .padding(.top, 8)
+        .padding(.top, 24)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var socColor: Color {
@@ -472,24 +527,6 @@ struct CarView2: View {
         if c.chargingState == "Complete" { return "Charge complete" }
         let place = c.atHome ? "Parked at home" : (["D", "R", "N"].contains(c.gear) ? "Driving" : "Parked · " + model.placeWord)
         return [model.statusWord, place].joined(separator: " · ")
-    }
-
-    // MARK: Car and buttons (fixed area; the buttons sit on the faded bottom of the car, like the Tesla app)
-
-    private var hero: some View {
-        ZStack(alignment: .bottom) {
-            FadedCar(image: CarArt.image(charging: c.charging))
-                .containerRelativeFrame(.horizontal) { w, _ in w * 0.81 }
-                .scaleEffect(photoScale)
-                .offset(y: photoOffset)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-            ControlStrip(model: model, count: 5, plain: true)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
-        }
-        .frame(height: 167)
-        .padding(.top, 6)
     }
 
     // MARK: Charging box (Tesla app: 10 pt margins, 4 pt corners, 178 + 1 + 46 pt)
@@ -640,21 +677,9 @@ struct CarView2: View {
     private func deg(_ v: Double?) -> String { v.map { String(format: "%.1f°C", $0) } ?? "—" }
 }
 
-/// Fades the page out just behind the page dots, so text never collides with them.
-struct BottomFade: View {
-    let color: Color
-    var body: some View {
-        LinearGradient(stops: [.init(color: color.opacity(0), location: 0), .init(color: color, location: 0.55)],
-                       startPoint: .top, endPoint: .bottom)
-            .frame(height: 60)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
-    }
-}
-
 // MARK: - Detail pages (opened from View 2's rows)
 
-enum CarDetail: String, Hashable { case controls, climate, tyres, battery, security, location, odometer }
+enum CarDetail: String, Hashable { case controls, climate, modes, tyres, battery, security, location, odometer }
 
 struct CarDetailPage: View {
     @ObservedObject var model: CarModel
@@ -662,92 +687,42 @@ struct CarDetailPage: View {
     private var c: CarSnapshot { model.car }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                switch detail {
-                case .controls: controls
-                case .climate: climate
-                case .tyres: tyres
-                case .battery: battery
-                case .security: security
-                case .location: location
-                case .odometer: odometer
+        Group {
+            switch detail {
+            case .controls: ControlsPage(model: model)
+            case .climate: ClimateControlsPage(model: model)
+            case .modes: SecurityModesPage(model: model)
+            case .tyres: TyresPage(model: model)
+            default:
+                ScrollView {
+                    VStack(spacing: 0) {
+                        switch detail {
+                        case .battery: battery
+                        case .security: security
+                        case .location: location
+                        default: odometer
+                        }
+                        Spacer(minLength: 40)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                Spacer(minLength: 40)
             }
         }
         .teslaPage(title, black: true)
+        .modifier(CarConfirm(model: model))
     }
 
     private var title: String {
         switch detail {
         case .controls: return "Controls"
         case .climate: return "Climate"
+        case .modes: return "Security & modes"
         case .tyres: return "Tyres"
         case .battery: return "Battery"
         case .security: return "Security"
         case .location: return "Location"
         case .odometer: return "Odometer"
         }
-    }
-
-    private var controls: some View {
-        VStack(spacing: 0) {
-            ForEach(CarControl.Group.allCases, id: \.self) { g in
-                TCaption(text: g.rawValue)
-                let items = CarControl.allCases.filter { $0.group == g }
-                ForEach(items) { c in
-                    Button { model.tap(c) } label: {
-                        TRow(c.title, icon: c.icon(model.car), last: c == items.last) {
-                            if model.busy == c { ProgressView().tint(.white).scaleEffect(0.8) }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private var climate: some View {
-        VStack(spacing: 0) {
-            TStats(items: [TStat(value: f(c.insideC), unit: "°C", caption: "Interior"),
-                           TStat(value: f(c.outsideC), unit: "°C", caption: "Exterior"),
-                           TStat(value: f(c.setTempC), unit: "°C", caption: "Set to")])
-                .padding(.top, 24)
-            TCaption(text: "Climate")
-            Button { model.tap(.climate) } label: {
-                TRow(c.climateOn ? "Turn off" : "Turn on", icon: "fanblades", subtitle: c.climateOn ? "On" : "Off", last: true) { EmptyView() }
-            }.buttonStyle(.plain)
-            TCaption(text: "Battery")
-            TRow("Battery temperature", icon: "thermometer.medium", subtitle: c.batteryHeater ? "Warming" : "Not warming", last: true) {
-                TValue(value: f(c.packTempC), unit: "°C")
-            }
-        }
-    }
-
-    private var tyres: some View {
-        let cols = (0..<4).map { model.tyreLow($0) ? CarColors.amber : Color.white }
-        let d = TyreDiagram(colors: cols, lengthPt: 260)
-        return VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                d
-                HStack {
-                    VStack { big(0).offset(y: d.frontAxle - 18); Spacer(); big(2).offset(y: d.rearAxle - 260 + 18) }
-                    Spacer().frame(width: d.lengthPt * 0.5)
-                    VStack { big(1).offset(y: d.frontAxle - 18); Spacer(); big(3).offset(y: d.rearAxle - 260 + 18) }
-                }
-                .frame(height: 260)
-            }
-            .padding(.top, 30)
-            Text("bar · recommended \(String(format: "%.1f", CarModel.recommendedBar)) · \(model.tyreNote)")
-                .font(.system(size: 13)).foregroundStyle(model.tyreNote.hasSuffix("low") ? CarColors.amber : CarColors.muted)
-                .padding(.top, 20)
-        }
-    }
-
-    private func big(_ i: Int) -> some View {
-        Text(c.tyres[i].map { String(format: "%.1f", $0) } ?? "–")
-            .font(.system(size: 30, weight: .light)).foregroundStyle(model.tyreLow(i) ? CarColors.amber : .white)
     }
 
     private var battery: some View {

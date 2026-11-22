@@ -202,7 +202,7 @@ struct QuickControlsPage: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                TFootnote(text: "The switch on each row = ask before doing it. On by default for unlock, trunks, windows, keyless driving and valet. The autogate's own setting is in Settings → Car → Autogate.")
+                TFootnote(text: "The switch on each row = ask before doing it. On by default for unlock, trunks, windows, keyless driving and valet. The autogate's own setting is in Settings › My Car › Autogate.")
                 Button("Reset to default") { CarControl.save(CarControl.defaults); car.reloadControls() }
                     .font(.system(size: 14)).foregroundStyle(CarColors.red).padding(.top, 16)
                 Spacer(minLength: 40)
@@ -235,7 +235,7 @@ struct QuickControlsPage: View {
 
 struct AutogatePage: View {
     @AppStorage("car.gate.entity") private var entity = "switch.porch_rf_controller_switch_1"
-    @AppStorage("car.gate.ask") private var ask = false
+    @AppStorage("car.gate.ask") private var ask = true
 
     var body: some View {
         ScrollView {
@@ -252,7 +252,7 @@ struct AutogatePage: View {
                 TRow("Ask before sending", icon: "questionmark.bubble", last: true) {
                     Toggle("", isOn: $ask).labelsHidden()
                 }
-                TFootnote(text: "The Gate button turns this switch on for 1 second, then off — one RF pulse, the same as your autogate script. Nothing is checked first. Uses the Home Assistant address and token from Settings → Home Assistant.")
+                TFootnote(text: "The Gate button turns this switch on for 1 second, then off: one RF pulse, the same as your autogate script. With Ask before sending on, you confirm it first. Uses the Home Assistant address and token from Settings → Home Assistant.")
             }
         }
         .teslaPage("Autogate", black: true)

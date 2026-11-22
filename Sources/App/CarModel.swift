@@ -4,7 +4,7 @@ import SwiftUI
 enum CarControl: String, CaseIterable, Identifiable {
     case lock, climate, charge, precondition, gate, flash, honk
     case frunk, trunk, windows, keyless, wake
-    case setTemp, defrost, seatHeat, seatCool, wheelHeat, overheat, bioweapon, dogMode, campMode, keepMode
+    case setTemp, defrost, seatCool, seatCoolPassenger, overheat, bioweapon, dogMode, campMode, keepMode
     case chargePort, chargeLimit80, amps5, amps32
     case boombox, sentry, valet, guest, lowPower, accessoryPower
 
@@ -17,7 +17,7 @@ enum CarControl: String, CaseIterable, Identifiable {
     var group: Group {
         switch self {
         case .lock, .frunk, .trunk, .windows, .gate, .keyless, .wake: return .access
-        case .climate, .setTemp, .defrost, .seatHeat, .seatCool, .wheelHeat, .overheat, .bioweapon, .dogMode, .campMode, .keepMode: return .climate
+        case .climate, .setTemp, .defrost, .seatCool, .seatCoolPassenger, .overheat, .bioweapon, .dogMode, .campMode, .keepMode: return .climate
         case .charge, .chargePort, .chargeLimit80, .amps5, .amps32, .precondition: return .charging
         case .flash, .honk, .boombox: return .alerts
         case .sentry, .valet, .guest, .lowPower, .accessoryPower: return .modes
@@ -40,9 +40,8 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .wake: return "Wake car"
         case .setTemp: return "Set cabin to 22°C"
         case .defrost: return "Defrost on / off"
-        case .seatHeat: return "Driver seat heat"
         case .seatCool: return "Driver seat cooling"
-        case .wheelHeat: return "Steering wheel heater"
+        case .seatCoolPassenger: return "Passenger seat cooling"
         case .overheat: return "Cabin overheat protection"
         case .bioweapon: return "Bioweapon defence mode"
         case .dogMode: return "Dog mode"
@@ -77,9 +76,8 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .wake: return "Wake"
         case .setTemp: return "22°C"
         case .defrost: return "Defrost"
-        case .seatHeat: return "Seat heat"
         case .seatCool: return "Seat cool"
-        case .wheelHeat: return "Wheel heat"
+        case .seatCoolPassenger: return "Pass. cool"
         case .overheat: return "Overheat"
         case .bioweapon: return "Bioweapon"
         case .dogMode: return "Dog"
@@ -114,9 +112,8 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .wake: return "sun.max"
         case .setTemp: return "thermometer.medium"
         case .defrost: return "windshield.front.and.heat.waves"
-        case .seatHeat: return "carseat.left.and.heat.waves"
         case .seatCool: return "carseat.left.fan"
-        case .wheelHeat: return "steeringwheel.and.heat.waves"
+        case .seatCoolPassenger: return "carseat.right.fan"
         case .overheat: return "sun.max.trianglebadge.exclamationmark"
         case .bioweapon: return "aqi.medium"
         case .dogMode: return "pawprint"
@@ -156,6 +153,27 @@ enum CarControl: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The centred confirmation: a plain question, one line of what happens, and the button word.
+    func question(_ s: CarSnapshot) -> (title: String, message: String, action: String) {
+        switch self {
+        case .gate: return ("Open or close the gate?", "This sends one signal to the gate through Home Assistant.", "Send")
+        case .lock: return s.locked == false ? ("Lock the car?", "All doors will lock.", "Lock")
+                                             : ("Unlock the car?", "Anyone next to the car will be able to open it.", "Unlock")
+        case .frunk: return s.frunkOpen ? ("Close the front trunk?", "Only cars with a powered front trunk can close it remotely.", "Close")
+                                        : ("Open the front trunk?", "It pops open straight away.", "Open")
+        case .trunk: return s.trunkOpen ? ("Close the rear trunk?", "Make sure nothing is in the way.", "Close")
+                                        : ("Open the rear trunk?", "It opens straight away.", "Open")
+        case .windows: return s.anyWindowOpen ? ("Close the windows?", "Make sure nothing is in the way.", "Close")
+                                              : ("Vent the windows?", "All four windows open a little.", "Vent")
+        case .keyless: return ("Start keyless driving?", "You can drive without the phone key for the next 2 minutes.", "Start")
+        case .valet: return s.valet ? ("Turn off valet mode?", "The car goes back to your normal settings.", "Turn off")
+                                    : ("Turn on valet mode?", "Speed is limited and the glovebox locks.", "Turn on")
+        case .chargePort: return s.portOpen ? ("Close the charge port?", "Unplug the cable first.", "Close")
+                                            : ("Open the charge port?", "The port door opens and unlocks the cable.", "Open")
+        default: return ("\(title)?", "This is sent to the car through Tessie.", short)
+        }
+    }
+
     static func load() -> [CarControl] {
         let s = UserDefaults.standard.string(forKey: "car.controls") ?? ""
         let list = s.split(separator: ",").compactMap { CarControl(rawValue: String($0)) }
@@ -169,7 +187,7 @@ enum CarControl: String, CaseIterable, Identifiable {
     static func asks(_ c: CarControl) -> Bool {
         let d = UserDefaults.standard
         let key = "car.confirm." + c.rawValue
-        if c == .gate { return d.bool(forKey: "car.gate.ask") }
+        if c == .gate { return d.object(forKey: "car.gate.ask") == nil ? true : d.bool(forKey: "car.gate.ask") }
         return d.object(forKey: key) == nil ? c.riskyByDefault : d.bool(forKey: key)
     }
 }
@@ -204,7 +222,9 @@ final class CarModel: ObservableObject {
     private var limitTask: Task<Void, Never>?
 
     static let recommendedBar = 2.9
-    static let lowBar = 2.7
+    static let warnKey = "car.tyre.warn"
+    static let unitKey = "car.tyre.unit"
+    static var lowBar: Double { UserDefaults.standard.object(forKey: warnKey) == nil ? 2.6 : UserDefaults.standard.double(forKey: warnKey) }
 
     private static var cacheURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("car-state.json")
@@ -301,15 +321,14 @@ final class CarModel: ObservableObject {
             case .keyless: try await t.command(vin, "remote_start")
             case .wake: try await t.wake(vin)
             case .setTemp: try await t.command(vin, "set_temperatures", ["temperature": "22"])
-            case .defrost: try await t.command(vin, "start_defrost")
-            case .seatHeat: try await t.command(vin, "set_seat_heat", ["seat": "driver", "level": "3"])
-            case .seatCool: try await t.command(vin, "set_seat_cool", ["seat": "driver", "level": "3"])
-            case .wheelHeat: try await t.command(vin, "start_steering_wheel_heater")
+            case .defrost: try await t.command(vin, s.defrost == true ? "stop_defrost" : "start_defrost")
+            case .seatCool: try await t.command(vin, "set_seat_cool", ["seat": "driver", "level": (s.seatCool?[0] ?? 0) > 0 ? "0" : "3"])
+            case .seatCoolPassenger: try await t.command(vin, "set_seat_cool", ["seat": "passenger", "level": (s.seatCool?[1] ?? 0) > 0 ? "0" : "3"])
             case .overheat: try await t.command(vin, "set_cabin_overheat_protection", ["on": "true", "fan_only": "false"])
             case .bioweapon: try await t.command(vin, "set_bioweapon_mode", ["on": "true"])
-            case .dogMode: try await t.command(vin, "set_climate_keeper_mode", ["mode": s.keeperMode == "dog" ? "off" : "dog"])
-            case .campMode: try await t.command(vin, "set_climate_keeper_mode", ["mode": s.keeperMode == "camp" ? "off" : "camp"])
-            case .keepMode: try await t.command(vin, "set_climate_keeper_mode", ["mode": s.keeperMode == "on" ? "off" : "on"])
+            case .dogMode: try await t.command(vin, "set_climate_keeper_mode", ["mode": s.keeperMode == "dog" ? "0" : "2"])
+            case .campMode: try await t.command(vin, "set_climate_keeper_mode", ["mode": s.keeperMode == "camp" ? "0" : "3"])
+            case .keepMode: try await t.command(vin, "set_climate_keeper_mode", ["mode": s.keeperMode == "on" ? "0" : "1"])
             case .chargePort: try await t.command(vin, s.portOpen ? "close_charge_port" : "open_charge_port")
             case .chargeLimit80: try await t.command(vin, "set_charge_limit", ["percent": "80"])
             case .amps5: try await t.command(vin, "set_charging_amps", ["amps": "5"])
@@ -317,7 +336,7 @@ final class CarModel: ObservableObject {
             case .boombox: try await t.command(vin, "remote_boombox")
             case .sentry: try await t.command(vin, s.sentry ? "disable_sentry" : "enable_sentry")
             case .valet: try await t.command(vin, s.valet ? "disable_valet" : "enable_valet")
-            case .guest: try await t.command(vin, "enable_guest")
+            case .guest: try await t.command(vin, s.guest == true ? "disable_guest" : "enable_guest")
             case .lowPower: try await t.command(vin, "enable_low_power_mode")
             case .accessoryPower: try await t.command(vin, "enable_keep_accessory_power_mode")
             case .gate: break
@@ -341,6 +360,19 @@ final class CarModel: ObservableObject {
             try? await Task.sleep(for: .seconds(1))
             try await ha.call("switch", "turn_off", ["entity_id": entity])
             show("Gate signal sent")
+        } catch {
+            show(error.localizedDescription)
+        }
+    }
+
+    /// One Tessie command from the Controls pages. `update` adjusts what the page shows once the car has done it.
+    func send(_ name: String, _ params: [String: String] = [:], done: String, update: ((inout CarSnapshot) -> Void)? = nil) async {
+        guard let t = TessieClient.configured(), let vin else { show("Set up Tessie in Settings first"); return }
+        do {
+            try await t.command(vin, name, params)
+            if let update { var c = car; update(&c); car = c }
+            show(done)
+            await refresh()
         } catch {
             show(error.localizedDescription)
         }

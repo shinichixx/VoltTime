@@ -155,6 +155,13 @@ struct CarSnapshot: Codable, Equatable {
     var packTempC: Double?
     var lifetimeKWh: Double?
     var updated: Date?
+    // Build 33: controls and tyres pages
+    var seatCool: [Int]? = nil           // driver, passenger (0–3)
+    var overheat: String? = nil          // Off / On / FanOnly
+    var bioweapon: Bool? = nil
+    var defrost: Bool? = nil
+    var guest: Bool? = nil
+    var tyresRead: Date? = nil
 
     var asleep: Bool { state != "online" }
     var charging: Bool { chargingState == "Charging" }
@@ -208,6 +215,16 @@ struct CarSnapshot: Codable, Equatable {
             if t.contains(where: { $0 != nil }) { tyres = t }
         }
         if let mi = d(vs, "odometer") { odometerKm = mi * 1.609344 }
+        if cl != nil {
+            seatCool = [Int(d(cl, "seat_fan_front_left") ?? 0), Int(d(cl, "seat_fan_front_right") ?? 0)]
+            overheat = (cl?["cabin_overheat_protection"] as? String) ?? overheat
+            bioweapon = (cl?["bioweapon_mode"] as? Bool) ?? bioweapon
+            defrost = (cl?["is_front_defroster_on"] as? Bool) ?? defrost
+        }
+        if let g = vs?["guest_mode_enabled"] as? Bool { guest = g }
+        let seen = ["tpms_last_seen_pressure_time_fl", "tpms_last_seen_pressure_time_fr",
+                    "tpms_last_seen_pressure_time_rl", "tpms_last_seen_pressure_time_rr"].compactMap { d(vs, $0) }
+        if let last = seen.max(), last > 0 { tyresRead = Date(timeIntervalSince1970: last) }
         gear = (ds?["shift_state"] as? String) ?? "P"
         speedKmh = d(ds, "speed").map { $0 * 1.609344 }
         lat = d(ds, "latitude") ?? lat

@@ -298,8 +298,9 @@ struct ControlStrip: View {
                             ProgressView().tint(.white)
                         } else {
                             Image(systemName: c.icon(model.car))
-                                .font(.system(size: 21, weight: plain ? .regular : .light))
-                                .foregroundStyle(plain ? TeslaApp.grey : c.tint(model.car))
+                                .font(.system(size: 21, weight: plain ? .medium : .light))
+                                .foregroundStyle(plain ? TeslaApp.icon : c.tint(model.car))
+                                .shadow(color: plain ? .black.opacity(0.55) : .clear, radius: 4)   // readable on the car photo
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: 46)
