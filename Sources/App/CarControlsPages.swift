@@ -187,8 +187,8 @@ struct ClimateControlsPage: View {
 
                 TCaption(text: "Modes")
                 TRow("Keep climate on", icon: "fanblades", subtitle: "After you leave the car") { EmptyView() } below: {
-                    TSegment(items: ["Off", "Keep", "Dog", "Camp"], selected: keepIndex) { i in
-                        Task { await model.send("set_climate_keeper_mode", ["mode": String(i)], done: ["Keep climate off", "Keep climate on", "Dog mode on", "Camp mode on"][i]) {
+                    TSegment(items: ["Off", "Keep", "Pet", "Camp"], selected: keepIndex) { i in
+                        Task { await model.send("set_climate_keeper_mode", ["mode": String(i)], done: ["Keep climate off", "Keep climate on", "Pet mode on", "Camp mode on"][i]) {
                             $0.keeperMode = ["off", "on", "dog", "camp"][i] } }
                     }
                 }
@@ -265,7 +265,7 @@ struct SecurityModesPage: View {
         ScrollView {
             VStack(spacing: 0) {
                 TCaption(text: "Security")
-                TRow("Sentry mode", icon: "eye", subtitle: "Cameras record if someone comes close") {
+                TRow("Sentry mode", icon: "record.circle", subtitle: "Cameras record if someone comes close") {
                     toggle(c.sentry) { on in Task { await model.send(on ? "enable_sentry" : "disable_sentry", done: on ? "Sentry on" : "Sentry off") { $0.sentry = on } } }
                 }
                 TRow("Valet mode", icon: "person.badge.key", subtitle: "Limits speed and locks the glovebox", badge: AnyView(askTag)) {
@@ -296,7 +296,7 @@ struct SecurityModesPage: View {
                     big("Boombox") { model.tap(.boombox) }
                 }
                 .padding(.horizontal, 20)
-                TFootnote(text: "Which buttons ask first is set in Settings › My Car › Quick controls.")
+                TFootnote(text: "Which buttons ask first is set in My Car ☰ › Quick controls.")
                 Spacer(minLength: 40)
             }
             .frame(maxWidth: .infinity)

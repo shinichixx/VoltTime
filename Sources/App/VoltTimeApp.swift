@@ -50,7 +50,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $path) {
             TabView(selection: $page) {
-                CarPage(car: car, home: home, path: $path)
+                CarPage(car: car, home: home, path: $path, active: page == 0)
                     .tag(0)
                 MyHomeView(model: myHome, path: $path)
                     .tag(1)
@@ -70,7 +70,8 @@ struct ContentView: View {
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
                 case .impact: ImpactView(model: energy, home: myHome)
-                case .carSettings: CarSettingsPage(car: car)
+                case .carSettings: CarSettingsPage(car: car, energy: energy, home: home)
+                case .homeSettings: HomeSettingsPage(home: home, energy: energy)
                 case .carDetail(let d): CarDetailPage(model: car, detail: d)
                 }
             }
@@ -82,28 +83,16 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
-        .overlay(alignment: .bottom) {
-            if let t = home.toast {
-                Text(t)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16).padding(.vertical, 11)
-                    .background(Color(white: 0.17))
-                    .clipShape(Capsule())
-                    .padding(.bottom, 60)
-                    .transition(.opacity)
-            }
-        }
+        .banner(home.toast) { home.toast = nil }
         .animation(.easeInOut(duration: 0.25), value: home.shouldAsk)
-        .animation(.easeInOut(duration: 0.25), value: home.toast)
         .sheet(isPresented: $home.showLimitSheet) {
             LimitSheet(model: home)
                 .presentationDetents([.height(450)])
                 .presentationDragIndicator(.visible)
         }
         .onOpenURL { url in
-            // volttime://limit (notification "Others…") or volttime://home -> My Home → Settings
-            page = 1   // My Home behind Settings
+            // volttime://limit (notification "Others…") or volttime://home -> My Home → Charging
+            page = 1   // My Home behind Charging
             path = [.settings]
             if url.host == "limit" { home.showLimitSheet = true }
             Task { await home.refresh() }
@@ -221,7 +210,7 @@ struct HomeAssistantPage: View {
                 howRow("bell", "Plug in after 7pm, Sat–Wed", "You're asked where you're going tomorrow")
                 howRow("mappin.and.ellipse", "GPS 73% · TSET 63% · Others", "No answer by 10pm means GPS 73%")
                 howRow("clock", "The car's schedule is set for you", "Starts at the planned time, never before 10:15pm")
-                howRow("slider.horizontal.3", "Routine mode only", "Change it in Settings → Charging mode", last: true)
+                howRow("slider.horizontal.3", "Routine mode only", "Change it on the Charging page", last: true)
 
                 TCaption(text: "About")
                 TRow("Version", icon: "info.circle", last: true) {

@@ -30,7 +30,7 @@ final class HomeModel: ObservableObject {
     @Published var remindersOn = true
     @Published var remindersAvailable = false
     /// Short confirmation shown after answering in the app ("GPS · 73% · starts 1:23 AM").
-    @Published var toast: String?
+    @Published var toast: Banner?
     @Published var lastSync: Date?
     @Published var message: String?
     @Published var busy = false
@@ -144,7 +144,7 @@ final class HomeModel: ObservableObject {
                                  Entity.destination, Entity.active, Entity.answered, Entity.chargingMode,
                                  Entity.reminders, Entity.remindersOff])
         if s.isEmpty {
-            message = "Can't reach Home Assistant. Check the URL and token in Settings (and Tailscale)."
+            message = "Can't reach Home Assistant. Check the address and token in My Home ☰ (and Tailscale)."
             return
         }
         message = s[Entity.readyTime] == nil ? "VoltTime helpers not found in Home Assistant – install homeassistant/volttime.yaml." : nil
@@ -290,11 +290,13 @@ final class HomeModel: ObservableObject {
         await chooseTrip(name, limit: limit)
         let r = result
         if r.minutes == 0 {
-            toast = "\(name) · \(Int(limit))% · already at \(Int((liveSoc ?? startSoc).rounded()))%, no charging needed"
+            toast = Banner(title: "\(name) · \(Int(limit))%", detail: "Already at \(Int((liveSoc ?? startSoc).rounded()))%, no charging needed",
+                           icon: "checkmark", tint: TSurface.green)
         } else if let st = scheduledStart, active {
-            toast = "\(name) · \(Int(limit))% · starts \(Fmt.clock(st, calendar: .current))"
+            toast = Banner(title: "\(name) · \(Int(limit))%", detail: "Charging starts \(Fmt.clock(st, calendar: .current))",
+                           icon: "bolt.fill", tint: TSurface.green)
         } else {
-            toast = "\(name) · \(Int(limit))% set"
+            toast = Banner(title: "\(name) · \(Int(limit))% set", icon: "checkmark", tint: TSurface.green)
         }
         try? await Task.sleep(nanoseconds: 3_500_000_000)
         toast = nil

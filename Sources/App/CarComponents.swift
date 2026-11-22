@@ -1,112 +1,44 @@
 import SwiftUI
 import UIKit
 
-// MARK: - Car picture (your photo, or the built-in illustration)
+// MARK: - Car picture (built-in studio photos; the background already runs out to the page colour)
 
 enum CarArt {
-    static let sourceKey = "car.photo.source"      // "photo" or "illustration"
-    static let fadeKey = "car.photo.fade"          // 0…1
-    static let brightKey = "car.photo.bright"      // -0.3…0.3
-    static let scaleKey = "car.photo.scale"        // 0.7…1.4
-    static let offsetKey = "car.photo.offsetY"     // points
-    static let blurPlateKey = "car.photo.blurPlate"
-
-    static var folder: URL {
+    static let folder: URL = {
         let u = AppData.support.appendingPathComponent("CarPhoto", isDirectory: true)
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
-    }
-    static var photoURL: URL { folder.appendingPathComponent("car.png") }            // background removed, ready to show
-    static var chargingURL: URL { folder.appendingPathComponent("car-charging.png") }
+    }()
 
-    static var usesPhoto: Bool {
-        UserDefaults.standard.string(forKey: sourceKey) == "photo" && FileManager.default.fileExists(atPath: photoURL.path)
-    }
-
-    static func image(charging: Bool) -> UIImage? {
-        if usesPhoto {
-            if charging, let c = UIImage(contentsOfFile: chargingURL.path) { return c }
-            return UIImage(contentsOfFile: photoURL.path)
-        }
-        return UIImage(named: charging ? "car_plugged.jpg" : "car_parked.jpg") ?? UIImage(named: "car_sedan")
-    }
-
-    /// Built-in studio photos: no cable when parked or driving, with cable when plugged in.
+    /// No cable when parked or driving, with the cable when plugged in.
     static func image(for c: CarSnapshot) -> UIImage? {
-        if usesPhoto { return image(charging: c.charging) }
         let plugged = c.cableConnected && !["D", "R", "N"].contains(c.gear)
-        return UIImage(named: plugged ? "car_plugged.jpg" : "car_parked.jpg") ?? UIImage(named: "car_sedan")
+        return UIImage(named: plugged ? "car_plugged.jpg" : "car_parked.jpg")
     }
 
-    /// Green energy flow along the cable, only on the built-in "plugged" photo while charging.
-    static func showsFlow(for c: CarSnapshot) -> Bool { !usesPhoto && c.charging && c.cableConnected }
+    /// Green energy flow along the cable while charging.
+    static func showsFlow(for c: CarSnapshot) -> Bool { c.charging && c.cableConnected }
 
     /// The cable in car_plugged.jpg, from the floor end to the charge port (0…1 of the picture).
     static let cablePath: [CGPoint] = [
-        CGPoint(x: 0.8265, y: 1.0000), CGPoint(x: 0.8103, y: 0.9512), CGPoint(x: 0.7818, y: 0.9175), CGPoint(x: 0.7451, y: 0.8838),
-        CGPoint(x: 0.7125, y: 0.8569), CGPoint(x: 0.7011, y: 0.8333), CGPoint(x: 0.7064, y: 0.8123), CGPoint(x: 0.7207, y: 0.7955),
-        CGPoint(x: 0.7614, y: 0.7660), CGPoint(x: 0.8306, y: 0.7340), CGPoint(x: 0.9080, y: 0.7155), CGPoint(x: 0.9568, y: 0.7037),
-        CGPoint(x: 0.9691, y: 0.6902), CGPoint(x: 0.9528, y: 0.6734), CGPoint(x: 0.9283, y: 0.6498), CGPoint(x: 0.9206, y: 0.6229),
-        CGPoint(x: 0.9206, y: 0.5471), CGPoint(x: 0.9251, y: 0.4966), CGPoint(x: 0.9304, y: 0.4461), CGPoint(x: 0.9324, y: 0.3956),
-        CGPoint(x: 0.9300, y: 0.3451), CGPoint(x: 0.9222, y: 0.3114), CGPoint(x: 0.9080, y: 0.2820),
+        CGPoint(x: 0.7473, y: 1.0000), CGPoint(x: 0.7351, y: 0.9613), CGPoint(x: 0.7135, y: 0.9345), CGPoint(x: 0.6857, y: 0.9078),
+        CGPoint(x: 0.6610, y: 0.8864), CGPoint(x: 0.6523, y: 0.8677), CGPoint(x: 0.6564, y: 0.8510), CGPoint(x: 0.6672, y: 0.8377),
+        CGPoint(x: 0.6980, y: 0.8142), CGPoint(x: 0.7505, y: 0.7888), CGPoint(x: 0.8091, y: 0.7742), CGPoint(x: 0.8461, y: 0.7648),
+        CGPoint(x: 0.8554, y: 0.7541), CGPoint(x: 0.8430, y: 0.7407), CGPoint(x: 0.8245, y: 0.7220), CGPoint(x: 0.8186, y: 0.7006),
+        CGPoint(x: 0.8186, y: 0.6405), CGPoint(x: 0.8220, y: 0.6004), CGPoint(x: 0.8261, y: 0.5603), CGPoint(x: 0.8276, y: 0.5202),
+        CGPoint(x: 0.8258, y: 0.4801), CGPoint(x: 0.8198, y: 0.4534), CGPoint(x: 0.8091, y: 0.4300),
     ]
-
-    static var title: UIImage? { UIImage(named: "title_ultra_rouge") }
-}
-
-/// Car picture with its edges faded into the page (left, right, top and bottom).
-struct FadedCar: View {
-    let image: UIImage?
-    /// Pass values to preview unsaved settings; otherwise the saved ones are used (and followed live).
-    var fadeOverride: Double? = nil
-    var brightOverride: Double? = nil
-    @AppStorage(CarArt.fadeKey) private var savedFade = 0.55
-    @AppStorage(CarArt.brightKey) private var savedBright = 0.0
-
-    init(image: UIImage?, fade: Double? = nil, bright: Double? = nil) {
-        self.image = image
-        self.fadeOverride = fade
-        self.brightOverride = bright
-    }
-
-    private var fade: Double { fadeOverride ?? savedFade }
-    private var bright: Double { brightOverride ?? savedBright }
-
-    var body: some View {
-        if let image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .brightness(bright)
-                .mask {
-                    let f = max(0.001, fade)
-                    ZStack {
-                        LinearGradient(stops: [.init(color: .clear, location: 0),
-                                               .init(color: .black, location: 0.30 * f),
-                                               .init(color: .black, location: 1 - 0.26 * f),
-                                               .init(color: .clear, location: 1)],
-                                       startPoint: .leading, endPoint: .trailing)
-                    }
-                    .mask {
-                        LinearGradient(stops: [.init(color: .clear, location: 0),
-                                               .init(color: .black, location: 0.12 * f),
-                                               .init(color: .black, location: 1 - 0.42 * f),
-                                               .init(color: .clear, location: 1)],
-                                       startPoint: .top, endPoint: .bottom)
-                    }
-                }
-        }
-    }
 }
 
 /// The car picture for the current state, with the charging flow drawn on the cable.
+/// The photos fade into the page on all sides by themselves, so the car is never dimmed.
 struct CarScene: View {
     let car: CarSnapshot
     var body: some View {
         let img = CarArt.image(for: car)
-        let aspect = img.map { $0.size.width / max($0.size.height, 1) } ?? 2
+        let aspect = img.map { $0.size.width / max($0.size.height, 1) } ?? 2.17
         ZStack {
-            FadedCar(image: img)
+            if let img { Image(uiImage: img).resizable().scaledToFit() }
             if CarArt.showsFlow(for: car) { ChargeFlow() }
         }
         .aspectRatio(aspect, contentMode: .fit)
@@ -118,11 +50,11 @@ struct ChargeFlow: View {
     var body: some View {
         TimelineView(.animation) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
-            let phase = -CGFloat((t * 36).truncatingRemainder(dividingBy: 20))
+            let phase = -CGFloat((t * 30).truncatingRemainder(dividingBy: 16))
             CableShape()
                 .stroke(Color(red: 0, green: 226 / 255, blue: 134 / 255),
-                        style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round, dash: [8, 12], dashPhase: phase))
-                .shadow(color: Color(red: 0, green: 226 / 255, blue: 134 / 255).opacity(0.9), radius: 4)
+                        style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round, dash: [6, 10], dashPhase: phase))
+                .shadow(color: Color(red: 0, green: 226 / 255, blue: 134 / 255).opacity(0.9), radius: 3)
         }
         .allowsHitTesting(false)
     }
@@ -144,112 +76,57 @@ struct CableShape: Shape {
     }
 }
 
-// MARK: - Battery ring (View 1)
+// MARK: - Drawn icons (Tesla app style)
 
-/// 100-tick ring. Amber = charge now, dim amber = room to the limit, white pointer = limit.
-/// Drag anywhere on the ring to move the limit (50–100%); the centre fades to the limit and its range.
-struct BatteryRing: View {
-    let soc: Double
-    let limit: Double
-    let rangeKm: Double?
-    let kmPerPercent: Double?
-    let onSet: (Double) -> Void
-
-    @State private var dragLimit: Double?
-    @State private var showLimit = false
-    @State private var lastHaptic = -1
-
-    private var shownLimit: Double { dragLimit ?? limit }
-    private var low: Bool { soc < 20 }
-    private var socColor: Color { low ? CarColors.amber : TSurface.green }
-
+/// Battery with three heat waves rising out of it: grey when off, red while preconditioning.
+struct PreconditionGlyph: View {
+    var on: Bool
+    var size: CGFloat = 24
+    var color: Color = TeslaApp.icon
     var body: some View {
-        GeometryReader { g in
-            let size = min(g.size.width, g.size.height)
-            let k = size / 220
-            ZStack {
-                Canvas { ctx, sz in
-                    let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
-                    func pt(_ r: CGFloat, _ p: Double) -> CGPoint {
-                        let a = (p * 3.6 - 90) * .pi / 180
-                        return CGPoint(x: c.x + r * cos(a), y: c.y + r * sin(a))
-                    }
-                    for i in 0..<100 {
-                        let major = i % 25 == 0
-                        var path = Path()
-                        path.move(to: pt((major ? 95 : 98) * k, Double(i)))
-                        path.addLine(to: pt(104 * k, Double(i)))
-                        let col: Color = Double(i) < soc ? socColor
-                            : (Double(i) < shownLimit ? (major ? Color(red: 0.42, green: 0.33, blue: 0.19) : Color(red: 0.23, green: 0.18, blue: 0.09))
-                               : (major ? Color(white: 0.35) : CarColors.line))
-                        ctx.stroke(path, with: .color(col), style: StrokeStyle(lineWidth: (major ? 2 : 1.4) * k, lineCap: .round))
-                    }
-                    let r = 80 * k
-                    var track = Path(); track.addArc(center: c, radius: r, startAngle: .degrees(0), endAngle: .degrees(360), clockwise: false)
-                    ctx.stroke(track, with: .color(Color(white: 0.08)), lineWidth: 14 * k)
-                    var room = Path()
-                    room.addArc(center: c, radius: r, startAngle: .degrees(soc * 3.6 - 90), endAngle: .degrees(shownLimit * 3.6 - 90), clockwise: false)
-                    ctx.stroke(room, with: .color(Color(red: 0.18, green: 0.14, blue: 0.08)), lineWidth: 14 * k)
-                    var now = Path()
-                    now.addArc(center: c, radius: r, startAngle: .degrees(-90), endAngle: .degrees(max(soc, 0.5) * 3.6 - 90), clockwise: false)
-                    ctx.stroke(now, with: .color(socColor), style: StrokeStyle(lineWidth: 14 * k, lineCap: .round))
-                    // limit line + pointer
-                    var line = Path(); line.move(to: pt(72 * k, shownLimit)); line.addLine(to: pt(88 * k, shownLimit))
-                    ctx.stroke(line, with: .color(.white), lineWidth: 2 * k)
-                    var tri = Path()
-                    tri.move(to: pt(108 * k, shownLimit)); tri.addLine(to: pt(117 * k, shownLimit - 1.3)); tri.addLine(to: pt(117 * k, shownLimit + 1.3)); tri.closeSubpath()
-                    ctx.fill(tri, with: .color(.white))
-                    let knob = pt(r, shownLimit)
-                    ctx.fill(Path(ellipseIn: CGRect(x: knob.x - 6 * k, y: knob.y - 6 * k, width: 12 * k, height: 12 * k)), with: .color(.white))
-                    ctx.fill(Path(ellipseIn: CGRect(x: c.x - 64 * k, y: c.y - 64 * k, width: 128 * k, height: 128 * k)), with: .color(Color(white: 0.04)))
-                }
-                centre(k: k, limitMode: false).opacity(showLimit ? 0 : 1)
-                centre(k: k, limitMode: true).opacity(showLimit ? 1 : 0)
+        Canvas { ctx, sz in
+            let u = sz.width / 24
+            let lw = 1.7 * u
+            var shell = Path(roundedRect: CGRect(x: 2.5 * u, y: 12.5 * u, width: 16 * u, height: 9 * u), cornerRadius: 2.2 * u)
+            shell.addRoundedRect(in: CGRect(x: 19.6 * u, y: 15.2 * u, width: 1.8 * u, height: 3.6 * u), cornerSize: CGSize(width: 0.8 * u, height: 0.8 * u))
+            let c = on ? CarColors.red : color
+            ctx.stroke(shell, with: .color(c), lineWidth: lw)
+            for x in [7.0, 10.5, 14.0] {
+                var w = Path()
+                w.move(to: CGPoint(x: x * u, y: 18.5 * u))
+                w.addCurve(to: CGPoint(x: x * u, y: 10.5 * u), control1: CGPoint(x: (x - 2.2) * u, y: 16 * u), control2: CGPoint(x: (x + 2.2) * u, y: 13 * u))
+                w.addCurve(to: CGPoint(x: x * u, y: 2.5 * u), control1: CGPoint(x: (x - 2.2) * u, y: 8 * u), control2: CGPoint(x: (x + 2.2) * u, y: 5 * u))
+                ctx.stroke(w, with: .color(c), style: StrokeStyle(lineWidth: lw, lineCap: .round))
             }
-            .frame(width: size, height: size)
-            .position(x: g.size.width / 2, y: g.size.height / 2)
-            .contentShape(Circle())
-            .gesture(
-                DragGesture(minimumDistance: 2)
-                    .onChanged { v in
-                        let c = CGPoint(x: g.size.width / 2, y: g.size.height / 2)
-                        var p = (atan2(v.location.y - c.y, v.location.x - c.x) * 180 / .pi + 90 + 360).truncatingRemainder(dividingBy: 360) / 3.6
-                        if p < 50 { p = p < 25 ? 100 : 50 }
-                        let r = p.rounded()
-                        if Int(r) != lastHaptic { UISelectionFeedbackGenerator().selectionChanged(); lastHaptic = Int(r) }
-                        dragLimit = Double(r)
-                        withAnimation(.easeInOut(duration: 0.25)) { showLimit = true }
-                    }
-                    .onEnded { _ in
-                        if let d = dragLimit { onSet(d) }
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(900))
-                            withAnimation(.easeInOut(duration: 0.35)) { showLimit = false }
-                            try? await Task.sleep(for: .milliseconds(400))
-                            dragLimit = nil
-                        }
-                    }
-            )
         }
-        .aspectRatio(1, contentMode: .fit)
+        .frame(width: size, height: size)
     }
+}
 
-    @ViewBuilder private func centre(k: CGFloat, limitMode: Bool) -> some View {
-        let pct = limitMode ? shownLimit : soc
-        let km: Double? = limitMode ? kmPerPercent.map { $0 * shownLimit } : rangeKm
-        VStack(spacing: 0) {
-            Text(limitMode ? "CHARGE LIMIT" : (low ? "LOW" : "BATTERY"))
-                .font(.system(size: 11 * k, weight: .medium)).kerning(1)
-                .foregroundStyle(limitMode ? Color(white: 0.78) : (low ? CarColors.amber : CarColors.muted))
-            HStack(alignment: .top, spacing: 1) {
-                Text("\(Int(pct.rounded()))").font(.system(size: 50 * k, weight: .ultraLight)).kerning(-2)
-                Text("%").font(.system(size: 15 * k)).foregroundStyle(CarColors.muted).padding(.top, 9 * k)
-            }
-            .foregroundStyle(.white)
-            Rectangle().fill(CarColors.line).frame(width: 44 * k, height: 1)
-            Text(km.map { "\(Int($0.rounded())) km" } ?? "— km")
-                .font(.system(size: 19 * k)).foregroundStyle(.white).padding(.top, 5 * k)
+/// Sentry: grey outer ring, inner dot that turns red when Sentry is on (Tesla app).
+struct SentryGlyph: View {
+    var on: Bool
+    var size: CGFloat = 24
+    var color: Color = TeslaApp.icon
+    var body: some View {
+        ZStack {
+            Circle().stroke(color, lineWidth: size * 0.075)
+                .frame(width: size * 0.88, height: size * 0.88)
+            Circle().fill(on ? Color(red: 232 / 255, green: 52 / 255, blue: 52 / 255) : color)
+                .frame(width: size * 0.5, height: size * 0.5)
         }
+        .frame(width: size, height: size)
+    }
+}
+
+/// ☰, a little smaller than the system one (Tesla app top right).
+struct MenuGlyph: View {
+    var body: some View {
+        VStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { _ in Capsule().fill(Color(white: 0.88)).frame(width: 18, height: 1.5) }
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
     }
 }
 
@@ -315,37 +192,6 @@ struct TyreDiagram: View {
     var rearAxle: CGFloat { (Self.OF + Self.WB) * lengthPt / Self.L }
 }
 
-// MARK: - Battery health cells
-
-struct HealthCells: View {
-    let health: Double?   // %
-
-    var body: some View {
-        GeometryReader { g in
-            let w = g.size.width - 8
-            HStack(spacing: 0) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7).strokeBorder(Color(white: 0.23), lineWidth: 1.5)
-                    HStack(spacing: 1.5) {
-                        ForEach(0..<10, id: \.self) { j in
-                            let f = min(max((health ?? 0) / 10 - Double(j), 0), 1)
-                            GeometryReader { c in
-                                ZStack(alignment: .leading) {
-                                    RoundedRectangle(cornerRadius: 2.5).fill(CarColors.healthLost)
-                                    RoundedRectangle(cornerRadius: 2.5).fill(TSurface.green).frame(width: c.size.width * f)
-                                }
-                            }
-                        }
-                    }
-                    .padding(4)
-                }
-                .frame(width: w)
-                RoundedRectangle(cornerRadius: 1.5).fill(Color(white: 0.23)).frame(width: 4, height: 12).padding(.leading, 2)
-            }
-        }
-        .frame(height: 30)
-    }
-}
 
 // MARK: - Quick controls
 
@@ -361,6 +207,12 @@ struct ControlStrip: View {
                     ZStack {
                         if model.busy == c {
                             ProgressView().tint(.white)
+                        } else if c == .precondition {
+                            PreconditionGlyph(on: model.car.preconditioning, size: 27)
+                                .shadow(color: .black.opacity(0.55), radius: 4)
+                        } else if c == .sentry {
+                            SentryGlyph(on: model.car.sentry, size: 23)
+                                .shadow(color: .black.opacity(0.55), radius: 4)
                         } else {
                             Image(systemName: c == .gate && model.gateSent ? "dot.radiowaves.up.forward" : c.icon(model.car))
                                 .font(.system(size: 21, weight: plain ? .medium : .light))
@@ -382,27 +234,3 @@ struct ControlStrip: View {
     }
 }
 
-/// Small red round icon badge at the top of View 1 cards.
-struct CardBadge: View {
-    let icon: String
-    let title: String
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(Color(red: 0.165, green: 0.063, blue: 0.071)).frame(width: 24, height: 24)
-                .overlay(Image(systemName: icon).font(.system(size: 12, weight: .medium)).foregroundStyle(CarColors.red))
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-            Spacer(minLength: 0)
-        }
-    }
-}
-
-struct OutlineCard<Content: View>: View {
-    let content: Content
-    init(@ViewBuilder _ content: () -> Content) { self.content = content() }
-    var body: some View {
-        content
-            .padding(14)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(CarColors.line, lineWidth: 1))
-    }
-}

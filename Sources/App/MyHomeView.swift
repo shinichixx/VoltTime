@@ -341,6 +341,18 @@ struct MyHomeView: View {
                 .padding(.leading, w * 0.07)
                 .padding(.top, 24)
 
+            // ☰ (Tesla app, top right): My Home settings and backup. Same spot as on My Car.
+            HStack {
+                Spacer()
+                Button { path.append(.homeSettings) } label: { MenuGlyph() }
+                    .buttonStyle(.plain)
+                    .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
+                    .accessibilityLabel("My Home settings")
+            }
+            .padding(.trailing, 31)
+            .frame(width: w, alignment: .trailing)
+            .padding(.top, 24 + 16 - 22)
+
             Text(model.loaded ? model.status.text : " ")
                 .font(.system(size: 15))
                 .foregroundStyle(model.status.color)
@@ -441,7 +453,7 @@ struct MyHomeView: View {
                      label: model.selfPowered.map { "\(Int($0.rounded()))% Self-Powered Today" } ?? "Self-Powered Today") {
                 path.append(.impact)
             }
-            TeslaRow(icon: "gearshape.fill", name: "Settings", label: "Charging: \(model.mode ?? "—")") {
+            TeslaRow(icon: "bolt.fill", name: "Charging", label: model.mode.map { ChargingMode.named($0).title } ?? "—") {
                 path.append(.settings)
             }
             if let msg = model.message {

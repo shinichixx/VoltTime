@@ -3,7 +3,7 @@ import SwiftUI
 /// Pages pushed from My Home.
 enum Route: Hashable {
     case energy, settings, chargeDetails, homeAssistant, charge, impact
-    case carSettings, carDetail(CarDetail)
+    case carSettings, homeSettings, carDetail(CarDetail)
 }
 
 // MARK: - Shared dark building blocks
@@ -155,16 +155,13 @@ struct SettingsPage: View {
     @ObservedObject var energy: EnergyStore
     @ObservedObject var car: CarModel
     @Binding var path: [Route]
-    @ObservedObject private var backup = BackupManager.shared
-    @AppStorage("car.layout") private var carLayout = 2
-
     private var routine: Bool { (myHome.mode ?? "Routine") == "Routine" }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 TCaption(text: "Charging mode")
-                    .padding(.top, -34)          // sits right under the title
+                    .padding(.top, -18)          // close under the title, clear of the top bar
                 modeTiles
                     .padding(.horizontal, 20)
                 Text(ChargingMode.named(myHome.pendingMode ?? myHome.mode ?? "Routine").detail)
@@ -184,42 +181,11 @@ struct SettingsPage: View {
                 tonight
                     .opacity(routine ? 1 : 0.55)
 
-                TCaption(text: "System")
-                HStack(spacing: 8) {
-                    Button { path.append(.carSettings) } label: {
-                        SystemTile(icon: "car", title: "My Car",
-                                   status: car.configured ? (car.error == nil ? car.car.name : "Can't reach Tessie") : "Not set up",
-                                   dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : nil,
-                                   detail: "Tessie · View \(carLayout)")
-                    }
-                    .buttonStyle(.plain)
-                    Button { path.append(.homeAssistant) } label: {
-                        SystemTile(icon: "house", title: "My Home",
-                                   status: home.haConfigured ? (home.message == nil ? "Connected" : "Can't connect") : "Not set up",
-                                   dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil,
-                                   detail: "Home Assistant")
-                    }
-                    .buttonStyle(.plain)
-                    NavigationLink { BackupPage(energy: energy, home: home) } label: {
-                        SystemTile(icon: "arrow.triangle.2.circlepath", title: "Backup",
-                                   status: backup.lastDate == nil ? "Not saved yet" : backup.lastText,
-                                   dot: backup.summaryColor, detail: "iCloud Drive")
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 20)
-                VStack(spacing: 3) {
-                    Text("VoltTime · " + CarModel.versionLine).foregroundStyle(TeslaDark.rowLabel)
-                    if !CarModel.releaseLine.isEmpty { Text(CarModel.releaseLine).foregroundStyle(TeslaDark.dim) }
-                }
-                .font(.system(size: 11))
-                .frame(maxWidth: .infinity)
-                .padding(.top, 18)
                 Spacer(minLength: 12)
             }
         }
         .scrollBounceBehavior(.basedOnSize)   // fixed when it fits; scrolls only if something makes it taller
-        .teslaPage("Settings", black: true)
+        .teslaPage("Charging", black: true)
         .task {
             await home.refresh()
             await myHome.refresh()
@@ -480,7 +446,7 @@ struct RemindersPage: View {
             VStack(spacing: 0) {
                 Spacer().frame(height: 12)
                 TRow("Ask where I'm going", icon: "bell", last: !model.remindersOn) {
-                    Toggle("", isOn: Binding(get: { model.remindersOn }, set: { model.setRemindersOn($0) }))
+                    Toggle("", isOn: Binding(get: { model.remindersOn }, set: { model.setRemindersOn($0) })).tint(TSurface.green)
                         .labelsHidden()
                         .tint(TSurface.green)
                 }

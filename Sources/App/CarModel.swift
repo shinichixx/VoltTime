@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 /// Everything one quick-control button can do. Pairs (lock / unlock) are one button that follows the car.
 enum CarControl: String, CaseIterable, Identifiable {
@@ -29,7 +30,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .lock: return "Lock / unlock"
         case .climate: return "Climate on / off"
         case .charge: return "Start / stop charging"
-        case .precondition: return "Precondition (Supercharger)"
+        case .precondition: return "Precondition battery"
         case .gate: return "Autogate (Home Assistant)"
         case .flash: return "Flash lights"
         case .honk: return "Honk"
@@ -44,7 +45,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .seatCoolPassenger: return "Passenger seat cooling"
         case .overheat: return "Cabin overheat protection"
         case .bioweapon: return "Bioweapon defence mode"
-        case .dogMode: return "Dog mode"
+        case .dogMode: return "Pet mode"
         case .campMode: return "Camp mode"
         case .keepMode: return "Keep climate on"
         case .chargePort: return "Open / close charge port"
@@ -80,7 +81,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .seatCoolPassenger: return "Pass. cool"
         case .overheat: return "Overheat"
         case .bioweapon: return "Bioweapon"
-        case .dogMode: return "Dog"
+        case .dogMode: return "Pet"
         case .campMode: return "Camp"
         case .keepMode: return "Keep"
         case .chargePort: return "Port"
@@ -101,7 +102,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .lock: return s.locked == false ? "lock.open" : "lock"
         case .climate: return s.climateOn ? "fanblades.fill" : "fanblades"
         case .charge: return s.charging ? "bolt.fill" : "bolt"
-        case .precondition: return s.batteryHeater ? "flame.fill" : "flame"
+        case .precondition: return "heat.waves"
         case .gate: return "door.garage.open"
         case .flash: return "lightbulb"
         case .honk: return "speaker.wave.2"
@@ -124,7 +125,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .amps5: return "gauge.with.dots.needle.0percent"
         case .amps32: return "gauge.with.dots.needle.100percent"
         case .boombox: return "music.note"
-        case .sentry: return s.sentry ? "eye.fill" : "eye"
+        case .sentry: return s.sentry ? "record.circle.fill" : "record.circle"
         case .valet: return "person.badge.key"
         case .guest: return "person.2"
         case .lowPower: return "leaf"
@@ -138,7 +139,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .lock: return s.locked == true ? TSurface.green : CarColors.amber
         case .climate: return s.climateOn ? CarColors.blue : .white
         case .charge: return s.charging ? TSurface.green : CarColors.red
-        case .precondition: return s.batteryHeater ? CarColors.orange : CarColors.orange.opacity(0.9)
+        case .precondition: return s.preconditioning ? CarColors.red : .white
         case .sentry: return s.sentry ? CarColors.red : .white
         case .valet: return s.valet ? CarColors.amber : .white
         default: return .white
@@ -148,7 +149,7 @@ enum CarControl: String, CaseIterable, Identifiable {
     /// Asks before doing it (on by default for these; can be changed per button in Settings).
     var riskyByDefault: Bool {
         switch self {
-        case .lock, .frunk, .trunk, .windows, .keyless, .valet: return true
+        case .lock, .frunk, .trunk, .windows, .keyless, .valet, .precondition: return true
         default: return false
         }
     }
@@ -168,6 +169,8 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .keyless: return ("Start keyless driving?", "You can drive without the phone key for the next 2 minutes.", "Start")
         case .valet: return s.valet ? ("Turn off valet mode?", "The car goes back to your normal settings.", "Turn off")
                                     : ("Turn on valet mode?", "Speed is limited and the glovebox locks.", "Turn on")
+        case .precondition: return s.preconditioning ? ("Stop preconditioning?", "The A/C turns off.", "Stop")
+                                                     : ("Precondition the battery?", "The A/C turns on and the cabin is set to 19°C.", "Start")
         case .chargePort: return s.portOpen ? ("Close the charge port?", "Unplug the cable first.", "Close")
                                             : ("Open the charge port?", "The port door opens and unlocks the cable.", "Open")
         default: return ("\(title)?", "This is sent to the car through Tessie.", short)
@@ -212,7 +215,7 @@ final class CarModel: ObservableObject {
     @Published var refreshing = false
     @Published var error: String?
     @Published var busy: CarControl?
-    @Published var toast: String?
+    @Published var toast: Banner?
     @Published var controls = CarControl.load()
     @Published var confirming: CarControl?
     @Published var pendingLimit: Double?
@@ -249,7 +252,7 @@ final class CarModel: ObservableObject {
 
     func refresh() async {
         guard let t = TessieClient.configured(), let vin else {
-            error = "Add your Tessie token in Settings → Car → Tessie"
+            error = "Add your Tessie token: ☰ → Tessie"
             return
         }
         refreshing = true
@@ -281,39 +284,103 @@ final class CarModel: ObservableObject {
         }
     }
 
-    func show(_ text: String) {
+    func show(_ text: String) { show(.ok(text)) }
+
+    /// Shows a banner; it slides away after 2.5 s (a "sending…" one stays until the answer replaces it).
+    func show(_ b: Banner) {
         toastTask?.cancel()
-        withAnimation { toast = text }
+        toast = b
+        guard !b.spinning else { return }
         toastTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.6))
+            try? await Task.sleep(for: .seconds(b.tint == CarColors.red ? 3.5 : 2.5))
             guard !Task.isCancelled else { return }
-            withAnimation { toast = nil }
+            toast = nil
         }
     }
+
+    func dismissBanner() { toastTask?.cancel(); toast = nil }
 
     // MARK: Buttons
 
     func tap(_ c: CarControl) {
+        if c == .gate { Task { await tapGate() }; return }
         if CarControl.asks(c) { confirming = c } else { Task { await run(c) } }
+    }
+
+    /// The confirmation for a button; the gate's changes when the car is away from home.
+    func question(_ c: CarControl) -> (title: String, message: String, action: String, destructive: Bool) {
+        if c == .gate, let away = gateAway {
+            if let m = away.meters {
+                let dist = m < 1000 ? "\(Int((m / 10).rounded() * 10)) m" : String(format: "%.1f km", m / 1000)
+                return ("You're not at home", "\(car.name) is \(dist) away.\nOpen the gate anyway?", "Open Gate", true)
+            }
+            return ("Open the gate?", "Couldn't check where the car is.", "Send", false)
+        }
+        let q = c.question(car)
+        return (q.title, q.message, q.action, false)
+    }
+
+    // MARK: Gate: check the car is inside the home zone first
+
+    struct GateAway: Equatable { var meters: Double? }   // nil meters = couldn't tell
+    @Published var gateAway: GateAway?
+
+    static let zoneKey = "car.gate.zone"
+    static var zoneEntity: String {
+        UserDefaults.standard.string(forKey: zoneKey).flatMap { $0.isEmpty ? nil : $0 } ?? "zone.home_outer"
+    }
+
+    struct HomeZone: Equatable { var name: String; var lat: Double; var lon: Double; var radius: Double }
+    @Published var homeZone: HomeZone?
+
+    func loadZone() async -> HomeZone? {
+        guard let ha = HAClient.configured(), let z = try? await ha.state(Self.zoneEntity) else { return homeZone }
+        func n(_ k: String) -> Double? { (z.attributes[k] as? Double) ?? (z.attributes[k] as? Int).map(Double.init) }
+        guard let la = n("latitude"), let lo = n("longitude") else { return homeZone }
+        let zone = HomeZone(name: (z.attributes["friendly_name"] as? String) ?? "Home", lat: la, lon: lo, radius: n("radius") ?? 100)
+        homeZone = zone
+        return zone
+    }
+
+    private func tapGate() async {
+        busy = .gate
+        // A fresh position if the last one is more than 2 minutes old.
+        let fresh = car.located.map { Date().timeIntervalSince($0) < 120 } ?? false
+        if !fresh, let t = TessieClient.configured(), let vin, let l = try? await t.location(vin) {
+            var c = car; c.apply(location: l); car = c
+        }
+        let zone = await loadZone()
+        busy = nil
+        if let zone, let la = car.lat, let lo = car.lon {
+            let m = CLLocation(latitude: la, longitude: lo).distance(from: CLLocation(latitude: zone.lat, longitude: zone.lon))
+            gateAway = m > zone.radius ? GateAway(meters: m) : nil
+        } else {
+            gateAway = GateAway(meters: nil)
+        }
+        if gateAway != nil || CarControl.asks(.gate) { confirming = .gate } else { await run(.gate) }
     }
 
     func run(_ c: CarControl) async {
         confirming = nil
-        if c == .gate { await openGate(); return }
-        guard let t = TessieClient.configured(), let vin else { show("Set up Tessie in Settings first"); return }
+        if c == .gate { gateAway = nil; await openGate(); return }
+        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Car settings first")); return }
         busy = c
         defer { busy = nil }
         let s = car
+        show(.sending(sendingText(c, s)))
         do {
             switch c {
             case .lock: try await t.command(vin, s.locked == false ? "lock" : "unlock")
             case .climate: try await t.command(vin, s.climateOn ? "stop_climate" : "start_climate")
             case .charge: try await t.command(vin, s.charging ? "stop_charging" : "start_charging")
             case .precondition:
-                let sc = try await t.nearestSupercharger(vin)
-                try await t.navigate(vin, lat: sc.lat, lon: sc.lon)
-                show("Navigating to \(sc.name) · battery warms on the way")
-                await refresh(); return
+                // Preconditioning, the Sexy Commander way: A/C on, cabin at 19°C. Again turns it off.
+                if s.preconditioning {
+                    try await t.command(vin, "stop_climate")
+                } else {
+                    try await t.command(vin, "start_climate")
+                    try await t.command(vin, "set_temperatures", ["temperature": "19"])
+                }
             case .flash: try await t.command(vin, "flash")
             case .honk: try await t.command(vin, "honk")
             case .frunk: try await t.command(vin, "activate_front_trunk")
@@ -342,15 +409,62 @@ final class CarModel: ObservableObject {
             case .accessoryPower: try await t.command(vin, "enable_keep_accessory_power_mode")
             case .gate: break
             }
-            show(c.short + " · done")
+            show(doneBanner(c, s))
             await refresh()
         } catch {
-            show(error.localizedDescription)
+            show(.failed(error))
+        }
+    }
+
+    private func sendingText(_ c: CarControl, _ s: CarSnapshot) -> String {
+        switch c {
+        case .lock: return s.locked == false ? "Locking…" : "Unlocking…"
+        case .climate: return s.climateOn ? "Turning climate off…" : "Turning climate on…"
+        case .charge: return s.charging ? "Stopping charging…" : "Starting charging…"
+        case .precondition: return s.preconditioning ? "Stopping preconditioning…" : "Starting preconditioning…"
+        case .sentry: return s.sentry ? "Turning Sentry off…" : "Turning Sentry on…"
+        case .valet: return s.valet ? "Turning valet off…" : "Turning valet on…"
+        case .wake: return "Waking the car…"
+        default: return "Sending to the car…"
+        }
+    }
+
+    /// What actually happened, said plainly.
+    private func doneBanner(_ c: CarControl, _ s: CarSnapshot) -> Banner {
+        let grey = CarColors.muted
+        switch c {
+        case .lock:
+            return s.locked == false ? Banner(title: "Locked", icon: "lock.fill", tint: grey)
+                                     : Banner(title: "Unlocked", icon: "lock.open.fill", tint: CarColors.amber)
+        case .climate:
+            return s.climateOn ? Banner(title: "Climate off", icon: "fanblades", tint: grey)
+                               : Banner(title: "Climate on", detail: s.setTempC.map { String(format: "Cooling to %.0f°C", $0) },
+                                        icon: "fanblades.fill", tint: Color(red: 10 / 255, green: 132 / 255, blue: 1))
+        case .charge:
+            if s.charging {
+                return Banner(title: "Charging stopped", detail: s.soc.map { "Stays at \(Int($0))%" }, icon: "bolt.fill", tint: grey)
+            }
+            let amps = s.chargeAmps.map { "\(Int($0)) A · " } ?? ""
+            return Banner(title: "Charging started", detail: amps + "charging to \(Int(s.limit ?? 80))%", icon: "bolt.fill", tint: TSurface.green)
+        case .precondition:
+            return s.preconditioning ? Banner(title: "Preconditioning stopped", detail: "A/C off", icon: "heat.waves", tint: grey)
+                                     : Banner(title: "Preconditioning", detail: "A/C on at 19°C", icon: "heat.waves", tint: CarColors.red)
+        case .sentry:
+            return Banner(title: s.sentry ? "Sentry off" : "Sentry on", icon: "record.circle", tint: s.sentry ? grey : CarColors.red)
+        case .valet:
+            return Banner(title: s.valet ? "Valet off" : "Valet on", icon: "person.badge.key.fill", tint: s.valet ? grey : CarColors.amber)
+        case .flash: return Banner(title: "Lights flashed", icon: "lightbulb.fill", tint: CarColors.amber)
+        case .honk: return Banner(title: "Horn sounded", icon: "speaker.wave.2.fill", tint: grey)
+        case .frunk: return .ok(s.frunkOpen ? "Front trunk closing" : "Front trunk open")
+        case .trunk: return .ok(s.trunkOpen ? "Rear trunk closing" : "Rear trunk open")
+        case .windows: return .ok(s.anyWindowOpen ? "Windows closing" : "Windows vented")
+        case .wake: return .ok("Car is awake")
+        default: return .ok(c.title, "Done")
         }
     }
 
     private func openGate() async {
-        guard let ha = HAClient.configured() else { show("Set up Home Assistant in Settings first"); return }
+        guard let ha = HAClient.configured() else { show(.failed("Set up Home Assistant in My Home settings first")); return }
         let entity = UserDefaults.standard.string(forKey: "car.gate.entity").flatMap { $0.isEmpty ? nil : $0 }
             ?? "switch.porch_rf_controller_switch_1"
         busy = .gate
@@ -360,27 +474,28 @@ final class CarModel: ObservableObject {
             try await ha.call("switch", "turn_on", ["entity_id": entity])
             try? await Task.sleep(for: .seconds(1))
             try await ha.call("switch", "turn_off", ["entity_id": entity])
-            show("Gate signal sent")
+            show(Banner(title: "Gate signal sent", detail: "Opening or closing", icon: "door.garage.open", tint: CarColors.amber))
             gateSent = true
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(4))
                 gateSent = false
             }
         } catch {
-            show(error.localizedDescription)
+            show(Banner(title: "Gate signal not sent", detail: error.localizedDescription, icon: "exclamationmark", tint: CarColors.red))
         }
     }
 
     /// One Tessie command from the Controls pages. `update` adjusts what the page shows once the car has done it.
     func send(_ name: String, _ params: [String: String] = [:], done: String, update: ((inout CarSnapshot) -> Void)? = nil) async {
-        guard let t = TessieClient.configured(), let vin else { show("Set up Tessie in Settings first"); return }
+        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Car settings first")); return }
         do {
+            show(.sending("Sending to the car…"))
             try await t.command(vin, name, params)
             if let update { var c = car; update(&c); car = c }
-            show(done)
+            show(.ok(done))
             await refresh()
         } catch {
-            show(error.localizedDescription)
+            show(.failed(error))
         }
     }
 
@@ -398,7 +513,7 @@ final class CarModel: ObservableObject {
                 car.limit = p
                 show("Charge limit set to \(Int(p))%")
             } catch {
-                show(error.localizedDescription)
+                show(.failed(error))
             }
             pendingLimit = nil
         }
@@ -408,7 +523,7 @@ final class CarModel: ObservableObject {
         guard let t = TessieClient.configured(), let vin else { return }
         let v = min(max(a, 5), 32)
         car.chargeAmps = Double(v)
-        do { try await t.command(vin, "set_charging_amps", ["amps": String(v)]) } catch { show(error.localizedDescription) }
+        do { try await t.command(vin, "set_charging_amps", ["amps": String(v)]) } catch { show(.failed(error)) }
     }
 
     // MARK: Text

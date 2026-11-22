@@ -1,16 +1,13 @@
 import SwiftUI
-import PhotosUI
-import Vision
-import CoreImage
-import CoreImage.CIFilterBuiltins
 
-// Settings → Car: one page of groups, each opening its own page.
+// ☰ on My Car: the car's settings and backup, one page of groups, each opening its own page.
 
 struct CarSettingsPage: View {
     @ObservedObject var car: CarModel
-    @AppStorage("car.layout") private var layout = 2
-    @AppStorage(CarArt.sourceKey) private var source = "illustration"
-    @AppStorage("car.gate.entity") private var gate = "switch.porch_rf_controller_switch_1"
+    @ObservedObject var energy: EnergyStore
+    @ObservedObject var home: HomeModel
+    @ObservedObject private var backup = BackupManager.shared
+    @AppStorage("car.gate.ask") private var gateAsk = true
 
     var body: some View {
         ScrollView {
@@ -21,21 +18,21 @@ struct CarSettingsPage: View {
                         dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : nil, last: true)
                 }.buttonStyle(.plain)
 
-                TCaption(text: "Look")
-                NavigationLink { LayoutPage() } label: {
-                    nav("Layout", "rectangle.split.1x2", layout == 1 ? "View 1 · ring and cards" : "View 2 · list")
-                }.buttonStyle(.plain)
-                NavigationLink { CarPhotoPage() } label: {
-                    nav("Car photo", "photo", source == "photo" ? "My photo" : "Illustration", last: true)
-                }.buttonStyle(.plain)
-
                 TCaption(text: "Buttons")
                 NavigationLink { QuickControlsPage(car: car) } label: {
                     nav("Quick controls", "square.grid.3x2", car.controls.map(\.short).joined(separator: " · "))
                 }.buttonStyle(.plain)
-                NavigationLink { AutogatePage() } label: {
-                    nav("Autogate", "door.garage.open", gate, last: true)
+                NavigationLink { AutogatePage(car: car) } label: {
+                    nav("Autogate", "door.garage.open", gateAsk ? "Asks before sending" : "Sends straight away · asks when away", last: true)
                 }.buttonStyle(.plain)
+
+                TCaption(text: "Data")
+                NavigationLink { BackupPage(energy: energy, home: home) } label: {
+                    nav("Backup", "arrow.triangle.2.circlepath", (backup.lastDate == nil ? "Not saved yet" : backup.lastText) + " · iCloud Drive",
+                        dot: backup.summaryColor, last: true)
+                }.buttonStyle(.plain)
+
+                AppVersionFooter()
             }
         }
         .scrollBounceBehavior(.basedOnSize)
@@ -130,26 +127,6 @@ struct TessiePage: View {
     }
 }
 
-// MARK: Layout
-
-struct LayoutPage: View {
-    @AppStorage("car.layout") private var layout = 2
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                TCaption(text: "Car page")
-                TSegment(items: ["View 1", "View 2"], subs: ["Ring and cards", "List"], selected: layout - 1) { layout = $0 + 1 }
-                    .padding(.horizontal, 20)
-                TFootnote(text: layout == 1
-                          ? "View 1: your script title, the car pinned behind the page, battery ring with a draggable limit, and Temperature, Tyres, Security and Battery health cards."
-                          : "View 2: calm list like the rest of VoltTime — charging panel at the top, one row per topic, details a tap away.")
-            }
-        }
-        .teslaPage("Layout", black: true)
-    }
-}
-
 // MARK: Quick controls
 
 struct QuickControlsPage: View {
@@ -193,7 +170,7 @@ struct QuickControlsPage: View {
                             TRow(c.title, icon: c.icon(car.car), last: c == items.last) {
                                 HStack(spacing: 12) {
                                     if c != .gate {
-                                        Toggle("", isOn: askBinding(c)).labelsHidden().scaleEffect(0.75)
+                                        Toggle("", isOn: askBinding(c)).labelsHidden().tint(TSurface.green).scaleEffect(0.75)
                                     }
                                     Image(systemName: car.controls.contains(c) ? "checkmark.circle.fill" : "circle")
                                         .foregroundStyle(car.controls.contains(c) ? Color.white : TeslaDark.dim)
@@ -202,7 +179,7 @@ struct QuickControlsPage: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                TFootnote(text: "The switch on each row = ask before doing it. On by default for unlock, trunks, windows, keyless driving and valet. The autogate's own setting is in Settings › My Car › Autogate.")
+                TFootnote(text: "The switch on each row = ask before doing it. On by default for unlock, trunks, windows, keyless driving, valet and preconditioning. The autogate's own setting is in My Car ☰ › Autogate.")
                 Button("Reset to default") { CarControl.save(CarControl.defaults); car.reloadControls() }
                     .font(.system(size: 14)).foregroundStyle(CarColors.red).padding(.top, 16)
                 Spacer(minLength: 40)
@@ -234,8 +211,10 @@ struct QuickControlsPage: View {
 // MARK: Autogate
 
 struct AutogatePage: View {
+    @ObservedObject var car: CarModel
     @AppStorage("car.gate.entity") private var entity = "switch.porch_rf_controller_switch_1"
     @AppStorage("car.gate.ask") private var ask = true
+    @AppStorage(CarModel.zoneKey) private var zone = "zone.home_outer"
 
     var body: some View {
         ScrollView {
@@ -249,233 +228,74 @@ struct AutogatePage: View {
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
                 }
-                TRow("Ask before sending", icon: "questionmark.bubble", last: true) {
-                    Toggle("", isOn: $ask).labelsHidden()
+                TRow("Ask before sending", icon: "questionmark.bubble") {
+                    Toggle("", isOn: $ask).labelsHidden().tint(TSurface.green)
                 }
-                TFootnote(text: "The Gate button turns this switch on for 1 second, then off: one RF pulse, the same as your autogate script. With Ask before sending on, you confirm it first. Uses the Home Assistant address and token from Settings → Home Assistant.")
+                TRow("Home zone", icon: "scope",
+                     subtitle: car.homeZone.map { "\($0.name) · \(Int($0.radius.rounded())) m radius" } ?? "Reading from Home Assistant…",
+                     last: true) {
+                    TextField("zone.…", text: $zone)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .multilineTextAlignment(.trailing).font(.system(size: 13)).foregroundStyle(.white)
+                        .frame(width: 150)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
+                }
+                TFootnote(text: "The Gate button turns this switch on for 1 second, then off: one RF pulse, the same as your autogate script. With Ask before sending on, you confirm it first. If the car is outside the home zone, it always asks, and says how far away the car is. Uses the Home Assistant address and token from My Home ☰ › Home Assistant.")
             }
         }
         .teslaPage("Autogate", black: true)
+        .task(id: zone) { _ = await car.loadZone() }
     }
 }
 
-// MARK: Car photo
+/// "VoltTime · Version 1.0 (36)" and the release date, at the foot of the ☰ pages.
+struct AppVersionFooter: View {
+    var body: some View {
+        VStack(spacing: 3) {
+            Text("VoltTime · " + CarModel.versionLine).foregroundStyle(TeslaDark.rowLabel)
+            if !CarModel.releaseLine.isEmpty { Text(CarModel.releaseLine).foregroundStyle(TeslaDark.dim) }
+        }
+        .font(.system(size: 11))
+        .frame(maxWidth: .infinity)
+        .padding(.top, 28)
+        .padding(.bottom, 20)
+    }
+}
 
-struct CarPhotoPage: View {
-    @AppStorage(CarArt.sourceKey) private var source = "illustration"
-    @AppStorage(CarArt.fadeKey) private var fade = 0.55
-    @AppStorage(CarArt.brightKey) private var bright = 0.0
-    @AppStorage(CarArt.scaleKey) private var scale = 1.0
-    @AppStorage(CarArt.offsetKey) private var offsetY = 0.0
-    @AppStorage(CarArt.blurPlateKey) private var blurPlate = false
-    @AppStorage("car.photo.removeBG") private var removeBG = true
-    @State private var item: PhotosPickerItem?
-    @State private var chargingItem: PhotosPickerItem?
-    @State private var working = false
-    @State private var note: String?
-    @State private var version = 0
-    @State private var camera = false
+// ☰ on My Home: Home Assistant and backup.
+
+struct HomeSettingsPage: View {
+    @ObservedObject var home: HomeModel
+    @ObservedObject var energy: EnergyStore
+    @ObservedObject private var backup = BackupManager.shared
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                ZStack {
-                    Color.black
-                    FadedCar(image: CarArt.image(charging: false), fade: fade, bright: bright)
-                        .scaleEffect(scale)
-                        .offset(y: offsetY)
-                        .id(version)
-                    if working { ProgressView().tint(.white) }
-                }
-                .frame(height: 210)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(CarColors.line))
-                .padding(.horizontal, 16).padding(.top, 12)
-
-                TSegment(items: ["Illustration", "My photo"], selected: source == "photo" ? 1 : 0) { i in
-                    if i == 1 && !FileManager.default.fileExists(atPath: CarArt.photoURL.path) { note = "Choose a photo first."; return }
-                    source = i == 1 ? "photo" : "illustration"; version += 1
-                }
-                .padding(.horizontal, 20).padding(.top, 14)
-                if let note { TFootnote(text: note, color: TeslaDark.rowLabel) }
-
-                TCaption(text: "Source")
-                PhotosPicker(selection: $item, matching: .images) {
-                    TRow("Choose from Photos", icon: "photo.on.rectangle") { chevron }
-                }.buttonStyle(.plain)
-                Button { camera = true } label: {
-                    TRow("Take a photo", icon: "camera") { chevron }
-                }.buttonStyle(.plain)
-                PhotosPicker(selection: $chargingItem, matching: .images) {
-                    TRow("Charging photo", icon: "bolt", subtitle: FileManager.default.fileExists(atPath: CarArt.chargingURL.path) ? "Set · shown while charging" : "Optional · shown while charging", last: true) { chevron }
+                TCaption(text: "Connection")
+                NavigationLink { HomeAssistantPage() } label: {
+                    TRow("Home Assistant", icon: "house",
+                         subtitle: home.haConfigured ? (home.message == nil ? "Connected" : "Can't connect") : "Not set up",
+                         dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil, last: true) {
+                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                    }
                 }.buttonStyle(.plain)
 
-                TCaption(text: "Adjust")
-                TRow("Remove background", icon: "person.crop.rectangle.badge.plus") { Toggle("", isOn: $removeBG).labelsHidden() }
-                slider("Edge fade", fade < 0.05 ? "None" : (fade < 0.4 ? "Light" : (fade < 0.75 ? "Soft" : "Strong")), $fade, 0...1)
-                slider("Brightness", String(format: "%+.0f%%", bright * 100), $bright, -0.3...0.3)
-                slider("Size", String(format: "%.0f%%", scale * 100), $scale, 0.7...1.4)
-                slider("Position", String(format: "%+.0f pt", offsetY), $offsetY, -60...60, last: true)
+                TCaption(text: "Data")
+                NavigationLink { BackupPage(energy: energy, home: home) } label: {
+                    TRow("Backup", icon: "arrow.triangle.2.circlepath",
+                         subtitle: (backup.lastDate == nil ? "Not saved yet" : backup.lastText) + " · iCloud Drive",
+                         dot: backup.summaryColor, last: true) {
+                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                    }
+                }.buttonStyle(.plain)
 
-                TCaption(text: "Privacy")
-                TRow("Blur number plate", icon: "eye.slash", subtitle: "Applied when a photo is chosen", last: true) {
-                    Toggle("", isOn: $blurPlate).labelsHidden()
-                }
-
-                Button {
-                    source = "illustration"
-                    try? FileManager.default.removeItem(at: CarArt.photoURL)
-                    try? FileManager.default.removeItem(at: CarArt.chargingURL)
-                    fade = 0.55; bright = 0; scale = 1; offsetY = 0; version += 1
-                } label: {
-                    TRow("Reset to illustration", icon: "arrow.counterclockwise", last: true) { EmptyView() }
-                        .foregroundStyle(CarColors.red)
-                }.buttonStyle(.plain).padding(.top, 18)
-                TFootnote(text: "Your photo is kept in VoltTime's private storage and goes into your iCloud backup.")
-                Spacer(minLength: 40)
+                AppVersionFooter()
             }
         }
-        .teslaPage("Car photo", black: true)
-        .onChange(of: item) { _, v in if let v { Task { await load(v, to: CarArt.photoURL) } } }
-        .onChange(of: chargingItem) { _, v in if let v { Task { await load(v, to: CarArt.chargingURL) } } }
-        .fullScreenCover(isPresented: $camera) {
-            CameraPicker { img in
-                camera = false
-                if let img { Task { await process(img, to: CarArt.photoURL) } }
-            }
-            .ignoresSafeArea()
-        }
-    }
-
-    private var chevron: some View {
-        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-    }
-
-    private func slider(_ t: String, _ v: String, _ b: Binding<Double>, _ r: ClosedRange<Double>, last: Bool = false) -> some View {
-        TRow(t, icon: nil, last: last, trailing: { Text(v).font(.system(size: 13)).foregroundStyle(TeslaDark.rowLabel) }) {
-            Slider(value: b, in: r).tint(CarColors.red)
-        }
-    }
-
-    private func load(_ item: PhotosPickerItem, to url: URL) async {
-        guard let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) else {
-            note = "That photo couldn't be opened."; return
-        }
-        await process(img, to: url)
-    }
-
-    private func process(_ img: UIImage, to url: URL) async {
-        working = true; defer { working = false }
-        let removeBG = removeBG, blur = blurPlate
-        let out = await Task.detached(priority: .userInitiated) { CarPhotoProcessor.make(img, removeBackground: removeBG, blurPlate: blur) }.value
-        guard let out, let png = out.pngData() else { note = "That photo couldn't be processed."; return }
-        do {
-            try png.write(to: url, options: .atomic)
-            if url == CarArt.photoURL { source = "photo" }
-            note = removeBG && !CarPhotoProcessor.lastCutWorked ? "Background couldn't be removed from this one — shown as is." : nil
-            version += 1
-        } catch { note = error.localizedDescription }
-    }
-}
-
-enum CarPhotoProcessor {
-    nonisolated(unsafe) static var lastCutWorked = true
-
-    /// Lifts the car off its background (iOS subject lift), blurs a number plate if asked, crops tight, max 1600 px.
-    static func make(_ input: UIImage, removeBackground: Bool, blurPlate: Bool) -> UIImage? {
-        guard let cg = upright(input).cgImage else { return nil }
-        var ci = CIImage(cgImage: cg)
-        if blurPlate { ci = blurPlates(ci, cg: cg) }
-        var result = ci
-        lastCutWorked = true
-        if removeBackground {
-            let req = VNGenerateForegroundInstanceMaskRequest()
-            let handler = VNImageRequestHandler(cgImage: cg)
-            do {
-                try handler.perform([req])
-                if let obs = req.results?.first {
-                    let mask = try obs.generateScaledMaskForImage(forInstances: obs.allInstances, from: handler)
-                    let m = CIImage(cvPixelBuffer: mask)
-                    let f = CIFilter.blendWithMask()
-                    f.inputImage = ci; f.maskImage = m; f.backgroundImage = CIImage.empty()
-                    if let o = f.outputImage { result = o }
-                } else { lastCutWorked = false }
-            } catch { lastCutWorked = false }
-        }
-        let ctx = CIContext()
-        guard let outCG = ctx.createCGImage(result, from: ci.extent) else { return nil }
-        var img = UIImage(cgImage: outCG)
-        if removeBackground, lastCutWorked, let cropped = cropToContent(img) { img = cropped }
-        return downscale(img, max: 1600)
-    }
-
-    private static func blurPlates(_ ci: CIImage, cg: CGImage) -> CIImage {
-        let req = VNRecognizeTextRequest()
-        req.recognitionLevel = .accurate
-        try? VNImageRequestHandler(cgImage: cg).perform([req])
-        let W = CGFloat(cg.width), H = CGFloat(cg.height)
-        var out = ci
-        for o in req.results ?? [] {
-            guard let s = o.topCandidates(1).first?.string else { continue }
-            let t = s.replacingOccurrences(of: " ", with: "")
-            // Malaysian-style plates: letters then digits, short.
-            guard t.count >= 3, t.count <= 10, t.rangeOfCharacter(from: .decimalDigits) != nil,
-                  t.rangeOfCharacter(from: .letters) != nil else { continue }
-            let b = o.boundingBox
-            let r = CGRect(x: b.minX * W, y: b.minY * H, width: b.width * W, height: b.height * H).insetBy(dx: -b.width * W * 0.15, dy: -b.height * H * 0.5)
-            let blurred = out.clampedToExtent().applyingGaussianBlur(sigma: 18).cropped(to: r)
-            out = blurred.composited(over: out)
-        }
-        return out
-    }
-
-    private static func upright(_ i: UIImage) -> UIImage {
-        guard i.imageOrientation != .up else { return i }
-        return UIGraphicsImageRenderer(size: i.size).image { _ in i.draw(at: .zero) }
-    }
-
-    private static func cropToContent(_ img: UIImage) -> UIImage? {
-        guard let cg = img.cgImage, let data = cg.dataProvider?.data, let p = CFDataGetBytePtr(data) else { return nil }
-        let w = cg.width, h = cg.height, bpr = cg.bytesPerRow, bpp = cg.bitsPerPixel / 8
-        guard bpp >= 4 else { return nil }
-        let alphaOffset: Int = (cg.alphaInfo == .premultipliedFirst || cg.alphaInfo == .first) ? 0 : 3
-        var minX = w, minY = h, maxX = 0, maxY = 0
-        for y in stride(from: 0, to: h, by: 2) {
-            for x in stride(from: 0, to: w, by: 2) where p[y * bpr + x * bpp + alphaOffset] > 20 {
-                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
-            }
-        }
-        guard maxX > minX, maxY > minY else { return nil }
-        let padX = (maxX - minX) / 20
-        let r = CGRect(x: max(0, minX - padX), y: max(0, minY - padX / 2), width: min(w, maxX - minX + padX * 2), height: min(h, maxY - minY + padX))
-        return cg.cropping(to: r).map { UIImage(cgImage: $0) }
-    }
-
-    private static func downscale(_ i: UIImage, max m: CGFloat) -> UIImage {
-        let s = min(1, m / max(i.size.width, i.size.height))
-        guard s < 1 else { return i }
-        let size = CGSize(width: i.size.width * s, height: i.size.height * s)
-        let f = UIGraphicsImageRendererFormat(); f.scale = 1; f.opaque = false
-        return UIGraphicsImageRenderer(size: size, format: f).image { _ in i.draw(in: CGRect(origin: .zero, size: size)) }
-    }
-}
-
-struct CameraPicker: UIViewControllerRepresentable {
-    let done: (UIImage?) -> Void
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let p = UIImagePickerController()
-        p.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
-        p.delegate = context.coordinator
-        return p
-    }
-    func updateUIViewController(_ vc: UIImagePickerController, context: Context) {}
-    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let done: (UIImage?) -> Void
-        init(done: @escaping (UIImage?) -> Void) { self.done = done }
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            done(info[.originalImage] as? UIImage)
-        }
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
+        .scrollBounceBehavior(.basedOnSize)
+        .teslaPage("My Home", black: true)
+        .task { await home.refresh() }
     }
 }

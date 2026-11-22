@@ -1,0 +1,357 @@
+import SwiftUI
+import MapKit
+import CoreLocation
+
+// Security and Location pages (opened from the car page rows).
+
+// MARK: - Security
+
+struct CarSecurityPage: View {
+    @ObservedObject var model: CarModel
+    private var c: CarSnapshot { model.car }
+    typealias K = TeslaApp
+
+    private static let corners = ["Front left", "Front right", "Rear left", "Rear right"]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                statusCard
+                caption("Doors & windows")
+                carCard
+                caption("Modes")
+                modesCard
+                Spacer(minLength: 40)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+        }
+    }
+
+    // Everything that's open, in plain words.
+    private var issues: [String] {
+        var out: [String] = []
+        for i in 0..<4 where c.doorOpen(i) { out.append(Self.corners[i] + " door open") }
+        if c.doors == nil && c.doorsOpen { out.append("A door is open") }
+        for i in 0..<4 where c.windowsOpen[i] { out.append(Self.corners[i] + " window open") }
+        if c.frunkOpen { out.append("Front trunk open") }
+        if c.trunkOpen { out.append("Rear trunk open") }
+        return out
+    }
+
+    private var statusCard: some View {
+        let locked = c.locked == true
+        let secure = locked && issues.isEmpty
+        let title = secure ? "Secure" : (locked ? "Check the car" : "Unlocked")
+        let line = secure ? "Locked · everything closed"
+            : (issues.isEmpty ? "Everything closed" : issues.prefix(2).joined(separator: " · ") + (issues.count > 2 ? " · +\(issues.count - 2)" : ""))
+        return HStack(spacing: 14) {
+            Image(systemName: secure ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                .font(.system(size: 30))
+                .foregroundStyle(secure ? TSurface.green : CarColors.amber)
+                .frame(width: 36)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 22, weight: .semibold)).foregroundStyle(K.title)
+                Text(line).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button { model.tap(.lock) } label: {
+                Group {
+                    if model.busy == .lock { ProgressView().tint(.white).scaleEffect(0.8) }
+                    else { Text(locked ? "Unlock" : "Lock").font(.system(size: 13, weight: .medium)).foregroundStyle(K.title) }
+                }
+                .frame(width: 84, height: 32)
+                .background(Capsule().fill(K.track))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+        .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
+    }
+
+    private func caption(_ t: String) -> some View {
+        Text(t.uppercased()).font(.system(size: 11, weight: .semibold)).kerning(0.8).foregroundStyle(Color(white: 0.4))
+            .padding(.top, 24).padding(.bottom, 8).padding(.leading, 4)
+    }
+
+    // Top-down car: a coloured bar on each side for each door/window, labels beside it.
+    private var carCard: some View {
+        VStack(spacing: 8) {
+            Text("Frunk · " + (c.frunkOpen ? "Open" : "Closed"))
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(c.frunkOpen ? CarColors.amber : K.grey)
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 34) { cornerLabel(0); cornerLabel(2) }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                TopDownCar(open: (0..<4).map { c.doorOpen($0) || c.windowsOpen[$0] },
+                           doorOpen: (0..<4).map { c.doorOpen($0) },
+                           frunk: c.frunkOpen, trunk: c.trunkOpen)
+                    .frame(width: 104, height: 236)
+                VStack(alignment: .trailing, spacing: 34) { cornerLabel(1); cornerLabel(3) }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            Text("Trunk · " + (c.trunkOpen ? "Open" : "Closed"))
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(c.trunkOpen ? CarColors.amber : K.grey)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
+    }
+
+    private func cornerLabel(_ i: Int) -> some View {
+        let state = c.doorOpen(i) ? "Door open" : (c.windowsOpen[i] ? "Window open" : "Closed")
+        let open = state != "Closed"
+        return VStack(alignment: i % 2 == 0 ? .leading : .trailing, spacing: 2) {
+            Text(Self.corners[i]).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
+            Text(state).font(.system(size: 15, weight: .medium)).foregroundStyle(open ? CarColors.amber : K.title)
+        }
+    }
+
+    private var modesCard: some View {
+        VStack(spacing: 0) {
+            modeRow(icon: AnyView(SentryGlyph(on: c.sentry, size: 22, color: K.grey)),
+                    title: "Sentry", sub: "Cameras watch the car when parked", on: c.sentry, control: .sentry)
+            Rectangle().fill(K.track).frame(height: 1).padding(.leading, 52)
+            modeRow(icon: AnyView(Image(systemName: "person.badge.key").font(.system(size: 19)).foregroundStyle(K.grey)),
+                    title: "Valet", sub: "Limits speed, locks the glovebox", on: c.valet, control: .valet)
+        }
+        .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
+    }
+
+    private func modeRow(icon: AnyView, title: String, sub: String, on: Bool, control: CarControl) -> some View {
+        HStack(spacing: 14) {
+            icon.frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 16, weight: .medium)).foregroundStyle(K.title)
+                Text(sub).font(.system(size: 12)).foregroundStyle(K.grey)
+            }
+            Spacer()
+            if model.busy == control {
+                ProgressView().tint(.white)
+            } else {
+                // Valet asks first (Quick controls setting); Sentry goes straight away.
+                Toggle("", isOn: Binding(get: { on }, set: { _ in model.tap(control) }))
+                    .labelsHidden()
+                    .tint(TSurface.green)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+}
+
+/// Model 3 from above, with a bar along each side for each door (amber when open).
+struct TopDownCar: View {
+    let open: [Bool]        // FL FR RL RR: door or window open
+    let doorOpen: [Bool]
+    let frunk: Bool
+    let trunk: Bool
+
+    var body: some View {
+        Canvas { ctx, sz in
+            let w = sz.width, h = sz.height
+            let line = Color(white: 0.42)
+            let glass = Color(white: 0.30)
+            let inset: CGFloat = 8
+            let shell = CGRect(x: inset, y: 2, width: w - inset * 2, height: h - 4)
+            ctx.stroke(Path(roundedRect: shell, cornerRadius: 30), with: .color(line), lineWidth: 2)
+            // glass roof and the split between front and rear glass
+            let roof = CGRect(x: shell.minX + 10, y: h * 0.25, width: shell.width - 20, height: h * 0.56)
+            ctx.stroke(Path(roundedRect: roof, cornerRadius: 16), with: .color(glass), lineWidth: 2)
+            var split = Path(); split.move(to: CGPoint(x: roof.minX, y: h * 0.5)); split.addLine(to: CGPoint(x: roof.maxX, y: h * 0.5))
+            ctx.stroke(split, with: .color(glass), lineWidth: 2)
+            // frunk and trunk lids
+            for (y, isOpen) in [(h * 0.17, frunk), (h * 0.88, trunk)] {
+                var p = Path(); p.move(to: CGPoint(x: shell.minX + 16, y: y)); p.addLine(to: CGPoint(x: shell.maxX - 16, y: y))
+                ctx.stroke(p, with: .color(isOpen ? CarColors.amber : line), lineWidth: isOpen ? 3 : 2)
+            }
+            // doors: front half and rear half of each side
+            let green = TSurface.green
+            let spans: [(CGFloat, CGFloat)] = [(h * 0.30, h * 0.49), (h * 0.51, h * 0.70)]
+            for i in 0..<4 {
+                let leftSide = i % 2 == 0
+                let (y0, y1) = spans[i / 2]
+                let x = leftSide ? shell.minX : shell.maxX
+                var p = Path(); p.move(to: CGPoint(x: x, y: y0)); p.addLine(to: CGPoint(x: x, y: y1))
+                ctx.stroke(p, with: .color(open[i] ? CarColors.amber : green), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                if doorOpen[i] {   // the door swung out
+                    var d = Path()
+                    d.move(to: CGPoint(x: x, y: y0))
+                    d.addLine(to: CGPoint(x: x + (leftSide ? -7 : 7), y: y1 - 4))
+                    ctx.stroke(d, with: .color(CarColors.amber), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Location
+
+struct CarLocationPage: View {
+    @ObservedObject var model: CarModel
+    @State private var camera: MapCameraPosition = .automatic
+    @State private var lines: [String] = []
+    @State private var geocodedFor = ""
+    private var c: CarSnapshot { model.car }
+    typealias K = TeslaApp
+
+    private var coord: CLLocationCoordinate2D? {
+        guard let la = c.lat, let lo = c.lon else { return nil }
+        return CLLocationCoordinate2D(latitude: la, longitude: lo)
+    }
+
+    private func carRegion(_ co: CLLocationCoordinate2D) -> MapCameraPosition {
+        .region(MKCoordinateRegion(center: co, latitudinalMeters: 450, longitudinalMeters: 450))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                map
+                HStack(alignment: .center, spacing: 10) {
+                    Text(model.placeWord).font(.system(size: 26, weight: .semibold)).foregroundStyle(K.title).lineLimit(1)
+                    Text(tag.0).font(.system(size: 12, weight: .medium)).foregroundStyle(tag.1)
+                        .padding(.horizontal, 10).frame(height: 24)
+                        .background(Capsule().fill(K.track))
+                }
+                .padding(.top, 18)
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(addressLines, id: \.self) { Text($0) }
+                }
+                .font(.system(size: 15)).foregroundStyle(Color(white: 0.85))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+                .textSelection(.enabled)
+
+                // Exact position, 5 decimals (about 1 m)
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("GPS").font(.system(size: 11, weight: .semibold)).kerning(0.6).foregroundStyle(K.grey)
+                        Text(gpsText).font(.system(size: 17, weight: .regular).monospacedDigit()).foregroundStyle(K.title)
+                    }
+                    Spacer()
+                    Button {
+                        UIPasteboard.general.string = gpsText
+                        model.show(Banner(title: "Coordinates copied", detail: gpsText, icon: "doc.on.doc", tint: TSurface.green))
+                    } label: {
+                        Text("Copy").font(.system(size: 13, weight: .medium)).foregroundStyle(K.title)
+                            .frame(width: 66, height: 32).background(Capsule().fill(K.track))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(coord == nil)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
+                .padding(.top, 18)
+
+                HStack(spacing: 10) {
+                    Button(action: openMaps) { big("Open in Maps") }.buttonStyle(.plain).disabled(coord == nil)
+                    ShareLink(item: shareText) { big("Share") }.disabled(coord == nil)
+                }
+                .padding(.top, 12)
+
+                Text(updated).font(.system(size: 12)).foregroundStyle(K.grey).padding(.top, 14)
+                Spacer(minLength: 40)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+        }
+        .task(id: "\(c.lat ?? 0),\(c.lon ?? 0)") {
+            if let co = coord { camera = carRegion(co) }
+            await geocode()
+        }
+    }
+
+    private var map: some View {
+        ZStack(alignment: .bottomTrailing) {
+            if let co = coord {
+                Map(position: $camera, interactionModes: [.pan, .zoom]) {
+                    Annotation("", coordinate: co, anchor: .center) {
+                        ZStack {
+                            Circle().fill(CarColors.red).frame(width: 34, height: 34)
+                                .overlay(Circle().stroke(.white, lineWidth: 3))
+                                .shadow(color: .black.opacity(0.5), radius: 4)
+                            Image(systemName: "location.north.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(.white)
+                                .rotationEffect(.degrees(c.heading ?? 0))   // points the way the car faces
+                        }
+                    }
+                }
+                .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
+                .mapControls { }
+                .environment(\.colorScheme, .dark)
+                Button { withAnimation { camera = carRegion(co) } } label: {
+                    Image(systemName: "location.fill").font(.system(size: 15)).foregroundStyle(.white)
+                        .frame(width: 40, height: 40).background(Circle().fill(Color.black.opacity(0.7)))
+                }
+                .buttonStyle(.plain)
+                .padding(12)
+            } else {
+                Color(red: 0.06, green: 0.08, blue: 0.07)
+                Text("No position yet").font(.system(size: 13)).foregroundStyle(K.grey)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(height: 300)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func big(_ t: String) -> some View {
+        Text(t).font(.system(size: 15, weight: .medium)).foregroundStyle(K.title)
+            .frame(maxWidth: .infinity).frame(height: 46)
+            .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
+    }
+
+    private var tag: (String, Color) {
+        if c.charging { return ("Charging", TSurface.green) }
+        if ["D", "R", "N"].contains(c.gear) || (c.speedKmh ?? 0) > 0 { return ("Driving", K.title) }
+        return ("Parked", K.grey)
+    }
+
+    private var gpsText: String {
+        guard let la = c.lat, let lo = c.lon else { return "—" }
+        return String(format: "%.5f, %.5f", la, lo)
+    }
+
+    private var addressLines: [String] {
+        if !lines.isEmpty { return lines }
+        if let a = c.address, !a.isEmpty { return [a] }
+        return ["Address not available"]
+    }
+
+    private var shareText: String {
+        var t = c.name + " · " + model.placeWord + "\n" + addressLines.joined(separator: "\n")
+        if let la = c.lat, let lo = c.lon {
+            t += "\n" + gpsText + "\nhttps://maps.apple.com/?ll=\(String(format: "%.5f,%.5f", la, lo))&q=\(c.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Car")"
+        }
+        return t
+    }
+
+    private var updated: String {
+        guard let u = c.located ?? c.updated else { return "" }
+        return "Updated " + u.formatted(date: .omitted, time: .shortened)
+    }
+
+    private func openMaps() {
+        guard let co = coord else { return }
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: co))
+        item.name = c.name
+        item.openInMaps()
+    }
+
+    /// Full street address from the exact position (Apple's lookup); Tessie's address if that fails.
+    private func geocode() async {
+        guard let la = c.lat, let lo = c.lon else { return }
+        let key = String(format: "%.5f,%.5f", la, lo)
+        guard key != geocodedFor else { return }
+        guard let p = try? await CLGeocoder().reverseGeocodeLocation(CLLocation(latitude: la, longitude: lo),
+                                                                       preferredLocale: Locale(identifier: "en_MY")).first else { return }
+        let street = [p.subThoroughfare, p.thoroughfare].compactMap { $0 }.joined(separator: " ")
+        let first = [street.isEmpty ? p.name : street, p.subLocality].compactMap { $0 }.filter { !$0.isEmpty }
+        let town = [p.postalCode, p.locality].compactMap { $0 }.joined(separator: " ")
+        let second = [town, p.administrativeArea, p.country].compactMap { $0 }.filter { !$0.isEmpty }
+        let out = [first.joined(separator: ", "), second.joined(separator: ", ")].filter { !$0.isEmpty }
+        if !out.isEmpty { lines = out; geocodedFor = key }
+    }
+}

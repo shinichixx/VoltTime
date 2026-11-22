@@ -195,7 +195,7 @@ struct SimChargerPage: View {
                 TRow("Tariff") { TValue(value: String(format: "%.4f", model.tariff), unit: "RM/kWh") }
                 TRow("Cost", last: true) { TValue(value: Fmt.rm(r.cost), color: TSurface.green) }
 
-                Text("Charger settings come from Settings → Charge details. Charging to 100% adds about 25 min for the slow last 1%.")
+                Text("Charger settings come from Charging → Charge details. Charging to 100% adds about 25 min for the slow last 1%.")
                     .font(.system(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)

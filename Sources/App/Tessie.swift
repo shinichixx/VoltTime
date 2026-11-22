@@ -171,6 +171,10 @@ struct CarSnapshot: Codable, Equatable {
     var packVoltage: Double? = nil
     var packCurrent: Double? = nil
     var energyLeftKWh: Double? = nil
+    // Build 36: each door, and which way the car points
+    var doors: [Bool]? = nil             // FL FR RL RR (df, pf, dr, pr)
+    var heading: Double? = nil           // degrees, 0 = north
+    var located: Date? = nil             // last /location read
 
     var modelName: String {
         switch carType?.lowercased() {
@@ -193,6 +197,10 @@ struct CarSnapshot: Codable, Equatable {
     var charging: Bool { chargingState == "Charging" }
     var atHome: Bool { (savedLocation ?? "").localizedCaseInsensitiveContains("home") }
     var anyWindowOpen: Bool { windowsOpen.contains(true) }
+    /// Door i (FL FR RL RR) open; falls back to "a door is open" on older saved data.
+    func doorOpen(_ i: Int) -> Bool { doors?[i] ?? false }
+    /// Battery preconditioning as VoltTime does it: A/C on and set to 19°C (or the car warming the pack).
+    var preconditioning: Bool { batteryHeater || (climateOn && abs((setTempC ?? 0) - 19) < 0.3) }
     var kmPerPercent: Double? {
         guard let s = soc, s > 0, let r = rangeKm else { return nil }
         return r / s
@@ -234,7 +242,9 @@ struct CarSnapshot: Codable, Equatable {
         let w = ["fd_window", "fp_window", "rd_window", "rp_window"].map { (d(vs, $0) ?? 0) > 0 }
         if vs != nil { windowsOpen = w }
         if vs != nil {
-            doorsOpen = ["df", "pf", "dr", "pr"].contains { (d(vs, $0) ?? 0) > 0 }
+            let dd = ["df", "pf", "dr", "pr"].map { (d(vs, $0) ?? 0) > 0 }
+            doors = dd
+            doorsOpen = dd.contains(true)
             trunkOpen = (d(vs, "rt") ?? 0) > 0
             frunkOpen = (d(vs, "ft") ?? 0) > 0
             let t = ["tpms_pressure_fl", "tpms_pressure_fr", "tpms_pressure_rl", "tpms_pressure_rr"].map { d(vs, $0) }
@@ -260,6 +270,7 @@ struct CarSnapshot: Codable, Equatable {
         speedKmh = d(ds, "speed").map { $0 * 1.609344 }
         lat = d(ds, "latitude") ?? lat
         lon = d(ds, "longitude") ?? lon
+        heading = d(ds, "heading") ?? heading
         updated = Date()
     }
 
@@ -277,6 +288,7 @@ struct CarSnapshot: Codable, Equatable {
         savedLocation = (j["saved_location"] as? String) ?? savedLocation
         if let la = j["latitude"] as? Double { lat = la }
         if let lo = j["longitude"] as? Double { lon = lo }
+        located = Date()
     }
 }
 
