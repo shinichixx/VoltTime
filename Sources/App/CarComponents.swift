@@ -28,8 +28,28 @@ enum CarArt {
             if charging, let c = UIImage(contentsOfFile: chargingURL.path) { return c }
             return UIImage(contentsOfFile: photoURL.path)
         }
-        return UIImage(named: "car_sedan")
+        return UIImage(named: charging ? "car_plugged.jpg" : "car_parked.jpg") ?? UIImage(named: "car_sedan")
     }
+
+    /// Built-in studio photos: no cable when parked or driving, with cable when plugged in.
+    static func image(for c: CarSnapshot) -> UIImage? {
+        if usesPhoto { return image(charging: c.charging) }
+        let plugged = c.cableConnected && !["D", "R", "N"].contains(c.gear)
+        return UIImage(named: plugged ? "car_plugged.jpg" : "car_parked.jpg") ?? UIImage(named: "car_sedan")
+    }
+
+    /// Green energy flow along the cable, only on the built-in "plugged" photo while charging.
+    static func showsFlow(for c: CarSnapshot) -> Bool { !usesPhoto && c.charging && c.cableConnected }
+
+    /// The cable in car_plugged.jpg, from the floor end to the charge port (0…1 of the picture).
+    static let cablePath: [CGPoint] = [
+        CGPoint(x: 0.8265, y: 1.0000), CGPoint(x: 0.8103, y: 0.9512), CGPoint(x: 0.7818, y: 0.9175), CGPoint(x: 0.7451, y: 0.8838),
+        CGPoint(x: 0.7125, y: 0.8569), CGPoint(x: 0.7011, y: 0.8333), CGPoint(x: 0.7064, y: 0.8123), CGPoint(x: 0.7207, y: 0.7955),
+        CGPoint(x: 0.7614, y: 0.7660), CGPoint(x: 0.8306, y: 0.7340), CGPoint(x: 0.9080, y: 0.7155), CGPoint(x: 0.9568, y: 0.7037),
+        CGPoint(x: 0.9691, y: 0.6902), CGPoint(x: 0.9528, y: 0.6734), CGPoint(x: 0.9283, y: 0.6498), CGPoint(x: 0.9206, y: 0.6229),
+        CGPoint(x: 0.9206, y: 0.5471), CGPoint(x: 0.9251, y: 0.4966), CGPoint(x: 0.9304, y: 0.4461), CGPoint(x: 0.9324, y: 0.3956),
+        CGPoint(x: 0.9300, y: 0.3451), CGPoint(x: 0.9222, y: 0.3114), CGPoint(x: 0.9080, y: 0.2820),
+    ]
 
     static var title: UIImage? { UIImage(named: "title_ultra_rouge") }
 }
@@ -76,6 +96,51 @@ struct FadedCar: View {
                     }
                 }
         }
+    }
+}
+
+/// The car picture for the current state, with the charging flow drawn on the cable.
+struct CarScene: View {
+    let car: CarSnapshot
+    var body: some View {
+        let img = CarArt.image(for: car)
+        let aspect = img.map { $0.size.width / max($0.size.height, 1) } ?? 2
+        ZStack {
+            FadedCar(image: img)
+            if CarArt.showsFlow(for: car) { ChargeFlow() }
+        }
+        .aspectRatio(aspect, contentMode: .fit)
+    }
+}
+
+/// Green dashes travelling along the cable into the charge port.
+struct ChargeFlow: View {
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            let phase = -CGFloat((t * 36).truncatingRemainder(dividingBy: 20))
+            CableShape()
+                .stroke(Color(red: 0, green: 226 / 255, blue: 134 / 255),
+                        style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round, dash: [8, 12], dashPhase: phase))
+                .shadow(color: Color(red: 0, green: 226 / 255, blue: 134 / 255).opacity(0.9), radius: 4)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+struct CableShape: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let pts = CarArt.cablePath.map { CGPoint(x: r.minX + $0.x * r.width, y: r.minY + $0.y * r.height) }
+        guard let first = pts.first else { return p }
+        p.move(to: first)
+        // smooth through the points (midpoint quad curves)
+        for i in 1..<pts.count {
+            let mid = CGPoint(x: (pts[i - 1].x + pts[i].x) / 2, y: (pts[i - 1].y + pts[i].y) / 2)
+            p.addQuadCurve(to: mid, control: pts[i - 1])
+        }
+        p.addLine(to: pts[pts.count - 1])
+        return p
     }
 }
 

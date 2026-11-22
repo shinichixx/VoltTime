@@ -164,6 +164,7 @@ struct SettingsPage: View {
         ScrollView {
             VStack(spacing: 0) {
                 TCaption(text: "Charging mode")
+                    .padding(.top, -34)          // sits right under the title
                 modeTiles
                     .padding(.horizontal, 20)
                 Text(ChargingMode.named(myHome.pendingMode ?? myHome.mode ?? "Routine").detail)

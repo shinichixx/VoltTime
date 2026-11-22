@@ -167,6 +167,10 @@ struct CarSnapshot: Codable, Equatable {
     var carType: String? = nil       // model3, modely…
     var trim: String? = nil          // trim_badging, e.g. 74d
     var software: String? = nil      // 2026.44.1
+    // Build 35: live battery
+    var packVoltage: Double? = nil
+    var packCurrent: Double? = nil
+    var energyLeftKWh: Double? = nil
 
     var modelName: String {
         switch carType?.lowercased() {
@@ -263,6 +267,9 @@ struct CarSnapshot: Codable, Equatable {
         func d(_ k: String) -> Double? { (j[k] as? Double) ?? (j[k] as? Int).map(Double.init) }
         if let lo = d("module_temp_min"), let hi = d("module_temp_max") { packTempC = (lo + hi) / 2 }
         lifetimeKWh = d("lifetime_energy_used") ?? lifetimeKWh
+        packVoltage = d("pack_voltage") ?? packVoltage
+        packCurrent = d("pack_current") ?? packCurrent
+        energyLeftKWh = d("energy_remaining") ?? energyLeftKWh
     }
 
     mutating func apply(location j: [String: Any]) {

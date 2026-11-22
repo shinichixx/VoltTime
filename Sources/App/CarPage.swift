@@ -67,7 +67,7 @@ struct CarView1: View {
             ZStack(alignment: .top) {
                 Color.black.ignoresSafeArea()
                 // Car stays put and dims as the page scrolls over it (to 18%).
-                FadedCar(image: CarArt.image(charging: c.charging))
+                CarScene(car: c)
                     .frame(width: w * photoScale)
                     .frame(width: w)
                     .offset(y: header + photoOffset)
@@ -421,16 +421,19 @@ struct CarView2: View {
     @Binding var path: [Route]
     @State private var sliderLimit: Double?
     @State private var scroll: CGFloat = 0
+    @State private var portAsk: PortAsk?
     @AppStorage(CarArt.scaleKey) private var photoScale = 1.0
     @AppStorage(CarArt.offsetKey) private var photoOffset = 0.0
     private var c: CarSnapshot { model.car }
     typealias K = TeslaApp
 
+    enum PortAsk: Identifiable { case open, unlock; var id: Self { self } }
+
     // Layout (points from the top of the page, the same reference as My Home's title):
     private let headerBottom: CGFloat = 108      // title, battery line, "remaining…" line
-    private let carTop: CGFloat = 114            // car area, pinned
-    private let carHeight: CGFloat = 200
-    private let buttonsTop: CGFloat = 318        // first thing that scrolls
+    private let carTop: CGFloat = 92             // car area, pinned, just under the "remaining…" line
+    private let carHeight: CGFloat = 180
+    private let buttonsTop: CGFloat = 250        // first thing that scrolls (icon row right under the car)
 
     var body: some View {
         GeometryReader { geo in
@@ -439,8 +442,8 @@ struct CarView2: View {
                 K.bg.ignoresSafeArea()
 
                 // Car: stays put, fades as the page scrolls over it (8% at the end, like the Tesla app).
-                FadedCar(image: CarArt.image(charging: c.charging))
-                    .frame(width: w * 0.763)
+                CarScene(car: c)
+                    .frame(width: w * 0.92)
                     .scaleEffect(photoScale)
                     .offset(y: photoOffset)
                     .frame(width: w, height: carHeight)
@@ -477,6 +480,19 @@ struct CarView2: View {
                 .modifier(TrackScroll(y: $scroll))
                 .scrollIndicators(.hidden)
                 .refreshable { await model.refresh() }
+                .alert(portAsk == .unlock ? "Unlock the charge cable?" : "Open the charge port?",
+                       isPresented: Binding(get: { portAsk != nil }, set: { if !$0 { portAsk = nil } }),
+                       presenting: portAsk) { a in
+                    Button(a == .unlock ? "Unlock" : "Open") {
+                        Task {
+                            // Tessie open_charge_port opens the door, or unlocks the cable if the door is already open.
+                            await model.send("open_charge_port", done: a == .unlock ? "Charge port unlocked" : "Charge port open") { $0.portOpen = true }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: { a in
+                    Text(a == .unlock ? "The cable is released so you can unplug it." : "The port door opens, ready for the cable.")
+                }
                 .ignoresSafeArea(.container, edges: .bottom)   // rows run to the very bottom edge, no fade
 
                 // Header: pinned; fades out as the content comes up to it (Tesla app), back in on the way down.
@@ -597,13 +613,21 @@ struct CarView2: View {
             .padding(.top, 15)
             .padding(.bottom, 25)
             .frame(height: 178.3, alignment: .top)
-            Rectangle().fill(K.bg).frame(height: 1)
-            HStack(spacing: 0) {
-                panelButton(c.charging ? "Stop Charging" : "Start Charging") { Task { await model.run(.charge) } }
-                Rectangle().fill(K.bg).frame(width: 1)
-                panelButton(c.portOpen ? "Close Charge Port" : "Open Charge Port") { Task { await model.run(.chargePort) } }
+            let full = (c.soc ?? 0) >= limit
+            // Left: stop while charging; start only with the cable in and room below the limit.
+            let left: String? = c.charging ? "Stop Charging" : (c.cableConnected && !full ? "Start Charging" : nil)
+            // Right: unlock when the port is open / cable in; open otherwise (hidden once full with no cable).
+            let unlock = c.portOpen || c.cableConnected
+            let right: String? = full && !c.cableConnected ? nil : (unlock ? "Unlock Charge Port" : "Open Charge Port")
+            if left != nil || right != nil {
+                Rectangle().fill(K.bg).frame(height: 1)
+                HStack(spacing: 0) {
+                    if let left { panelButton(left) { Task { await model.run(.charge) } } }
+                    if left != nil && right != nil { Rectangle().fill(K.bg).frame(width: 1) }
+                    if let right { panelButton(right) { portAsk = unlock ? .unlock : .open } }
+                }
+                .frame(height: 46)
             }
-            .frame(height: 46)
         }
         .background(RoundedRectangle(cornerRadius: 4).fill(K.panel))
         .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -654,7 +678,7 @@ struct CarView2: View {
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
                                             "Sentry \(c.sentry ? "on" : "off")"].joined(separator: " · ")) { path.append(.carDetail(.security)) }
             row("location.north.fill", "Location", [street, model.placeWord].compactMap { $0 }.joined(separator: " · ")) { path.append(.carDetail(.location)) }
-            row("bolt", "Charging", nil) { path.append(.settings) }
+            row("bolt", "Charging", chargingSub) { path.append(.settings) }
         }
     }
 
@@ -698,6 +722,17 @@ struct CarView2: View {
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color(red: 42 / 255, green: 43 / 255, blue: 45 / 255)))
         }
         .buttonStyle(.plain)
+    }
+
+    /// Under "Charging": the Home Assistant charging mode; Routine shows tonight's start and ready time.
+    private var chargingSub: String? {
+        guard let m = home.chargingMode else { return nil }
+        if m == "Routine" {
+            let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
+            let r = home.readyMinutes
+            return "Starts " + Self.hhmm.string(from: start) + " · Ready by " + String(format: "%02d:%02d", r / 60, r % 60)
+        }
+        return ChargingMode.named(m).title
     }
 
     private var planLine: String {
@@ -783,22 +818,119 @@ struct CarDetailPage: View {
 
     private var battery: some View {
         let h = model.health
-        return VStack(spacing: 0) {
-            TStats(items: [TStat(value: "\(Int(c.soc ?? 0))", unit: "%", caption: "Now"),
-                           TStat(value: c.rangeKm.map { "\(Int($0.rounded()))" } ?? "–", unit: "km", caption: "Range"),
-                           TStat(value: c.limit.map { "\(Int($0))" } ?? "–", unit: "%", caption: "Limit")])
-                .padding(.top, 24)
-            TCaption(text: "Health")
-            HealthCells(health: h.healthPercent).padding(.horizontal, 20).padding(.vertical, 8)
-            TRow("Health", icon: "heart.text.square") { TValue(value: h.healthPercent.map { String(format: "%.1f", $0) } ?? "–", unit: "%") }
-            TRow("Max range at 100%", icon: "arrow.left.and.right") { TValue(value: h.maxRangeKm.map { "\(Int($0.rounded()))" } ?? "–", unit: "km") }
-            TRow("Capacity", icon: "minus.plus.batteryblock") { TValue(value: h.capacityKWh.map { String(format: "%.1f", $0) } ?? "–", unit: "kWh") }
-            TRow("When new", icon: "sparkles") { TValue(value: h.originalCapacityKWh.map { String(format: "%.1f", $0) } ?? "–", unit: "kWh") }
-            TRow("Cycles", icon: "arrow.triangle.2.circlepath", subtitle: "Lifetime energy ÷ capacity") {
-                TValue(value: h.cycles(lifetimeKWh: c.lifetimeKWh).map { "≈ \(Int($0.rounded()))" } ?? "–")
+        let K = TeslaApp.self
+        let soc = c.soc ?? 0
+        let limit = c.limit ?? 80
+        let power: Double? = { guard let v = c.packVoltage, let a = c.packCurrent else { return nil }; return abs(v * a) / 1000 }()
+        return VStack(alignment: .leading, spacing: 0) {
+            // Charge now, range and limit, with a bar marked at the limit
+            HStack(alignment: .lastTextBaseline) {
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text("\(Int(soc))").font(.system(size: 56, weight: .light)).foregroundStyle(K.title)
+                    Text("%").font(.system(size: 20, weight: .medium)).foregroundStyle(K.grey)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "–").font(.system(size: 17)).foregroundStyle(K.title)
+                    Text("Limit \(Int(limit))%").font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
+                }
+                .padding(.bottom, 8)
             }
-            TRow("Lifetime energy", icon: "bolt", last: true) { TValue(value: c.lifetimeKWh.map { "\(Int($0.rounded()))" } ?? "–", unit: "kWh") }
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(K.track)
+                    Capsule().fill(K.sliderGreen).frame(width: g.size.width * soc / 100)
+                    Rectangle().fill(K.title).frame(width: 2, height: 18).offset(x: g.size.width * limit / 100 - 1)
+                }
+            }
+            .frame(height: 10)
+            Text(batteryStatus).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey).padding(.top, 14)
+
+            caption("Live")
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                tile("Voltage", c.packVoltage.map { "\(Int($0.rounded()))" }, "V")
+                tile("Current", c.packCurrent.map { "\(Int(abs($0).rounded()))" }, "A")
+                tile("Power", power.map { String(format: "%.1f", $0) }, "kW")
+                tile("Energy left", c.energyLeftKWh.map { String(format: "%.1f", $0) }, "kWh")
+                tile("Pack temp", c.packTempC.map { "\(Int($0.rounded()))" }, "°C")
+                tile("Added", c.energyAddedKWh.map { String(format: "+%.0f", $0) }, "kWh")
+            }
+
+            caption("Health")
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .lastTextBaseline, spacing: 4) {
+                        Text(h.healthPercent.map { String(format: "%.1f", $0) } ?? "–").font(.system(size: 30, weight: .light)).foregroundStyle(K.title)
+                        Text("%").font(.system(size: 13, weight: .medium)).foregroundStyle(K.grey)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 3) {
+                        if let now = h.capacityKWh, let new = h.originalCapacityKWh {
+                            Text(String(format: "%.1f of %.1f kWh", now, new)).font(.system(size: 12, weight: .medium)).foregroundStyle(K.title)
+                            Text(String(format: "%.1f%% lost", max(0, (1 - now / new) * 100))).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey)
+                        }
+                    }
+                }
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(K.track)
+                        Capsule().fill(K.sliderGreen).frame(width: g.size.width * min(1, (h.healthPercent ?? 0) / 100))
+                    }
+                }
+                .frame(height: 6)
+                .padding(.top, 12)
+                healthRow("Max range at 100%", h.maxRangeKm.map { "\(Int($0.rounded()))" } ?? "–", "km")
+                healthRow("Cycles (lifetime ÷ capacity)", h.cycles(lifetimeKWh: c.lifetimeKWh).map { "≈\(Int($0.rounded()))" } ?? "–", "")
+                healthRow("Lifetime energy", c.lifetimeKWh.map { Int($0.rounded()).formatted() } ?? "–", "kWh")
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 30)
+    }
+
+    private var batteryStatus: String {
+        if c.charging, let m = c.minutesToLimit, m > 0 {
+            let mm = Int(m.rounded())
+            let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "HH:mm"
+            return "Charging · " + (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " to limit (" + f.string(from: (c.updated ?? Date()).addingTimeInterval(m * 60)) + ")"
+        }
+        if c.chargingState == "Complete" { return "Charge complete" }
+        return c.cableConnected ? "Plugged in · not charging" : "Not plugged in"
+    }
+
+    private func caption(_ t: String) -> some View {
+        Text(t.uppercased()).font(.system(size: 11, weight: .semibold)).kerning(0.8).foregroundStyle(Color(white: 0.4))
+            .padding(.top, 26).padding(.bottom, 8).padding(.leading, 4)
+    }
+
+    private func tile(_ k: String, _ v: String?, _ u: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(k).font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaApp.grey)
+            HStack(alignment: .lastTextBaseline, spacing: 4) {
+                Text(v ?? "–").font(.system(size: 24, weight: .light)).foregroundStyle(TeslaApp.title)
+                Text(u).font(.system(size: 12, weight: .medium)).foregroundStyle(TeslaApp.grey)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14).padding(.vertical, 11)
+        .background(RoundedRectangle(cornerRadius: 12).fill(TeslaApp.panel))
+    }
+
+    private func healthRow(_ k: String, _ v: String, _ u: String) -> some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(TeslaApp.track).frame(height: 1)
+            HStack(alignment: .lastTextBaseline) {
+                Text(k).font(.system(size: 15)).foregroundStyle(TeslaApp.title)
+                Spacer()
+                Text(v).font(.system(size: 15)).foregroundStyle(TeslaApp.title)
+                if !u.isEmpty { Text(u).font(.system(size: 12)).foregroundStyle(TeslaApp.grey) }
+            }
+            .frame(height: 43)
+        }
+        .padding(.top, 12)
     }
 
     private var security: some View {
