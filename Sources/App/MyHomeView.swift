@@ -283,13 +283,19 @@ struct MyHomeView: View {
 
     var body: some View {
         GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 0) {
-                    hero(width: geo.size.width)
+            // Title, photo and power numbers stay put; only the rows below scroll (and spring back).
+            VStack(spacing: 0) {
+                hero(width: geo.size.width)
+                ScrollView {
                     rows
                 }
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.always)
+                .mask(   // rows fade out softly as they slide up under the photo
+                    LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.06),
+                                           .init(color: .black, location: 1)], startPoint: .top, endPoint: .bottom)
+                )
             }
-            .scrollIndicators(.hidden)
         }
         .background(TeslaDark.bg.ignoresSafeArea())
         .task(id: phase) {
