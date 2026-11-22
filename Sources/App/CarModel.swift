@@ -99,9 +99,9 @@ enum CarControl: String, CaseIterable, Identifiable {
     func icon(_ s: CarSnapshot) -> String {
         switch self {
         case .lock: return s.locked == false ? "lock.open" : "lock"
-        case .climate: return "fanblades"
-        case .charge: return "bolt"
-        case .precondition: return "flame"
+        case .climate: return s.climateOn ? "fanblades.fill" : "fanblades"
+        case .charge: return s.charging ? "bolt.fill" : "bolt"
+        case .precondition: return s.batteryHeater ? "flame.fill" : "flame"
         case .gate: return "door.garage.open"
         case .flash: return "lightbulb"
         case .honk: return "speaker.wave.2"
@@ -124,7 +124,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .amps5: return "gauge.with.dots.needle.0percent"
         case .amps32: return "gauge.with.dots.needle.100percent"
         case .boombox: return "music.note"
-        case .sentry: return "eye"
+        case .sentry: return s.sentry ? "eye.fill" : "eye"
         case .valet: return "person.badge.key"
         case .guest: return "person.2"
         case .lowPower: return "leaf"
@@ -216,6 +216,7 @@ final class CarModel: ObservableObject {
     @Published var controls = CarControl.load()
     @Published var confirming: CarControl?
     @Published var pendingLimit: Double?
+    @Published var gateSent = false      // top-row gate icon shows radio waves for a few seconds
 
     private var lastHealth: Date?
     private var toastTask: Task<Void, Never>?
@@ -360,6 +361,11 @@ final class CarModel: ObservableObject {
             try? await Task.sleep(for: .seconds(1))
             try await ha.call("switch", "turn_off", ["entity_id": entity])
             show("Gate signal sent")
+            gateSent = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(4))
+                gateSent = false
+            }
         } catch {
             show(error.localizedDescription)
         }

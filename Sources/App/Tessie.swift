@@ -162,6 +162,28 @@ struct CarSnapshot: Codable, Equatable {
     var defrost: Bool? = nil
     var guest: Bool? = nil
     var tyresRead: Date? = nil
+    // Build 34: bottom block
+    var vin: String? = nil
+    var carType: String? = nil       // model3, modely…
+    var trim: String? = nil          // trim_badging, e.g. 74d
+    var software: String? = nil      // 2026.44.1
+
+    var modelName: String {
+        switch carType?.lowercased() {
+        case "model3": return "MODEL 3"
+        case "modely": return "MODEL Y"
+        case "models", "models2": return "MODEL S"
+        case "modelx": return "MODEL X"
+        case "cybertruck": return "CYBERTRUCK"
+        default: return "MODEL 3"
+        }
+    }
+    var trimName: String? {
+        guard let t = trim?.lowercased(), !t.isEmpty else { return nil }
+        if t.hasPrefix("p") { return "Performance" }
+        if let n = Int(t.filter(\.isNumber)), n >= 70 { return "Long Range" }
+        return "Standard Range"
+    }
 
     var asleep: Bool { state != "online" }
     var charging: Bool { chargingState == "Charging" }
@@ -225,6 +247,11 @@ struct CarSnapshot: Codable, Equatable {
         let seen = ["tpms_last_seen_pressure_time_fl", "tpms_last_seen_pressure_time_fr",
                     "tpms_last_seen_pressure_time_rl", "tpms_last_seen_pressure_time_rr"].compactMap { d(vs, $0) }
         if let last = seen.max(), last > 0 { tyresRead = Date(timeIntervalSince1970: last) }
+        let vc = j["vehicle_config"] as? [String: Any]
+        if let v = j["vin"] as? String { vin = v }
+        if let t = vc?["car_type"] as? String { carType = t }
+        if let t = vc?["trim_badging"] as? String { trim = t }
+        if let v = vs?["car_version"] as? String, let first = v.split(separator: " ").first { software = String(first) }
         gear = (ds?["shift_state"] as? String) ?? "P"
         speedKmh = d(ds, "speed").map { $0 * 1.609344 }
         lat = d(ds, "latitude") ?? lat

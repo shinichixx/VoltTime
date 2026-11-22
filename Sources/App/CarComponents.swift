@@ -297,7 +297,7 @@ struct ControlStrip: View {
                         if model.busy == c {
                             ProgressView().tint(.white)
                         } else {
-                            Image(systemName: c.icon(model.car))
+                            Image(systemName: c == .gate && model.gateSent ? "dot.radiowaves.up.forward" : c.icon(model.car))
                                 .font(.system(size: 21, weight: plain ? .medium : .light))
                                 .foregroundStyle(plain ? TeslaApp.icon : c.tint(model.car))
                                 .shadow(color: plain ? .black.opacity(0.55) : .clear, radius: 4)   // readable on the car photo

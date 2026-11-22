@@ -96,7 +96,7 @@ struct CarView1: View {
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
                 .coordinateSpace(name: "v1")
-                .onPreferenceChange(ScrollY.self) { scroll = $0 }
+                .modifier(TrackScroll(y: $scroll))
                 .scrollIndicators(.hidden)
                 .refreshable { await model.refresh() }
 
@@ -356,6 +356,23 @@ private struct ScrollY: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
+/// How far the page has scrolled (0 at rest). iOS 18+ reads it from the scroll view itself;
+/// iOS 17 falls back to the preference read from the top of the content.
+private struct TrackScroll: ViewModifier {
+    @Binding var y: CGFloat
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { g in
+                g.contentOffset.y + g.contentInsets.top
+            } action: { _, v in
+                y = v
+            }
+        } else {
+            content.onPreferenceChange(ScrollY.self) { y = $0 }
+        }
+    }
+}
+
 struct CarMap: View {
     let lat: Double?
     let lon: Double?
@@ -446,6 +463,7 @@ struct CarView2: View {
                             .padding(.horizontal, 10)
                             .padding(.top, 19)
                         rows.padding(.top, 22)
+                        carInfo.padding(.top, 20)
                         Text(model.error ?? model.updatedText + " · pull to refresh")
                             .font(.system(size: 11)).foregroundStyle(model.error == nil ? K.grey : CarColors.amber)
                             .multilineTextAlignment(.center)
@@ -456,19 +474,15 @@ struct CarView2: View {
                     }
                 }
                 .coordinateSpace(name: "v2")
-                .onPreferenceChange(ScrollY.self) { scroll = $0 }
+                .modifier(TrackScroll(y: $scroll))
                 .scrollIndicators(.hidden)
                 .refreshable { await model.refresh() }
                 .ignoresSafeArea(.container, edges: .bottom)   // rows run to the very bottom edge, no fade
 
-                // Header: pinned. A page-colour backdrop appears once the content slides under it.
-                VStack(spacing: 0) {
-                    K.bg.frame(height: headerBottom).ignoresSafeArea(edges: .top)
-                    LinearGradient(colors: [K.bg, K.bg.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 18)
-                }
-                .opacity(Double(min(1, max(0, (headerBottom + 10 - (buttonsTop - scroll)) / 30))))
-                .allowsHitTesting(false)
+                // Header: pinned; fades out as the content comes up to it (Tesla app), back in on the way down.
                 header(w)
+                    .opacity(Double(min(1, max(0, ((buttonsTop - scroll) - (headerBottom + 10)) / 50))))
+                    .allowsHitTesting(false)
             }
         }
     }
@@ -484,12 +498,8 @@ struct CarView2: View {
                     .kerning(-0.3)
                     .foregroundStyle(.white)
                 Spacer()
-                Button { path.append(.settings) } label: {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 19)).foregroundStyle(K.title)
-                        .frame(width: 44, height: 32, alignment: .trailing)
-                }
-                .buttonStyle(.plain)
             }
+            .frame(height: 32)
             HStack(spacing: 8) {
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 3.5).fill(K.batteryBody).frame(width: 35, height: 15.5)
@@ -514,6 +524,10 @@ struct CarView2: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private static let hhmm: DateFormatter = {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "HH:mm"; return f
+    }()
+
     private var socColor: Color {
         if c.charging { return K.green }
         return (c.soc ?? 0) < 20 ? CarColors.amber : K.title
@@ -522,7 +536,8 @@ struct CarView2: View {
     private var subline: String {
         if c.charging, let m = c.minutesToLimit, m > 0 {
             let mm = Int(m.rounded())
-            return (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " remaining to charge limit"
+            let done = (c.updated ?? Date()).addingTimeInterval(m * 60)
+            return (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " remaining to charge limit (" + Self.hhmm.string(from: done) + ")"
         }
         if c.chargingState == "Complete" { return "Charge complete" }
         let place = c.atHome ? "Parked at home" : (["D", "R", "N"].contains(c.gear) ? "Driving" : "Parked · " + model.placeWord)
@@ -639,9 +654,50 @@ struct CarView2: View {
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
                                             "Sentry \(c.sentry ? "on" : "off")"].joined(separator: " · ")) { path.append(.carDetail(.security)) }
             row("location.north.fill", "Location", [street, model.placeWord].compactMap { $0 }.joined(separator: " · ")) { path.append(.carDetail(.location)) }
-            row("bolt", "Charging plan", planLine) { path.append(.settings) }
-            row("road.lanes", "Odometer", c.odometerKm.map { "\($0.formatted(.number.precision(.fractionLength(0)))) km" } ?? "—") { path.append(.carDetail(.odometer)) }
+            row("bolt", "Charging", nil) { path.append(.settings) }
         }
+    }
+
+    // MARK: Bottom block (Tesla app: divider, model name, trim, km / VIN / software, two pill buttons)
+
+    private var carInfo: some View {
+        let vin = c.vin ?? model.vin
+        let lines = [c.odometerKm.map { "\($0.formatted(.number.precision(.fractionLength(0)))) km" },
+                     vin.map { "VIN: " + $0 },
+                     c.software.map { "Software: " + $0 }].compactMap { $0 }
+        return VStack(alignment: .leading, spacing: 0) {
+            Rectangle().fill(Color(white: 0.133)).frame(height: 1)
+            Text(c.modelName).font(.system(size: 14, weight: .semibold)).kerning(4.5).foregroundStyle(K.title)
+                .padding(.top, 29)
+            if let t = c.trimName {
+                Text(t).font(.system(size: 17, weight: .medium)).foregroundStyle(K.grey).padding(.top, 9)
+            }
+            VStack(alignment: .leading, spacing: 1.5) {
+                ForEach(lines, id: \.self) { Text($0).font(.system(size: 12, weight: .medium)).foregroundStyle(K.grey) }
+            }
+            .padding(.top, 22)
+            HStack(spacing: 10) {
+                pill("Copy VIN") {
+                    UIPasteboard.general.string = vin
+                    model.show("VIN copied")
+                }
+                pill("Open Tessie") {
+                    if let u = URL(string: "https://dash.tessie.com") { UIApplication.shared.open(u) }
+                }
+            }
+            .padding(.top, 26)
+        }
+        .padding(.horizontal, K.margin)
+        .padding(.bottom, 18)
+    }
+
+    private func pill(_ t: String, _ a: @escaping () -> Void) -> some View {
+        Button(action: a) {
+            Text(t).font(.system(size: 13, weight: .medium)).foregroundStyle(Color(white: 0.59))
+                .padding(.horizontal, 10).frame(height: 25)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color(red: 42 / 255, green: 43 / 255, blue: 45 / 255)))
+        }
+        .buttonStyle(.plain)
     }
 
     private var planLine: String {
