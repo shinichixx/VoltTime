@@ -321,6 +321,14 @@ struct S3XYPage: View {
                 TCaption(text: "Status")
                 TRow(statusTitle, icon: "waveform.path.ecg", subtitle: statusLine,
                      dot: link.state == .receiving ? TSurface.green : nil, last: true) { EmptyView() }
+                TFootnote(text: diagnostics, color: TeslaDark.rowLabel)
+                Button { link.reconnect() } label: {
+                    Text("Connect now").font(.app(size: 15, weight: .medium))
+                        .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 13)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(TSurface.selected))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20).padding(.top, 10)
 
                 TCaption(text: "Wi-Fi")
                 TRow("Read cell balance", icon: "battery.100percent") {
@@ -364,6 +372,13 @@ struct S3XYPage: View {
             .padding(.bottom, 30)
         }
         .teslaPage("S3XY Commander", black: true)
+    }
+
+    /// For screenshots when it doesn't connect: Wi-Fi, link state, requests sent, last error.
+    private var diagnostics: String {
+        var s = "Wi-Fi \(link.onWifi ? "on" : "off") · link \(link.link) · \(link.sent) requests sent · \(link.frames) messages"
+        if let e = link.lastError { s += " · " + e }
+        return s
     }
 
     private var statusTitle: String {

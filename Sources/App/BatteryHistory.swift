@@ -160,6 +160,12 @@ final class S3XYLink: ObservableObject {
     @Published private(set) var frames = 0                 // CAN frames seen this session
     @Published private(set) var current: CellReading?      // live reading
     @Published private(set) var lastFrame: Date?
+    // Build 48 diagnostics
+    @Published private(set) var onWifi = false
+    @Published private(set) var link = "not started"      // NWConnection state
+    @Published private(set) var sent = 0
+    @Published private(set) var lastError: String?
+    private var monitor: NWPathMonitor?
 
     /// Supplied by the app: SoC and whether the car is parked, from Tessie (used when the car's own gear isn't on the feed).
     var context: () -> (soc: Double?, parked: Bool) = { (nil, true) }
@@ -177,40 +183,81 @@ final class S3XYLink: ObservableObject {
     var enabled: Bool { UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true }
 
     func start() {
-        guard enabled, conn == nil else { return }
-        let params = NWParameters.udp
-        params.requiredInterfaceType = .wifi
-        let c = NWConnection(host: "192.168.4.1", port: 1338, using: params)
+        guard enabled else { return }
+        watchWifi()
+        guard conn == nil else { return }
+        // No interface restriction: 192.168.4.1 routes over the Commander's Wi-Fi when the iPhone is on it.
+        // (Build 47 required Wi-Fi up front, so a link made on 4G never retried and iOS never asked for local network access.)
+        let c = NWConnection(host: "192.168.4.1", port: 1338, using: .udp)
         conn = c
         state = .waiting
         started = Date()
+        link = "starting"
         c.stateUpdateHandler = { [weak self] st in
             Task { @MainActor in
                 guard let self else { return }
-                if case .ready = st { self.hello() }
-                if case .failed = st { self.restart() }
+                switch st {
+                case .ready: self.link = "ready"; self.hello()
+                case .waiting(let e): self.link = "waiting"; self.lastError = e.localizedDescription
+                case .failed(let e): self.link = "failed"; self.lastError = e.localizedDescription; self.restart()
+                case .preparing: self.link = "preparing"
+                case .cancelled: self.link = "cancelled"
+                default: break
+                }
             }
         }
         c.start(queue: .global(qos: .utility))
         receive(on: c)
-        heartbeat = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        hello()
+        if heartbeat == nil {
+            heartbeat = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.tick() }
+            }
         }
     }
 
     func stop() {
         heartbeat?.invalidate(); heartbeat = nil
+        monitor?.cancel(); monitor = nil
         conn?.cancel(); conn = nil
         state = .off
+        link = "stopped"
         firstGood = nil
     }
 
-    private func restart() { stop(); start() }
+    /// "Connect now": a fresh link (and iOS asks for local network access if it hasn't yet).
+    func reconnect() {
+        lastError = nil
+        conn?.cancel(); conn = nil
+        start()
+    }
+
+    private func restart() { conn?.cancel(); conn = nil; start() }
+
+    /// Start again whenever the iPhone joins or leaves a Wi-Fi network.
+    private func watchWifi() {
+        guard monitor == nil else { return }
+        let m = NWPathMonitor(requiredInterfaceType: .wifi)
+        m.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in
+                guard let self else { return }
+                let now = path.status == .satisfied
+                if now != self.onWifi { self.onWifi = now; self.restart() }
+            }
+        }
+        m.start(queue: .global(qos: .utility))
+        monitor = m
+    }
 
     private func hello() {
         // "ehllo" asks for every frame; "hello" is the filtered mode some servers expect: alternate until frames arrive.
         let word = useAllMode ? "ehllo" : "hello"
-        conn?.send(content: Data(word.utf8), completion: .contentProcessed { _ in })
+        conn?.send(content: Data(word.utf8), completion: .contentProcessed { [weak self] err in
+            Task { @MainActor in
+                guard let self else { return }
+                if let err { self.lastError = err.localizedDescription } else { self.sent += 1 }
+            }
+        })
     }
 
     private func tick() {
@@ -218,7 +265,10 @@ final class S3XYLink: ObservableObject {
         if let l = lastFrame, Date().timeIntervalSince(l) < 6 { state = .receiving } else {
             state = .waiting
             firstGood = nil
-            if let s = started, Date().timeIntervalSince(s) > 9, frames == 0 { useAllMode.toggle(); started = Date() }
+            if let s = started, Date().timeIntervalSince(s) > 10, Date().timeIntervalSince(lastFrame ?? .distantPast) > 10 {
+                if frames == 0 { useAllMode.toggle() }
+                restart()   // nothing for 10 s: a fresh link (restart sets started again)
+            }
         }
         evaluate()
     }
