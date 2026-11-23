@@ -45,7 +45,8 @@ struct CarConfirm: ViewModifier {
                                     .font(.app(size: 15))
                                     .foregroundStyle(Color(white: 0.6))
                                     .multilineTextAlignment(.center)
-                                    .lineLimit(3).minimumScaleFactor(0.85)
+                                    // one-line messages stay on one line (shrinking a little if needed)
+                                    .lineLimit(q.message.contains("\n") ? 3 : 1).minimumScaleFactor(0.75)
                                     .padding(.top, 8)
                             }
                             HStack(spacing: 10) {

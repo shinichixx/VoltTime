@@ -160,8 +160,8 @@ enum CarControl: String, CaseIterable, Identifiable {
     func question(_ s: CarSnapshot) -> (title: String, message: String, action: String) {
         switch self {
         case .gate: return ("Open or close the front gate?", "", "Yes")
-        case .lock: return s.locked == false ? ("Lock the car?", "All doors will lock.", "Lock")
-                                             : ("Unlock the car?", "Anyone next to the car will be able to open it.", "Unlock")
+        case .lock: return ("Unlock \(s.name)?", "", "Yes")   // only asked when unlocking
+        case .climate: return ("Turn on the A/C?", "Low Power Mode will be turned off first.", "Yes")   // only asked when turning on
         case .frunk: return s.frunkOpen ? ("Close the front trunk?", "Only cars with a powered front trunk can close it remotely.", "Close")
                                         : ("Open the front trunk?", "It pops open straight away.", "Open")
         case .trunk: return s.trunkOpen ? ("Close the rear trunk?", "Make sure nothing is in the way.", "Close")
@@ -335,6 +335,9 @@ final class CarModel: ObservableObject {
 
     func tap(_ c: CarControl) {
         if c == .gate { Task { await tapGate() }; return }
+        // Unlock and A/C on always ask; lock and A/C off go straight away.
+        if c == .lock { if car.locked == false { Task { await run(c) } } else { confirming = c }; return }
+        if c == .climate { if car.climateOn { Task { await run(c) } } else { confirming = c }; return }
         if CarControl.asks(c) { confirming = c } else { Task { await run(c) } }
     }
 
@@ -402,7 +405,17 @@ final class CarModel: ObservableObject {
         do {
             switch c {
             case .lock: try await t.command(vin, s.locked == false ? "lock" : "unlock")
-            case .climate: try await t.command(vin, s.climateOn ? "stop_climate" : "start_climate")
+            case .climate:
+                if s.climateOn {
+                    try await t.command(vin, "stop_climate")
+                } else {
+                    // Low Power Mode off first (always: Tessie doesn't say whether it's on), then the A/C.
+                    show(Banner(title: "Turning off Low Power Mode…", icon: "leaf", tint: CarColors.muted, spinning: true))
+                    try await t.command(vin, "disable_low_power_mode")
+                    var n = car; n.lowPower = false; car = n
+                    show(Banner(title: "Turning on the A/C…", icon: "fanblades", tint: CarColors.muted, spinning: true))
+                    try await t.command(vin, "start_climate")
+                }
             case .charge: try await t.command(vin, s.charging ? "stop_charging" : "start_charging")
             case .precondition:
                 // Preconditioning, the Sexy Commander way: A/C on, cabin at 19°C. Again turns it off.
