@@ -230,7 +230,15 @@ struct CarLocationPage: View {
     @State private var camera: MapCameraPosition = .automatic
     @State private var lines: [String] = []
     @State private var geocodedFor = ""
+    @State private var area: String?          // area name from the address lookup, e.g. "Kampung Geliga Besar"
     private var c: CarSnapshot { model.car }
+
+    /// Home · Tessie's saved place while parked there · otherwise the area the car is in.
+    private var title: String {
+        if model.isHome && !model.driving { return "Home" }
+        if !model.driving, let s = c.savedLocation, !s.isEmpty, !s.localizedCaseInsensitiveContains("home") { return s }
+        return area ?? model.townWord ?? "Away"
+    }
     typealias K = TeslaApp
 
     private var coord: CLLocationCoordinate2D? {
@@ -247,7 +255,7 @@ struct CarLocationPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 map
                 HStack(alignment: .center, spacing: 10) {
-                    Text(model.placeWord).font(.app(size: 26, weight: .semibold)).foregroundStyle(K.title).lineLimit(1)
+                    Text(title).font(.app(size: 26, weight: .semibold)).foregroundStyle(K.title).lineLimit(1)
                     Text(tag.0).font(.app(size: 12, weight: .medium)).foregroundStyle(tag.1)
                         .padding(.horizontal, 10).frame(height: 24)
                         .background(Capsule().fill(K.track))
@@ -359,7 +367,7 @@ struct CarLocationPage: View {
     }
 
     private var shareText: String {
-        var t = c.name + " · " + model.placeWord + "\n" + addressLines.joined(separator: "\n")
+        var t = c.name + " · " + title + "\n" + addressLines.joined(separator: "\n")
         if let la = c.lat, let lo = c.lon {
             t += "\n" + gpsText + "\nhttps://maps.apple.com/?ll=\(String(format: "%.5f,%.5f", la, lo))&q=\(c.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Car")"
         }
@@ -391,5 +399,6 @@ struct CarLocationPage: View {
         let second = [town, p.administrativeArea, p.country].compactMap { $0 }.filter { !$0.isEmpty }
         let out = [first.joined(separator: ", "), second.joined(separator: ", ")].filter { !$0.isEmpty }
         if !out.isEmpty { lines = out; geocodedFor = key }
+        area = [p.subLocality, p.locality, p.name].compactMap { $0 }.first { !$0.isEmpty }
     }
 }

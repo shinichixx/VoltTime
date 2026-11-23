@@ -10,10 +10,10 @@ enum CarArt {
         return u
     }()
 
-    /// No cable when parked or driving, with the cable when plugged in.
+    /// On the road in D / R / N, with the cable when plugged in, otherwise parked.
     static func image(for c: CarSnapshot) -> UIImage? {
-        let plugged = c.cableConnected && !["D", "R", "N"].contains(c.gear)
-        return UIImage(named: plugged ? "car_plugged.jpg" : "car_parked.jpg")
+        if ["D", "R", "N"].contains(c.gear) { return UIImage(named: "car_driving.jpg") }
+        return UIImage(named: c.cableConnected ? "car_plugged.jpg" : "car_parked.jpg")
     }
 
     /// Green energy flow along the cable while charging.

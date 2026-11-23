@@ -280,6 +280,7 @@ final class CarModel: ObservableObject {
     }
 
     func refresh(live: Bool = false) async {
+        if homeZone == nil { Task { _ = await loadZone() } }   // for "at home" (Home-Outer zone)
         let useLive = live || (liveUntil.map { $0 > Date() } ?? false)
         guard let t = TessieClient.configured(), let vin else {
             error = "Add your Tessie token: ☰ → Tessie"
@@ -627,10 +628,35 @@ final class CarModel: ObservableObject {
         }
     }
 
+    var driving: Bool { ["D", "R", "N"].contains(car.gear) }
+
+    /// At home: inside the Home-Outer zone from Home Assistant when known, otherwise Tessie's saved place.
+    var isHome: Bool {
+        if let z = homeZone, let la = car.lat, let lo = car.lon {
+            return CLLocation(latitude: la, longitude: lo).distance(from: CLLocation(latitude: z.lat, longitude: z.lon)) <= z.radius
+        }
+        return car.atHome
+    }
+
+    /// Town the car is in, from Tessie's address ("Kemaman, Terengganu, Malaysia" → "Kemaman").
+    var townWord: String? {
+        guard let a = car.address, let first = a.split(separator: ",").first else { return nil }
+        let t = first.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? nil : t
+    }
+
+    /// Home · Tessie's saved place while parked there · the town while driving (or when Tessie has no name).
     var placeWord: String {
-        if let s = car.savedLocation, !s.isEmpty { return s }
-        if let a = car.address, let first = a.split(separator: ",").first { return String(first) }
-        return "Away"
+        if isHome && !driving { return "Home" }
+        if !driving, let s = car.savedLocation, !s.isEmpty, !s.localizedCaseInsensitiveContains("home") { return s }
+        return townWord ?? "Away"
+    }
+
+    /// Line under the car name: "Parked at home", "Parked · PGB TSET", "Driving · Kemaman".
+    var whereLine: String {
+        if driving { return townWord.map { "Driving · " + $0 } ?? "Driving" }
+        if isHome { return "Parked at home" }
+        return "Parked · " + placeWord
     }
 
     var chargeWord: String {

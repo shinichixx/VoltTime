@@ -296,8 +296,9 @@ struct CarView2: View {
             return (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " remaining to charge limit (" + Self.hhmm.string(from: done) + ")"
         }
         if c.chargingState == "Complete" { return "Charge complete" }
-        let place = c.atHome ? "Parked at home" : (["D", "R", "N"].contains(c.gear) ? "Driving" : "Parked · " + model.placeWord)
-        return [model.statusWord, place].joined(separator: " · ")
+        let place = model.whereLine
+        // "Driving · Kemaman" already says it: don't repeat "Driving" from the status word
+        return (model.statusWord == "Driving" ? [place] : [model.statusWord, place]).joined(separator: " · ")
     }
 
     // MARK: Charging box (Tesla app: 10 pt margins, 4 pt corners, 178 + 1 + 46 pt)

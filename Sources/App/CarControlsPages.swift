@@ -58,11 +58,14 @@ struct ControlsPage: View {
         return VStack(spacing: 10) {
             pill("Front trunk", c.frunkOpen ? "Open" : "Closed · tap to open") { model.tap(.frunk) }
             HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .trailing, spacing: 46) {
+                // Windows by the doors; charge port by the left tail light, where the Model 3's port is.
+                ZStack(alignment: .topTrailing) {
                     sideLabel("Windows", c.anyWindowOpen ? "Open" : "All closed", .trailing, c.anyWindowOpen ? CarColors.amber : nil) { model.tap(.windows) }
+                        .offset(y: d.lengthPt * 0.32 - 20)
                     sideLabel("Charge port", (c.cableConnected ? "Cable in · " : "") + (c.portOpen ? "open" : "closed"), .trailing, nil) { model.tap(.chargePort) }
+                        .offset(y: d.lengthPt * 0.91 - 20)
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 ZStack {
                     d
                     Button { model.tap(.lock) } label: {

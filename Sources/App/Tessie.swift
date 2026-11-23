@@ -311,7 +311,9 @@ struct CarSnapshot: Codable, Equatable {
 
     mutating func apply(location j: [String: Any]) {
         address = (j["address"] as? String) ?? address
-        savedLocation = (j["saved_location"] as? String) ?? savedLocation
+        // Tessie only sends a saved place while the car is there: no name means it has left (don't keep the old "Home").
+        let saved = (j["saved_location"] as? String)?.trimmingCharacters(in: .whitespaces)
+        savedLocation = (saved?.isEmpty ?? true) ? nil : saved
         if let la = j["latitude"] as? Double { lat = la }
         if let lo = j["longitude"] as? Double { lon = lo }
         located = Date()
