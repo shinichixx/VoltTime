@@ -19,14 +19,15 @@ enum CarArt {
     /// Green energy flow along the cable while charging.
     static func showsFlow(for c: CarSnapshot) -> Bool { c.charging && c.cableConnected }
 
-    /// The cable in car_plugged.jpg, from the floor end to the charge port (0…1 of the picture).
+    // Cable centre line on car_plugged.jpg, from the floor to where it meets the charger handle (retraced in build 44).
     static let cablePath: [CGPoint] = [
-        CGPoint(x: 0.7473, y: 1.0000), CGPoint(x: 0.7351, y: 0.9613), CGPoint(x: 0.7135, y: 0.9345), CGPoint(x: 0.6857, y: 0.9078),
-        CGPoint(x: 0.6610, y: 0.8864), CGPoint(x: 0.6523, y: 0.8677), CGPoint(x: 0.6564, y: 0.8510), CGPoint(x: 0.6672, y: 0.8377),
-        CGPoint(x: 0.6980, y: 0.8142), CGPoint(x: 0.7505, y: 0.7888), CGPoint(x: 0.8091, y: 0.7742), CGPoint(x: 0.8461, y: 0.7648),
-        CGPoint(x: 0.8554, y: 0.7541), CGPoint(x: 0.8430, y: 0.7407), CGPoint(x: 0.8245, y: 0.7220), CGPoint(x: 0.8186, y: 0.7006),
-        CGPoint(x: 0.8186, y: 0.6405), CGPoint(x: 0.8220, y: 0.6004), CGPoint(x: 0.8261, y: 0.5603), CGPoint(x: 0.8276, y: 0.5202),
-        CGPoint(x: 0.8258, y: 0.4801), CGPoint(x: 0.8198, y: 0.4534), CGPoint(x: 0.8091, y: 0.4300),
+        CGPoint(x: 0.7457, y: 1.0000), CGPoint(x: 0.7346, y: 0.9626), CGPoint(x: 0.7145, y: 0.9369), CGPoint(x: 0.6861, y: 0.9103),
+        CGPoint(x: 0.6615, y: 0.8877), CGPoint(x: 0.6529, y: 0.8692), CGPoint(x: 0.6581, y: 0.8523), CGPoint(x: 0.6693, y: 0.8410),
+        CGPoint(x: 0.6989, y: 0.8164), CGPoint(x: 0.7519, y: 0.7913), CGPoint(x: 0.8108, y: 0.7754), CGPoint(x: 0.8499, y: 0.7656),
+        CGPoint(x: 0.8617, y: 0.7528), CGPoint(x: 0.8475, y: 0.7385), CGPoint(x: 0.8267, y: 0.7210), CGPoint(x: 0.8203, y: 0.7000),
+        CGPoint(x: 0.8184, y: 0.6667), CGPoint(x: 0.8196, y: 0.6256), CGPoint(x: 0.8239, y: 0.5795), CGPoint(x: 0.8262, y: 0.5333),
+        CGPoint(x: 0.8258, y: 0.5026), CGPoint(x: 0.8229, y: 0.4692), CGPoint(x: 0.8182, y: 0.4513), CGPoint(x: 0.8120, y: 0.4405),
+        CGPoint(x: 0.8061, y: 0.4359),
     ]
 }
 
@@ -39,28 +40,87 @@ struct CarScene: View {
         let aspect = img.map { $0.size.width / max($0.size.height, 1) } ?? 2.17
         ZStack {
             if let img { Image(uiImage: img).resizable().scaledToFit() }
-            if CarArt.showsFlow(for: car) { ChargeFlow() }
+            if CarArt.showsFlow(for: car) { ChargeFlow(kW: car.chargerPowerKW ?? 7) }
         }
         .aspectRatio(aspect, contentMode: .fit)
     }
 }
 
 /// Green dashes travelling along the cable into the charge port.
+/// Charging flow like the Tesla app: one long green streak at a time runs up the cable into the plug,
+/// as thin as the cable, faster at higher charging power (1–8 kW).
 struct ChargeFlow: View {
+    var kW: Double = 7
+    @Environment(\.scenePhase) private var phase
+
     var body: some View {
-        TimelineView(.animation) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            let phase = -CGFloat((t * 30).truncatingRemainder(dividingBy: 16))
-            CableShape()
-                .stroke(Color(red: 0, green: 226 / 255, blue: 134 / 255),
-                        style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round, dash: [6, 10], dashPhase: phase))
-                .shadow(color: Color(red: 0, green: 226 / 255, blue: 134 / 255).opacity(0.9), radius: 3)
+        GeometryReader { geo in
+            let poly = CableShape.polyline(in: CGRect(origin: .zero, size: geo.size))
+            TimelineView(.animation(minimumInterval: nil, paused: phase != .active)) { tl in
+                Canvas { ctx, _ in draw(poly, geo.size.width, tl.date.timeIntervalSinceReferenceDate, &ctx) }
+            }
         }
         .allowsHitTesting(false)
+    }
+
+    private static let green = Color(red: 0.30, green: 0.95, blue: 0.45)
+
+    private func draw(_ pts: [CGPoint], _ width: CGFloat, _ t: Double, _ ctx: inout GraphicsContext) {
+        guard pts.count > 1 else { return }
+        var cum: [Double] = [0]
+        for i in 1..<pts.count { cum.append(cum[i - 1] + Double(hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y))) }
+        let total = cum[cum.count - 1]
+        guard total > 1 else { return }
+        func at(_ d: Double) -> CGPoint {
+            let d = min(max(d, 0), total)
+            var lo = 0, hi = cum.count - 1
+            while hi - lo > 1 { let m = (lo + hi) / 2; if cum[m] <= d { lo = m } else { hi = m } }
+            let seg = cum[hi] - cum[lo], r = seg > 0 ? (d - cum[lo]) / seg : 0
+            return CGPoint(x: pts[lo].x + (pts[hi].x - pts[lo].x) * r, y: pts[lo].y + (pts[hi].y - pts[lo].y) * r)
+        }
+        let unit = Double(width / 393)
+        let k = min(max(kW, 1), 8)
+        let speed = (12 + (k - 1) / 7 * 34) * 1.6 * unit          // points per second
+        let tail = total * 0.65
+        let cycle = total + tail                                   // next streak starts once the last has gone into the plug
+        let head = (t * speed).truncatingRemainder(dividingBy: cycle)
+        let steps = 48
+        var glow = ctx
+        glow.addFilter(.blur(radius: 1.0 * unit))
+        for j in 0..<steps {
+            let d1 = head - tail * Double(j) / Double(steps)
+            let d0 = head - tail * Double(j + 1) / Double(steps)
+            if d1 < 0 { break }
+            if d0 > total { continue }
+            let f = 1 - Double(j) / Double(steps)
+            var p = Path()
+            p.move(to: at(d0)); p.addLine(to: at(min(d1, total)))
+            glow.stroke(p, with: .color(Self.green.opacity(0.45 * f * f)), style: StrokeStyle(lineWidth: 2.6 * unit, lineCap: .round))
+            ctx.stroke(p, with: .color(Self.green.opacity(pow(f, 1.6))), style: StrokeStyle(lineWidth: 1.5 * unit, lineCap: .round))
+        }
     }
 }
 
 struct CableShape: Shape {
+    /// The smoothed cable as a list of points (for running the streak along it).
+    static func polyline(in r: CGRect) -> [CGPoint] {
+        let pts = CarArt.cablePath.map { CGPoint(x: r.minX + $0.x * r.width, y: r.minY + $0.y * r.height) }
+        guard var cur = pts.first else { return [] }
+        var out = [cur]
+        for i in 1..<pts.count {
+            let c = pts[i - 1]
+            let mid = CGPoint(x: (c.x + pts[i].x) / 2, y: (c.y + pts[i].y) / 2)
+            for n in 1...10 {
+                let t = CGFloat(n) / 10
+                out.append(CGPoint(x: (1 - t) * (1 - t) * cur.x + 2 * (1 - t) * t * c.x + t * t * mid.x,
+                                   y: (1 - t) * (1 - t) * cur.y + 2 * (1 - t) * t * c.y + t * t * mid.y))
+            }
+            cur = mid
+        }
+        out.append(pts[pts.count - 1])
+        return out
+    }
+
     func path(in r: CGRect) -> Path {
         var p = Path()
         let pts = CarArt.cablePath.map { CGPoint(x: r.minX + $0.x * r.width, y: r.minY + $0.y * r.height) }
