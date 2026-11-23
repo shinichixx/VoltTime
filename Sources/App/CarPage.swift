@@ -426,7 +426,7 @@ struct CarView2: View {
             row("circle.circle", "Tyres", tyres, rich: tyreLine) { path.append(.carDetail(.tyres)) }
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
                                             "Sentry \(c.sentry ? "on" : "off")"].joined(separator: " · ")) { path.append(.carDetail(.security)) }
-            row("location.north.fill", "Location", [street, model.placeWord].compactMap { $0 }.joined(separator: " · ")) { path.append(.carDetail(.location)) }
+            row("location.north.fill", "Location", locationLine(street)) { path.append(.carDetail(.location)) }
         }
     }
 
@@ -500,6 +500,16 @@ struct CarView2: View {
             t = t + Text(i < 3 ? " · " : " bar").foregroundColor(K.grey)
         }
         return t
+    }
+
+    /// "Kuantan · Home", "Kemaman · PGB TSET"; when the place is just the town again, the state instead ("Cukai · Terengganu").
+    private func locationLine(_ town: String?) -> String {
+        let parts = (c.address ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var second = model.placeWord
+        if let town, second.caseInsensitiveCompare(town) == .orderedSame {
+            second = parts.count > 1 ? parts[1] : ""
+        }
+        return [town, second.isEmpty ? nil : second].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func row(_ icon: String, _ title: String, _ sub: String?, tag: String? = nil, rich: Text? = nil, _ action: @escaping () -> Void) -> some View {
