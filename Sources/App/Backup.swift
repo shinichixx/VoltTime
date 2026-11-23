@@ -44,6 +44,7 @@ struct BackupContents {
     var curves: [String: DayCurve]
     var settings: Data?
     var carPhotos: [String: Data] = [:]   // "car.png", "car-charging.png"
+    var battery: Data? = nil              // battery-history.json
 }
 
 enum VoltArchive {
@@ -65,6 +66,9 @@ enum VoltArchive {
             try fm.copyItem(at: AppData.energy, to: stage.appendingPathComponent("energy.plist"))
         }
         if let s = AppData.settingsData() { try s.write(to: stage.appendingPathComponent("settings.plist")) }
+        if fm.fileExists(atPath: BatteryHistory.file.path) {   // battery health and cell balance history
+            try fm.copyItem(at: BatteryHistory.file, to: stage.appendingPathComponent("battery-history.json"))
+        }
         for name in ["car.png", "car-charging.png"] where includePhotos {
             let src = CarArt.folder.appendingPathComponent(name)
             if fm.fileExists(atPath: src.path) { try fm.copyItem(at: src, to: stage.appendingPathComponent(name)) }
@@ -116,8 +120,9 @@ enum VoltArchive {
         for name in ["car.png", "car-charging.png"] {
             if let d = try? Data(contentsOf: dest.appendingPathComponent(name)) { photos[name] = d }
         }
-        guard energy != nil || settings != nil || !photos.isEmpty else { throw BadFile() }
-        return BackupContents(curves: energy ?? [:], settings: settings, carPhotos: photos)
+        let battery = try? Data(contentsOf: dest.appendingPathComponent("battery-history.json"))
+        guard energy != nil || settings != nil || !photos.isEmpty || battery != nil else { throw BadFile() }
+        return BackupContents(curves: energy ?? [:], settings: settings, carPhotos: photos, battery: battery)
     }
 
     /// A VoltTime backup of either kind: .aar (build 30 on) or the older CSV.
@@ -578,6 +583,10 @@ struct BackupPage: View {
         if !p.contents.carPhotos.isEmpty {
             for (name, data) in p.contents.carPhotos { try? data.write(to: CarArt.folder.appendingPathComponent(name), options: .atomic) }
             parts.append("car photo back")
+        }
+        if let b = p.contents.battery {
+            let n = BatteryHistory.shared.merge(b)
+            if n > 0 { parts.append("\(n) battery readings back") }
         }
         note = "Restored: " + (parts.isEmpty ? "nothing new" : parts.joined(separator: ", "))
         snapshots = Snapshots.list()

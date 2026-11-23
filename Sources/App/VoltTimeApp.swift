@@ -104,13 +104,17 @@ struct ContentView: View {
             Task { await home.refresh() }
         }
         .task {
+            S3XYLink.shared.context = { [weak c = car] in (c?.car.soc, !(c?.driving ?? false)) }
+            S3XYLink.shared.start()   // cell balance from the S3XY Commander while TesLah is open
             await home.refresh()
             await energy.refresh()   // tops up the saved energy so Impact / Energy open instantly
             await Task.detached(priority: .utility) { Snapshots.takeDailyIfNeeded() }.value
             await BackupReminder.apply()
         }
         .onChange(of: phase) { old, p in
+            if p == .background { S3XYLink.shared.stop() }
             guard p == .active else { return }
+            S3XYLink.shared.start()
             Task { await home.refresh() }
             if old == .background {   // opened again from the background: top up, and the day's local copy
                 Task {

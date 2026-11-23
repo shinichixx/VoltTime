@@ -302,6 +302,7 @@ final class CarModel: ObservableObject {
             if lastHealth == nil || Date().timeIntervalSince(lastHealth!) > 3600, let h = try? await t.batteryHealth(vin) {
                 health = BatteryHealth(h)
                 lastHealth = Date()
+                BatteryHistory.shared.addHealth(health)   // one point a day for the health graph
             }
             save()
         } catch {

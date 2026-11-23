@@ -137,6 +137,7 @@ struct CarView2: View {
     @State private var scroll: CGFloat = 0
     @State private var portAsk: PortAsk?
     @State private var onScreen = true       // live copy of `active` for the delayed scroll reset
+    @ObservedObject private var history = BatteryHistory.shared
     private var c: CarSnapshot { model.car }
     typealias K = TeslaApp
 
@@ -415,14 +416,14 @@ struct CarView2: View {
         let h = model.health
         let health = [h.healthPercent.map { String(format: "Health %.1f%%", $0) },
                       h.maxRangeKm.map { "Max \(Int($0.rounded())) km" },
-                      h.cycles(lifetimeKWh: c.lifetimeKWh).map { "≈\(Int($0.rounded())) cycles" }].compactMap { $0 }
+                      h.cycles(lifetimeKWh: c.lifetimeKWh).map { "\(Int($0.rounded())) cycles" }].compactMap { $0 }
         let tyres = c.tyres.map { $0.map { String(format: "%.1f", $0) } ?? "–" }.joined(separator: " · ") + " bar"
         let street = c.address?.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespaces) }
         return VStack(spacing: 0) {
             row("car.side", "Controls", nil) { path.append(.carDetail(.controls)) }
             row("fanblades", "Climate", "Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC)) · \(c.climateOn ? "On" : "Off")") { path.append(.carDetail(.climate)) }
             row("bolt", "Charging", chargingSub) { path.append(.settings) }
-            row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · ")) { path.append(.carDetail(.battery)) }
+            row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · "), rich: batteryLine) { path.append(.carDetail(.battery)) }
             row("circle.circle", "Tyres", tyres, rich: tyreLine) { path.append(.carDetail(.tyres)) }
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
                                             "Sentry \(c.sentry ? "on" : "off")"].joined(separator: " · ")) { path.append(.carDetail(.security)) }
@@ -491,6 +492,22 @@ struct CarView2: View {
         return "Starts " + Fmt.clock(start, calendar: .current) + " · " + ready
     }
 
+    /// "Health 99.5% · Max 615 km · 31 cycles · 12 mV": health amber below 80 %, red below 70 %;
+    /// the cell gap amber or red only when the latest parked reading needs attention.
+    private var batteryLine: Text? {
+        let h = model.health
+        guard let hp = h.healthPercent else { return nil }
+        let healthCol: Color = hp < 70 ? CarColors.red : (hp < 80 ? CarColors.amber : K.grey)
+        var t = Text(String(format: "Health %.1f%%", hp)).foregroundColor(healthCol)
+        if let r = h.maxRangeKm { t = t + Text(" · Max \(Int(r.rounded())) km").foregroundColor(K.grey) }
+        if let cy = h.cycles(lifetimeKWh: c.lifetimeKWh) { t = t + Text(" · \(Int(cy.rounded())) cycles").foregroundColor(K.grey) }
+        if let cell = history.latestParked {
+            t = t + Text(" · ").foregroundColor(K.grey)
+                + Text("\(Int(cell.mv.rounded())) mV").foregroundColor(CellStatus(cell).rowColor ?? K.grey)
+        }
+        return t
+    }
+
     /// Each tyre in its own colour: grey normal, orange low or high, red very low.
     private var tyreLine: Text {
         var t = Text("")
@@ -548,6 +565,9 @@ enum CarDetail: String, Hashable { case controls, climate, modes, tyres, battery
 struct CarDetailPage: View {
     @ObservedObject var model: CarModel
     let detail: CarDetail
+    @ObservedObject private var history = BatteryHistory.shared
+    @State private var healthRange = 2
+    @State private var cellRange = 3
     private var c: CarSnapshot { model.car }
 
     var body: some View {
@@ -682,13 +702,16 @@ struct CarDetailPage: View {
                 .padding(.top, 10)
                 .padding(.bottom, 6)
                 healthRow("Max range at 100%", h.maxRangeKm.map { "\(Int($0.rounded()))" } ?? "–", "km")
-                healthRow("Cycles (lifetime ÷ capacity)", h.cycles(lifetimeKWh: c.lifetimeKWh).map { "≈\(Int($0.rounded()))" } ?? "–", "")
-                healthRow("Lifetime energy", c.lifetimeKWh.map { Int($0.rounded()).formatted() } ?? "–", "kWh")
+                healthRow("Cycles", h.cycles(lifetimeKWh: c.lifetimeKWh).map { "\(Int($0.rounded()))" } ?? "–", "")
+                Rectangle().fill(TeslaApp.track).frame(height: 1)
+                healthGraph
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
-            .padding(.bottom, 2)
+            .padding(.bottom, 12)
             .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
+
+            cellBalance
         }
         .padding(.horizontal, 20)
         .padding(.top, 4)
@@ -757,6 +780,134 @@ struct CarDetailPage: View {
         .frame(height: 58)
         .padding(.horizontal, 11)
         .background(RoundedRectangle(cornerRadius: 12).fill(TeslaApp.panel))
+    }
+
+    // MARK: Battery history (build 47)
+
+    private var healthGraph: some View {
+        let opts: [(String, Int?)] = [("6 M", 183), ("1 Y", 365), ("All", nil)]
+        let cut = RangePicker.cutoff(opts[healthRange].1)
+        let pts = history.health.filter { cut == nil || $0.date >= cut! }.map { HistoryGraph.Point(date: $0.date, value: $0.percent) }
+        let vals = pts.map(\.value)
+        let lo = min(vals.min() ?? 99, 99) - 0.2, hi = max(vals.max() ?? 100, 100) + 0.2
+        let guides = Array(Set([floor(lo + 0.2), ceil(hi - 0.2)])).sorted()
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Health over time").font(.app(size: 12, weight: .medium)).foregroundStyle(TeslaApp.grey).padding(.top, 12)
+            RangePicker(options: opts, selected: $healthRange)
+            if pts.count >= 2 {
+                HistoryGraph(points: pts, lo: lo, hi: hi, guides: guides, color: Color(red: 90 / 255, green: 200 / 255, blue: 250 / 255),
+                             startLabel: cut == nil ? "Delivery" : "",
+                             format: { String(format: "%.1f%%", $0) }, guideLabel: { String(format: "%g%%", $0) })
+                    .frame(height: 96)
+            } else {
+                Text("Fills in day by day: one reading a day from Tessie.")
+                    .font(.app(size: 12)).foregroundStyle(TeslaApp.grey).frame(height: 40)
+            }
+        }
+    }
+
+    private static let stamp: DateFormatter = { let f = DateFormatter(); f.dateFormat = "d MMM, HH:mm"; return f }()
+
+    private var cellBalance: some View {
+        let K = TeslaApp.self
+        let opts: [(String, Int?)] = [("6 W", 42), ("6 M", 183), ("1 Y", 365), ("All", nil)]
+        let cut = RangePicker.cutoff(opts[cellRange].1)
+        let hist = history.parked.filter { cut == nil || $0.date >= cut! }
+        let pts = hist.map { HistoryGraph.Point(date: $0.date, value: $0.mv) }
+        let last = history.latestParked
+        let live = S3XYLink.shared
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                caption("Cell balance")
+                Spacer()
+                Text("via S3XY Commander").font(.app(size: 11, weight: .medium)).foregroundStyle(K.grey).padding(.top, 12)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                if let r = last {
+                    let st = CellStatus(r)
+                    HStack {
+                        Circle().fill(st.color).frame(width: 7, height: 7)
+                        Text(st == .notJudged ? "Below 20% · not judged" : st.word)
+                            .font(.app(size: 14, weight: .medium)).foregroundStyle(st == .notJudged ? K.grey : K.title)
+                        Spacer()
+                        Text("Parked · " + (r.soc.map { "\(Int($0.rounded()))% · " } ?? "") + Self.stamp.string(from: r.date))
+                            .font(.app(size: 11, weight: .medium)).foregroundStyle(Color(white: 0.78))
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(Capsule().fill(Color(white: 0.19)))
+                    }
+                    HStack(alignment: .lastTextBaseline, spacing: 8) {
+                        Text("\(Int(r.mv.rounded()))").font(.app(size: 40, weight: .light)).foregroundStyle(K.title)
+                        Text("mV apart").font(.app(size: 13, weight: .medium)).foregroundStyle(K.grey)
+                    }
+                    .padding(.top, 6)
+                    cellBar(r.mv, dim: st == .notJudged)
+                    healthRow("Highest cell", String(format: "%.3f V", r.maxV), "")
+                    healthRow("Lowest cell", String(format: "%.3f V", r.minV), "")
+                } else {
+                    Text(live.state == .receiving ? "Reading the cells…" : "No reading yet")
+                        .font(.app(size: 15, weight: .medium)).foregroundStyle(K.title)
+                    Text("In the car, join the S3XY_OBD Wi-Fi and open TesLah. My Car ☰ › S3XY Commander shows how.")
+                        .font(.app(size: 12)).foregroundStyle(K.grey).padding(.top, 4).padding(.bottom, 6)
+                }
+                if let road = history.road {
+                    Rectangle().fill(TeslaApp.track).frame(height: 1)
+                    Text("On the road: up to \(Int(road.mv.rounded())) mV · " + Self.stamp.string(from: road.date))
+                        .font(.app(size: 13)).foregroundStyle(K.grey).frame(height: 36)
+                }
+                if !history.parked.isEmpty {
+                    Rectangle().fill(TeslaApp.track).frame(height: 1)
+                    let avg = history.parked.map(\.mv).reduce(0, +) / Double(history.parked.count)
+                    Text("Parked readings · average \(Int(avg.rounded())) mV")
+                        .font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey).padding(.top, 12).padding(.bottom, 10)
+                    RangePicker(options: opts, selected: $cellRange)
+                    if pts.count >= 2 {
+                        HistoryGraph(points: pts, lo: 0, hi: max(25, (pts.map(\.value).max() ?? 0) + 5), guides: [10, 20],
+                                     color: TSurface.green, startLabel: cut == nil ? "First reading" : "",
+                                     format: { "\(Int($0.rounded())) mV" })
+                            .frame(height: 90).padding(.top, 10)
+                    } else {
+                        Text("The trend shows from the second day.").font(.app(size: 12)).foregroundStyle(K.grey).frame(height: 36)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 12).fill(K.panel))
+        }
+    }
+
+    /// 0–60 mV: green under 10, darker green to 20, amber to 50, red beyond; white dot at the reading.
+    private func cellBar(_ mv: Double, dim: Bool) -> some View {
+        VStack(spacing: 6) {
+            GeometryReader { g in
+                let w = g.size.width
+                ZStack(alignment: .leading) {
+                    HStack(spacing: 0) {
+                        Rectangle().fill(TSurface.green).frame(width: w * 10 / 60)
+                        Rectangle().fill(Color(red: 40 / 255, green: 150 / 255, blue: 70 / 255)).frame(width: w * 10 / 60)
+                        Rectangle().fill(CarColors.amber).frame(width: w * 30 / 60)
+                        Rectangle().fill(CarColors.red)
+                    }
+                    .opacity(dim ? 0.3 : 0.6)
+                    .frame(height: 6)
+                    Circle().fill(.white).frame(width: 10, height: 10).offset(x: w * min(mv, 60) / 60 - 5)
+                }
+                .frame(height: 10)
+            }
+            .frame(height: 10)
+            GeometryReader { g in
+                let w = g.size.width
+                ZStack(alignment: .leading) {
+                    ForEach([0, 10, 20, 50], id: \.self) { v in
+                        Text("\(v)").offset(x: v == 0 ? 0 : w * Double(v) / 60 - 6)
+                    }
+                    Text("mV").frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+            .font(.app(size: 10)).foregroundStyle(TeslaApp.grey)
+            .frame(height: 12)
+        }
+        .padding(.top, 12).padding(.bottom, 10)
     }
 
     private func healthRow(_ k: String, _ v: String, _ u: String) -> some View {
