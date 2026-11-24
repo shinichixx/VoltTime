@@ -252,7 +252,6 @@ struct SettingsPage: View {
                     Text("\(Int(nowSoc.rounded()))%").font(.app(size: 28, weight: .light)).foregroundStyle(.white)
                     Text("now").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                     Spacer()
-                    if home.settingLimit { ProgressView().tint(.white).scaleEffect(0.7) }
                     Text("Limit").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                     Text("\(Int(home.limit.rounded()))%").font(.app(size: 15, weight: .medium)).foregroundStyle(.white)
                 }
@@ -264,15 +263,19 @@ struct SettingsPage: View {
             TSegment(items: ["GPS", "TSET", "Others"],
                      subs: ["\(Int(HomeModel.gpsLimit))%", "\(Int(HomeModel.tsetLimit))%", "Slider"],
                      selected: tripIndex, disabled: home.settingLimit) { i in
+                    guard !home.settingLimit else { return }
                 switch i {
                 case 0: Task { await home.chooseTrip("GPS", limit: HomeModel.gpsLimit) }
                 case 1: Task { await home.chooseTrip("TSET", limit: HomeModel.tsetLimit) }
                 default: home.showLimitSheet = true
                 }
             }
+            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(CarColors.amber, lineWidth: 1.2)
+                .opacity(unsent ? 1 : 0))
             .padding(.horizontal, 20)
-            Text("Where you're going tomorrow")
-                .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
+            Text(unsent ? "Tap tomorrow's trip to send \(Fmt.clock(home.plannedStart(), calendar: .current)) to the car"
+                        : "Where you're going tomorrow")
+                .font(.app(size: 11)).foregroundStyle(unsent ? CarColors.amber : TeslaDark.dim)
                 .padding(.top, 7)
                 .padding(.bottom, 14)
 
@@ -282,6 +285,8 @@ struct SettingsPage: View {
             }
             TRow("Starts charging", icon: "powerplug", subtitle: statusText) {
                 startTime(r)
+            } below: {
+                syncTag.padding(.top, -4)
             }
             TNavRow(title: "Charge details", icon: "list.bullet.rectangle",
                     subtitle: r.minutes == 0 ? "Reminders, safety buffer, charger settings"
@@ -304,8 +309,8 @@ struct SettingsPage: View {
         } else if r.minutes == 0 {
             Text("Not needed").font(.app(size: 17, weight: .light)).foregroundStyle(TeslaDark.labelGrey)
         } else {
-            // The time actually set in the car wins over the app's own estimate.
-            let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
+            // The time actually set in the car wins over the app's own estimate, unless an edit is waiting to be sent.
+            let start = (home.active && home.startSync == .live ? home.scheduledStart : nil) ?? home.plannedStart()
             let c = splitClock(Fmt.clock(start, calendar: .current))
             VStack(alignment: .trailing, spacing: 1) {
                 Text(c.time).font(.app(size: 28, weight: .light)).foregroundStyle(.white)
@@ -326,10 +331,33 @@ struct SettingsPage: View {
             return "Already at \(Int(nowSoc.rounded()))%, limit \(Int(home.limit.rounded()))%. Nothing to add tonight."
         }
         if !routine { return "Night plan paused" }
+        if home.active && home.startSync != .live {
+            let b = home.bufferMinutes
+            return "\(dayLabel(home.plannedStart()))" + (b > 0 ? " · \(b) min buffer" : "")
+        }
         if home.active, let st = home.scheduledStart {
             return "\(dayLabel(st)) · set in the car"
         }
         return "\(dayLabel(home.plannedStart())). Set in the car when you plug in after 7pm"
+    }
+
+    private var unsent: Bool { home.startSync == .pending && routine && home.charging != true && home.result.minutes > 0 }
+
+    /// Not sent yet → Checking in car… → Live, under the Starts charging line.
+    @ViewBuilder private var syncTag: some View {
+        if routine && home.active && home.charging != true && home.result.minutes > 0 {
+            let (text, col): (String, Color) = switch home.startSync {
+                case .pending: ("Not sent yet", CarColors.amber)
+                case .checking: ("Checking in car…", TeslaDark.labelGrey)
+                case .live: ("Live", TSurface.green)
+            }
+            HStack(spacing: 5) {
+                Circle().fill(col).frame(width: 6, height: 6)
+                Text(text).font(.app(size: 10.5, weight: .medium)).foregroundStyle(col)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Capsule().fill(col.opacity(0.16)))
+        }
     }
 
     private var tripIndex: Int? {

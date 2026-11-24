@@ -28,7 +28,7 @@ struct ChargingMode: Identifiable {
 
     static let all: [ChargingMode] = [
         ChargingMode(option: "Off", title: "Off ⛔️", detail: "No charging at all, until you change it"),
-        ChargingMode(option: "Routine", title: "Routine 🗓️", detail: "Weekday nights at 32A, plus solar by day"),
+        ChargingMode(option: "Routine", title: "Routine 🕐", detail: "Weekday nights at 32A, plus solar by day"),
         ChargingMode(option: "Excess Solar", title: "Excess Solar ☀️", detail: "Solar surplus only, never from the grid"),
         ChargingMode(option: "Fast", title: "Fast ⚡️", detail: "32A now, then back to Routine at the limit"),
     ]
@@ -458,7 +458,7 @@ struct MyHomeView: View {
                      label: model.selfPowered.map { "\(Int($0.rounded()))% Self-Powered Today" } ?? "Self-Powered Today") {
                 path.append(.impact)
             }
-            TeslaRow(icon: "bolt.fill", name: "Charging", label: model.mode.map { ChargingMode.named($0).title } ?? "—") {
+            TeslaRow(icon: "bolt.fill", name: "Charging", label: model.mode.map { $0 == "Routine" ? "Routine" : ChargingMode.named($0).title } ?? "—") {
                 path.append(.settings)
             }
             if let msg = model.message {

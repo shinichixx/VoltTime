@@ -36,6 +36,9 @@ final class HomeModel: ObservableObject {
     @Published var busy = false
     @Published var settingLimit = false
     @Published var showLimitSheet = false
+    /// Start time shown vs the one in the car: Ready by / buffer edits wait until a trip is tapped.
+    enum StartSync { case live, pending, checking }
+    @Published var startSync: StartSync = .live
 
     var haConfigured: Bool { HAClient.configured() != nil }
 
@@ -181,7 +184,17 @@ final class HomeModel: ObservableObject {
         guard let ha = HAClient.configured() else { return }
         settingLimit = true
         defer { settingLimit = false }
+        let sends = active && result.minutes > 0
+        if sends {
+            startSync = .checking
+            toast = Banner(title: "Setting the charge start…",
+                           detail: "\(name) \(Int(newLimit))% · starts \(Fmt.clock(plannedStart(), calendar: .current))",
+                           icon: "", tint: CarColors.muted, spinning: true)
+        }
         do {
+            pushTask?.cancel()
+            try await ha.setTime(Entity.readyTime, minutes: readyMinutes)
+            try await ha.setNumber(Entity.buffer, Double(bufferMinutes))
             try await ha.setNumber(Entity.limit, newLimit)
             try? await ha.setText(Entity.destination, name)
             try? await ha.turnOn(Entity.answered)
@@ -190,13 +203,54 @@ final class HomeModel: ObservableObject {
             answered = true
             if active {
                 try await ha.plan(limit: newLimit)
+                if let st = try? await ha.state(Entity.start) { scheduledStart = HAClient.parseLocal(st.state) }
             }
             message = nil
         } catch {
             message = "Couldn't set the limit: \(error.localizedDescription)"
+            if sends { startSync = .pending; toast = .failed(error) }
         }
+        if sends && startSync == .checking { await verifyStart() }
         try? await Task.sleep(nanoseconds: 1_500_000_000)
         await refresh()
+    }
+
+    /// Reads the car (through Tessie) until its scheduled start matches what was planned.
+    private func verifyStart() async {
+        guard let expected = scheduledStart else { startSync = .pending; return }
+        let cal = Calendar.current
+        let want = cal.component(.hour, from: expected) * 60 + cal.component(.minute, from: expected)
+        let clock = Fmt.clock(expected, calendar: .current)
+        guard let t = TessieClient.configured(),
+              let vin = UserDefaults.standard.string(forKey: TessieClient.vinKey), !vin.isEmpty else {
+            startSync = .live          // no Tessie: Home Assistant's own value is all there is to check
+            toast = Banner(title: "Charge start set · \(clock)")
+            await clearToastLater(); return
+        }
+        for attempt in 0..<5 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 6_000_000_000) }
+            guard let j = try? await t.state(vin, live: true), let cs = j["charge_state"] as? [String: Any] else { continue }
+            var got: Int?
+            if let m = cs["scheduled_charging_start_time_app"] as? Int { got = m }
+            else if let e = (cs["scheduled_charging_start_time"] as? Double) ?? (cs["scheduled_charging_start_time"] as? Int).map(Double.init) {
+                let d = Date(timeIntervalSince1970: e)
+                got = cal.component(.hour, from: d) * 60 + cal.component(.minute, from: d)
+            }
+            if let got, abs(got - want) <= 1 || abs(got - want) >= 1439 {
+                startSync = .live
+                toast = Banner(title: "Charge start set · \(clock)", detail: "Checked in the car")
+                await clearToastLater(); return
+            }
+        }
+        startSync = .pending
+        toast = Banner(title: "The car shows a different start", detail: "Tap the trip again to resend", icon: "exclamationmark", tint: CarColors.amber)
+        await clearToastLater()
+    }
+
+    private func clearToastLater() async {
+        let id = toast?.id
+        try? await Task.sleep(nanoseconds: 3_500_000_000)
+        if toast?.id == id { toast = nil }
     }
 
     // MARK: Reminders (Home Assistant sends them)
@@ -287,7 +341,9 @@ final class HomeModel: ObservableObject {
 
     /// GPS / TSET from the centre card: set and plan, then show a one-line result.
     func answerFromCard(_ name: String, limit: Double) async {
+        let sends = active && result.minutes > 0
         await chooseTrip(name, limit: limit)
+        if sends { return }
         let r = result
         if r.minutes == 0 {
             toast = Banner(title: "\(name) · \(Int(limit))%", detail: "Already at \(Int((liveSoc ?? startSoc).rounded()))%, no charging needed",
@@ -322,10 +378,8 @@ final class HomeModel: ObservableObject {
             try await ha.setNumber(Entity.voltage, volts)
             try await ha.setNumber(Entity.efficiency, efficiency)
             try await ha.setNumber(Entity.capacity, capacity)
-            if active {
-                try await ha.plan(limit: nil)
-                if let st = try? await ha.state(Entity.start) { scheduledStart = HAClient.parseLocal(st.state) }
-            }
+            // The new start is sent to the car only when a trip (GPS / TSET / Others) is tapped.
+            if active && startSync != .checking { startSync = .pending }
         } catch {
             message = "Couldn't save to Home Assistant: \(error.localizedDescription)"
         }

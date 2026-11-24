@@ -162,8 +162,8 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .gate: return ("Open or close the front gate?", "", "Yes")
         case .lock: return ("Unlock \(s.name)?", "", "Yes")   // only asked when unlocking
         case .climate: return ("Turn on the A/C?", "Low Power Mode will be turned off first.", "Yes")   // only asked when turning on
-        case .frunk: return s.frunkOpen ? ("Close the front trunk?", "Only cars with a powered front trunk can close it remotely.", "Close")
-                                        : ("Open the front trunk?", "It pops open straight away.", "Open")
+        case .frunk: return s.frunkOpen ? ("Close the frunk?", "Only cars with a powered frunk can close it remotely.", "Yes")
+                                        : ("Open the frunk?", "It can only be closed by hand.", "Yes")
         case .trunk: return s.trunkOpen ? ("Close the rear trunk?", "Make sure nothing is in the way.", "Close")
                                         : ("Open the rear trunk?", "It opens straight away.", "Open")
         case .windows: return s.anyWindowOpen ? ("Close the windows?", "Make sure nothing is in the way.", "Close")
@@ -339,6 +339,7 @@ final class CarModel: ObservableObject {
         // Unlock and A/C on always ask; lock and A/C off go straight away.
         if c == .lock { if car.locked == false { Task { await run(c) } } else { confirming = c }; return }
         if c == .climate { if car.climateOn { Task { await run(c) } } else { confirming = c }; return }
+        if c == .frunk { confirming = c; return }   // always asks
         if CarControl.asks(c) { confirming = c } else { Task { await run(c) } }
     }
 

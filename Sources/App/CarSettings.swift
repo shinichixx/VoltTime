@@ -140,59 +140,111 @@ struct QuickControlsPage: View {
     @ObservedObject var car: CarModel
     @State private var slot = 0
     @State private var askToggles: [String: Bool] = [:]
+    @State private var dragging: Int?
+    @State private var dragX: CGFloat = 0
+    static let slots = 5
+    /// These always ask (unlock, A/C on, frunk) or have their own setting (gate), so no switch.
+    private let fixedAsk: Set<CarControl> = [.lock, .climate, .frunk, .gate]
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                TCaption(text: "Your 6 buttons", trailing: "View 2 shows the first 5")
-                HStack(spacing: 6) {
-                    ForEach(car.controls.indices, id: \.self) { i in
-                        let c = car.controls[i]
-                        Button { slot = i } label: {
-                            VStack(spacing: 3) {
-                                Image(systemName: c.icon(car.car)).font(.system(size: 18, weight: .light))
-                                Text(c.short).font(.app(size: 9)).lineLimit(1)
-                            }
-                            .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 52)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(slot == i ? TSurface.selected : TSurface.field))
-                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(slot == i ? CarColors.red : .clear, style: StrokeStyle(lineWidth: 1.2, dash: [4, 3])))
-                        }.buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 20)
-                HStack {
-                    Button { move(-1) } label: { Label("Move left", systemImage: "arrow.left") }.disabled(slot == 0)
-                    Spacer()
-                    Button { move(1) } label: { Label("Move right", systemImage: "arrow.right") }.disabled(slot == 5)
-                }
-                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-                .padding(.horizontal, 20).padding(.top, 10)
-                TFootnote(text: "Tap a slot, then pick a button below for it.")
+                TCaption(text: "Shortcut row", trailing: "\(Self.slots) buttons")
+                strip
+                    .padding(.horizontal, 20)
+                TFootnote(text: "Exactly as on My Car. Tap a button, then pick its replacement below. Hold and drag to reorder.")
 
                 ForEach(CarControl.Group.allCases, id: \.self) { g in
                     TCaption(text: g.rawValue)
                     let items = CarControl.allCases.filter { $0.group == g }
                     ForEach(items) { c in
                         Button { pick(c) } label: {
-                            TRow(c.title, icon: c.icon(car.car), last: c == items.last) {
+                            TRow(c.title, icon: c.icon(car.car), subtitle: askLine(c), last: c == items.last) {
                                 HStack(spacing: 12) {
-                                    if c != .gate {
+                                    if !fixedAsk.contains(c) {
                                         Toggle("", isOn: askBinding(c)).labelsHidden().tint(TSurface.green).scaleEffect(0.75)
                                     }
-                                    Image(systemName: car.controls.contains(c) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(car.controls.contains(c) ? Color.white : TeslaDark.dim)
+                                    slotBadge(c)
                                 }
                             }
                         }.buttonStyle(.plain)
                     }
                 }
-                TFootnote(text: "The switch on each row = ask before doing it. On by default for unlock, trunks, windows, keyless driving, valet and preconditioning. The autogate's own setting is in My Car ☰ › Autogate.")
+                TFootnote(text: "The switch on a row = ask before doing it. Unlock, A/C on and the frunk always ask. The autogate's own setting is in My Car ☰ › Autogate.")
                 Button("Reset to default") { CarControl.save(CarControl.defaults); car.reloadControls() }
                     .font(.app(size: 14)).foregroundStyle(CarColors.red).padding(.top, 16)
                 Spacer(minLength: 40)
             }
         }
         .teslaPage("Quick controls", black: true)
+    }
+
+    private var row: [CarControl] { Array(car.controls.prefix(Self.slots)) }
+
+    private var strip: some View {
+        GeometryReader { geo in
+            let w = geo.size.width / CGFloat(Self.slots)
+            HStack(spacing: 0) {
+                ForEach(row.indices, id: \.self) { i in
+                    let c = row[i]
+                    VStack(spacing: 4) {
+                        Image(systemName: c.icon(car.car)).font(.system(size: 20, weight: .light))
+                        Text(c.short).font(.app(size: 10)).lineLimit(1)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: w - 8, height: 62)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(slot == i ? TSurface.selected : Color.clear))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(slot == i ? Color(red: 62/255, green: 106/255, blue: 225/255) : .clear, lineWidth: 1.6))
+                    .scaleEffect(dragging == i ? 1.08 : 1)
+                    .offset(x: dragging == i ? dragX : 0)
+                    .zIndex(dragging == i ? 1 : 0)
+                    .frame(width: w)
+                    .contentShape(Rectangle())
+                    .onTapGesture { slot = i }
+                    .gesture(LongPressGesture(minimumDuration: 0.4)
+                        .sequenced(before: DragGesture(minimumDistance: 0))
+                        .onChanged { v in
+                            guard case .second(true, let drag) = v else { return }
+                            if dragging == nil { dragging = i; slot = i; UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+                            guard let from = dragging else { return }
+                            dragX = drag?.translation.width ?? 0
+                            let to = min(max(from + Int((dragX / w).rounded()), 0), Self.slots - 1)
+                            if to != from {
+                                var list = car.controls
+                                list.swapAt(from, to)
+                                CarControl.save(list); car.reloadControls()
+                                dragX -= CGFloat(to - from) * w
+                                dragging = to; slot = to
+                                UISelectionFeedbackGenerator().selectionChanged()
+                            }
+                        }
+                        .onEnded { _ in withAnimation(.easeOut(duration: 0.15)) { dragging = nil; dragX = 0 } })
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: car.controls)
+        }
+        .frame(height: 78)
+        .padding(.horizontal, 4)
+        .background(RoundedRectangle(cornerRadius: 16).fill(TSurface.field))
+    }
+
+    private func askLine(_ c: CarControl) -> String? {
+        switch c {
+        case .lock: return "Asks before unlocking"
+        case .climate: return "Asks before turning on"
+        case .frunk: return "Always asks"
+        default: return nil
+        }
+    }
+
+    @ViewBuilder private func slotBadge(_ c: CarControl) -> some View {
+        if let i = row.firstIndex(of: c) {
+            Text("\(i + 1)").font(.app(size: 12, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color(red: 62/255, green: 106/255, blue: 225/255)))
+        } else {
+            Circle().strokeBorder(TeslaDark.dim, lineWidth: 1.2).frame(width: 22, height: 22)
+        }
     }
 
     private func askBinding(_ c: CarControl) -> Binding<Bool> {
@@ -203,14 +255,6 @@ struct QuickControlsPage: View {
     private func pick(_ c: CarControl) {
         var list = car.controls
         if let existing = list.firstIndex(of: c) { list.swapAt(existing, slot) } else { list[slot] = c }
-        CarControl.save(list); car.reloadControls()
-    }
-
-    private func move(_ d: Int) {
-        var list = car.controls
-        let j = slot + d
-        guard list.indices.contains(j) else { return }
-        list.swapAt(slot, j); slot = j
         CarControl.save(list); car.reloadControls()
     }
 }
