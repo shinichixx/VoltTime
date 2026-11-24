@@ -166,8 +166,8 @@ enum CarControl: String, CaseIterable, Identifiable {
                                         : ("Open the frunk?", "It can only be closed by hand.", "Yes")
         case .trunk: return s.trunkOpen ? ("Close the rear trunk?", "Make sure nothing is in the way.", "Close")
                                         : ("Open the rear trunk?", "It opens straight away.", "Open")
-        case .windows: return s.anyWindowOpen ? ("Close the windows?", "Make sure nothing is in the way.", "Close")
-                                              : ("Vent the windows?", "All four windows open a little.", "Vent")
+        case .windows: return s.anyWindowOpen ? ("Close the windows?", "Make sure nothing is in the way.", "Yes")
+                                              : ("Vent the windows?", "All 4 windows open a little.", "Yes")
         case .keyless: return ("Start keyless driving?", "You can drive without the phone key for the next 2 minutes.", "Start")
         case .sentry: return s.sentry ? ("Turn off Sentry mode?", "", "Yes") : ("Turn on Sentry mode?", "", "Yes")
         case .valet: return s.valet ? ("Turn off valet mode?", "The car goes back to your normal settings.", "Turn off")
@@ -571,7 +571,7 @@ final class CarModel: ObservableObject {
             try await ha.call("switch", "turn_on", ["entity_id": entity])
             try? await Task.sleep(for: .seconds(1))
             try await ha.call("switch", "turn_off", ["entity_id": entity])
-            show(Banner(title: "Gate signal sent", detail: "Opening or closing", icon: "door.garage.open", tint: CarColors.amber))
+            show(Banner(title: "Gate signal sent", detail: "Opening or closing", icon: "checkmark", tint: TSurface.green))
             gateSent = true
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(4))
@@ -601,8 +601,14 @@ final class CarModel: ObservableObject {
     /// Drag on the ring or slider: shows straight away, sends once you let go.
     func setLimit(_ pct: Double) {
         let p = min(max(pct.rounded(), 50), 100)
-        pendingLimit = p
         limitTask?.cancel()
+        if abs(p - car.limit) < 0.5 {
+            // Same as the car already has: nothing to send.
+            pendingLimit = nil
+            show(Banner(title: "Already at \(Int(p))%", detail: "Same as the car · nothing sent", icon: "equal", tint: CarColors.muted))
+            return
+        }
+        pendingLimit = p
         limitTask = Task { @MainActor in
             guard let t = TessieClient.configured(), let vin else { return }
             do {

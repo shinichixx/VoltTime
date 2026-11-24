@@ -27,7 +27,7 @@ struct CarSettingsPage: View {
                     nav("Quick controls", "square.grid.3x2", car.controls.prefix(QuickControlsPage.slots).map(\.short).joined(separator: " · "))
                 }.buttonStyle(.plain)
                 NavigationLink { AutogatePage(car: car) } label: {
-                    nav("Autogate", "door.garage.open", gateAsk ? "Asks before sending" : "Sends straight away · asks when away", last: true)
+                    nav("Autogate", "door.garage.open", iconView: AnyView(GateGlyph(size: 20, color: TSurface.icon)), gateAsk ? "Asks before sending" : "Sends straight away · asks when away", last: true)
                 }.buttonStyle(.plain)
 
                 TCaption(text: "Data")
@@ -48,8 +48,8 @@ struct CarSettingsPage: View {
         return s3xy.statusWord + " · " + wifi
     }
 
-    private func nav(_ t: String, _ icon: String, _ sub: String, dot: Color? = nil, last: Bool = false) -> some View {
-        TRow(t, icon: icon, subtitle: sub, dot: dot, last: last) {
+    private func nav(_ t: String, _ icon: String, iconView: AnyView? = nil, _ sub: String, dot: Color? = nil, last: Bool = false) -> some View {
+        TRow(t, icon: icon, iconView: iconView, subtitle: sub, dot: dot, last: last) {
             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
         }
     }

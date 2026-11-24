@@ -276,11 +276,12 @@ struct ControlStrip: View {
                         } else {
                             Group {
                                 if c == .gate && model.gateSent {
-                                    Image(systemName: "dot.radiowaves.up.forward").font(.system(size: 21, weight: plain ? .medium : .light))
-                                        .foregroundStyle(plain ? TeslaApp.icon : c.tint(model.car))
+                                    GateGlyph(size: 21 * 1.15, color: TSurface.green)   // signal sent: glows green for a moment
+                                        .shadow(color: TSurface.green.opacity(0.7), radius: 6)
                                 } else {
                                     ControlIcon(control: c, car: model.car, size: 21,
-                                                color: plain ? TeslaApp.icon : c.tint(model.car), weight: plain ? .medium : .light)
+                                                color: plain ? (c == .climate && model.car.climateOn ? CarColors.blue : TeslaApp.icon) : c.tint(model.car),
+                                                weight: plain ? .medium : .light)
                                 }
                             }
                                 .shadow(color: plain ? .black.opacity(0.55) : .clear, radius: 4)   // readable on the car photo
@@ -303,12 +304,12 @@ struct ControlStrip: View {
 
 // MARK: - Frunk and window glyphs (drawn like the Tesla app's)
 
-/// Side view of the car's nose; the hood lifts when the frunk is open.
+/// Side view of the car's nose; the hood lifts when the frunk is open. Drawn centred in its frame.
 struct FrunkShape: Shape {
     var open: Bool
     func path(in rect: CGRect) -> Path {
-        let k = min(rect.width, rect.height) / 300
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * k, y: rect.minY + y * k) }
+        let k = min(rect.width, rect.height) / 270
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.midX + (x - 155) * k, y: rect.midY + (y - 160) * k) }
         var path = Path()
         path.move(to: p(70, 230)); path.addLine(to: p(33, 224)); path.addLine(to: p(27, 152))
         path.addCurve(to: p(205, 120), control1: p(85, 126), control2: p(155, 120))
@@ -317,7 +318,8 @@ struct FrunkShape: Shape {
         if open {
             path.move(to: p(67, 32)); path.addCurve(to: p(205, 120), control1: p(125, 42), control2: p(175, 80))
         }
-        path.addEllipse(in: CGRect(x: rect.minX + 87 * k, y: rect.minY + 172 * k, width: 96 * k, height: 96 * k))
+        let c = p(135, 220)
+        path.addEllipse(in: CGRect(x: c.x - 48 * k, y: c.y - 48 * k, width: 96 * k, height: 96 * k))
         return path
     }
 }
@@ -328,8 +330,7 @@ struct FrunkGlyph: View {
     var color: Color = TeslaApp.icon
     var body: some View {
         FrunkShape(open: open)
-            .stroke(color, style: StrokeStyle(lineWidth: size * 0.087 * 1.15, lineCap: .round, lineJoin: .round))
-            .frame(width: size * 1.15, height: size * 1.15)
+            .stroke(color, style: StrokeStyle(lineWidth: size * 24 / 270, lineCap: .round, lineJoin: .round))
             .frame(width: size, height: size)
     }
 }
@@ -378,9 +379,28 @@ struct ControlIcon: View {
     var weight: Font.Weight = .light
     var body: some View {
         switch control {
-        case .frunk: FrunkGlyph(open: car.frunkOpen, size: size * 1.2, color: color)
+        case .frunk: FrunkGlyph(open: car.frunkOpen, size: size * 1.4, color: color)
+        case .gate: GateGlyph(size: size * 1.15, color: color)
         case .windows: WindowGlyph(open: car.anyWindowOpen, size: size * 1.1, color: color)
         default: Image(systemName: control.icon(car)).font(.system(size: size, weight: weight)).foregroundStyle(color)
         }
+    }
+}
+
+/// Picket gate (autogate): five pickets, the middle one tallest, two rails.
+struct GateGlyph: View {
+    var size: CGFloat = 24
+    var color: Color = TeslaApp.icon
+    var body: some View {
+        Canvas { ctx, sz in
+            let k = min(sz.width, sz.height) / 74
+            let ox = (sz.width - 69 * k) / 2, oy = (sz.height - 70 * k) / 2
+            func r(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) {
+                ctx.fill(Path(roundedRect: CGRect(x: ox + x * k, y: oy + y * k, width: w * k, height: h * k), cornerRadius: 1.5 * k), with: .color(color))
+            }
+            for (i, top) in [14.0, 6, 0, 6, 14].enumerated() { r(CGFloat(i) * 15, CGFloat(top), 9, 70 - CGFloat(top)) }
+            r(0, 26, 69, 8); r(0, 52, 69, 8)
+        }
+        .frame(width: size, height: size)
     }
 }

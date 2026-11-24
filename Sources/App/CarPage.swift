@@ -449,8 +449,11 @@ struct CarView2: View {
         let street = c.address?.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespaces) }
         return VStack(spacing: 0) {
             row("car.side", "Controls", nil) { path.append(.carDetail(.controls)) }
-            row("fanblades", "Climate", "\(c.climateOn ? "On" : "Off") · Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC))") { path.append(.carDetail(.climate)) }
-            row("bolt", "Charging", chargingSub, rich: chargingNow) { path.append(.settings) }
+            row(c.climateOn ? "fanblades.fill" : "fanblades", "Climate", climateSub,
+                rich: c.climateOn ? (Text("On").foregroundColor(CarColors.blue) + Text(climateSub.dropFirst(2)).foregroundColor(K.grey)) : nil,
+                iconColor: c.climateOn ? CarColors.blue : nil) { path.append(.carDetail(.climate)) }
+            row(c.charging ? "bolt.fill" : "bolt", "Charging", chargingSub, rich: chargingNow,
+                iconColor: c.charging ? TSurface.green : nil) { path.append(.settings) }
             row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · "), rich: batteryLine) { path.append(.carDetail(.battery)) }
             row("circle.circle", "Tyres", tyres, rich: tyreLine) { path.append(.carDetail(.tyres)) }
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
@@ -571,10 +574,13 @@ struct CarView2: View {
         return [town, second.isEmpty ? nil : second].compactMap { $0 }.joined(separator: " · ")
     }
 
-    private func row(_ icon: String, _ title: String, _ sub: String?, tag: String? = nil, rich: Text? = nil, _ action: @escaping () -> Void) -> some View {
+    private var climateSub: String { "\(c.climateOn ? "On" : "Off") · Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC))" }
+
+    private func row(_ icon: String, _ title: String, _ sub: String?, tag: String? = nil, rich: Text? = nil, iconColor: Color? = nil,
+                     _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 0) {
-                Image(systemName: icon).font(.system(size: 20)).foregroundStyle(K.grey)
+                Image(systemName: icon).font(.system(size: 20)).foregroundStyle(iconColor ?? K.grey)
                     .frame(width: 44)
                     .padding(.leading, 15)
                 VStack(alignment: .leading, spacing: 4) {
