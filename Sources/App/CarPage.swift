@@ -769,9 +769,7 @@ struct CarDetailPage: View {
                 if model.busy == ctl {
                     ProgressView().tint(.white).scaleEffect(0.75).frame(width: 22)
                 } else {
-                    Image(systemName: ctl.icon(c))
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(on ? green : K.grey)
+                    ControlIcon(control: ctl, car: c, size: 17, color: on ? green : K.grey, weight: .regular)
                         .frame(width: 22)
                 }
                 VStack(alignment: .leading, spacing: 2) {

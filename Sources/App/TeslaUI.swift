@@ -42,9 +42,11 @@ struct TRow<Trailing: View, Below: View>: View {
     let last: Bool
     let trailing: Trailing
     let below: Below
+    var iconView: AnyView? = nil
 
-    init(_ title: String, icon: String? = nil, subtitle: String? = nil, dot: Color? = nil, badge: AnyView? = nil,
+    init(_ title: String, icon: String? = nil, iconView: AnyView? = nil, subtitle: String? = nil, dot: Color? = nil, badge: AnyView? = nil,
          last: Bool = false, @ViewBuilder trailing: () -> Trailing, @ViewBuilder below: () -> Below) {
+        self.iconView = iconView
         self.title = title
         self.icon = icon
         self.subtitle = subtitle
@@ -58,7 +60,9 @@ struct TRow<Trailing: View, Below: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
             ZStack {
-                if let icon {
+                if let iconView {
+                    iconView
+                } else if let icon {
                     Image(systemName: icon)
                         .font(.system(size: 18, weight: .light))
                         .foregroundStyle(TSurface.icon)
@@ -98,9 +102,9 @@ struct TRow<Trailing: View, Below: View>: View {
 }
 
 extension TRow where Below == EmptyView {
-    init(_ title: String, icon: String? = nil, subtitle: String? = nil, dot: Color? = nil, badge: AnyView? = nil,
+    init(_ title: String, icon: String? = nil, iconView: AnyView? = nil, subtitle: String? = nil, dot: Color? = nil, badge: AnyView? = nil,
          last: Bool = false, @ViewBuilder trailing: () -> Trailing) {
-        self.init(title, icon: icon, subtitle: subtitle, dot: dot, badge: badge, last: last, trailing: trailing, below: { EmptyView() })
+        self.init(title, icon: icon, iconView: iconView, subtitle: subtitle, dot: dot, badge: badge, last: last, trailing: trailing, below: { EmptyView() })
     }
 }
 

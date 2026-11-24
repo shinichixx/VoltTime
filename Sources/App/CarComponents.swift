@@ -274,9 +274,15 @@ struct ControlStrip: View {
                             SentryGlyph(on: model.car.sentry, size: 23)
                                 .shadow(color: .black.opacity(0.55), radius: 4)
                         } else {
-                            Image(systemName: c == .gate && model.gateSent ? "dot.radiowaves.up.forward" : c.icon(model.car))
-                                .font(.system(size: 21, weight: plain ? .medium : .light))
-                                .foregroundStyle(plain ? TeslaApp.icon : c.tint(model.car))
+                            Group {
+                                if c == .gate && model.gateSent {
+                                    Image(systemName: "dot.radiowaves.up.forward").font(.system(size: 21, weight: plain ? .medium : .light))
+                                        .foregroundStyle(plain ? TeslaApp.icon : c.tint(model.car))
+                                } else {
+                                    ControlIcon(control: c, car: model.car, size: 21,
+                                                color: plain ? TeslaApp.icon : c.tint(model.car), weight: plain ? .medium : .light)
+                                }
+                            }
                                 .shadow(color: plain ? .black.opacity(0.55) : .clear, radius: 4)   // readable on the car photo
                         }
                     }
@@ -294,3 +300,87 @@ struct ControlStrip: View {
     }
 }
 
+
+// MARK: - Frunk and window glyphs (drawn like the Tesla app's)
+
+/// Side view of the car's nose; the hood lifts when the frunk is open.
+struct FrunkShape: Shape {
+    var open: Bool
+    func path(in rect: CGRect) -> Path {
+        let k = min(rect.width, rect.height) / 300
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * k, y: rect.minY + y * k) }
+        var path = Path()
+        path.move(to: p(70, 230)); path.addLine(to: p(33, 224)); path.addLine(to: p(27, 152))
+        path.addCurve(to: p(205, 120), control1: p(85, 126), control2: p(155, 120))
+        path.addLine(to: p(283, 78))
+        path.move(to: p(197, 230)); path.addLine(to: p(283, 230))
+        if open {
+            path.move(to: p(67, 32)); path.addCurve(to: p(205, 120), control1: p(125, 42), control2: p(175, 80))
+        }
+        path.addEllipse(in: CGRect(x: rect.minX + 87 * k, y: rect.minY + 172 * k, width: 96 * k, height: 96 * k))
+        return path
+    }
+}
+
+struct FrunkGlyph: View {
+    var open: Bool
+    var size: CGFloat = 24
+    var color: Color = TeslaApp.icon
+    var body: some View {
+        FrunkShape(open: open)
+            .stroke(color, style: StrokeStyle(lineWidth: size * 0.087 * 1.15, lineCap: .round, lineJoin: .round))
+            .frame(width: size * 1.15, height: size * 1.15)
+            .frame(width: size, height: size)
+    }
+}
+
+/// A door: the glass fills the window when closed, drops with a gap at the top when vented.
+struct WindowGlyph: View {
+    var open: Bool
+    var size: CGFloat = 24
+    var color: Color = TeslaApp.icon
+    var body: some View {
+        Canvas { ctx, sz in
+            let k = min(sz.width, sz.height) / 250
+            func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * k, y: y * k) }
+            var door = Path()
+            door.move(to: p(13, 110)); door.addLine(to: p(93, 17)); door.addLine(to: p(215, 17))
+            door.addQuadCurve(to: p(235, 37), control: p(235, 17))
+            door.addLine(to: p(235, 223)); door.addQuadCurve(to: p(221, 237), control: p(235, 237))
+            door.addLine(to: p(27, 237)); door.addQuadCurve(to: p(13, 223), control: p(13, 237))
+            door.closeSubpath()
+            door.move(to: p(13, 131)); door.addLine(to: p(235, 131))
+            let style = StrokeStyle(lineWidth: 24 * k, lineCap: .round, lineJoin: .round)
+            ctx.stroke(door, with: .color(color), style: style)
+            var glass = Path()
+            if open {
+                glass.move(to: p(29, 127)); glass.addLine(to: p(111, 55)); glass.addLine(to: p(221, 55))
+                glass.addLine(to: p(221, 131)); glass.addLine(to: p(25, 131)); glass.closeSubpath()
+                ctx.fill(glass, with: .color(color))
+            } else {
+                glass.move(to: p(13, 110)); glass.addLine(to: p(93, 17)); glass.addLine(to: p(215, 17))
+                glass.addQuadCurve(to: p(235, 37), control: p(235, 17))
+                glass.addLine(to: p(235, 131)); glass.addLine(to: p(13, 131)); glass.closeSubpath()
+                ctx.fill(glass, with: .color(color)); ctx.stroke(glass, with: .color(color), style: style)
+            }
+        }
+        .frame(width: size * 0.92, height: size * 0.92)
+        .frame(width: size, height: size)
+    }
+}
+
+/// The icon for any button: Tesla-style drawings for frunk, windows, sentry; SF Symbols for the rest.
+struct ControlIcon: View {
+    let control: CarControl
+    let car: CarSnapshot
+    var size: CGFloat = 21
+    var color: Color = TeslaApp.icon
+    var weight: Font.Weight = .light
+    var body: some View {
+        switch control {
+        case .frunk: FrunkGlyph(open: car.frunkOpen, size: size * 1.2, color: color)
+        case .windows: WindowGlyph(open: car.anyWindowOpen, size: size * 1.1, color: color)
+        default: Image(systemName: control.icon(car)).font(.system(size: size, weight: weight)).foregroundStyle(color)
+        }
+    }
+}

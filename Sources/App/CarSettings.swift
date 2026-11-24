@@ -15,20 +15,16 @@ struct CarSettingsPage: View {
             VStack(spacing: 0) {
                 TCaption(text: "Connection")
                 NavigationLink { TessiePage(car: car) } label: {
-                    nav("Tessie", "bolt.car", car.configured ? (car.error == nil ? "Connected · \(car.car.name)" : "Can't reach Tessie") : "Not set up",
-                        dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : nil, last: true)
+                    nav("Tessie", "bolt.car", car.configured ? (car.error == nil ? "Connected · \(car.car.name)" : "Can't reach Tessie · tap to check") : "Not set up · add your token",
+                        dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : Color(white: 0.55))
                 }.buttonStyle(.plain)
-
-                TCaption(text: "Car data")
                 NavigationLink { S3XYPage() } label: {
-                    nav("S3XY Commander", "waveform.path.ecg",
-                        s3xy.state == .receiving ? "Connected · reading the cells" : "Cell balance · join S3XY_OBD in the car",
-                        dot: s3xy.state == .receiving ? TSurface.green : nil, last: true)
+                    nav("S3XY Commander", "waveform.path.ecg", s3xyLine, dot: s3xy.statusDot, last: true)
                 }.buttonStyle(.plain)
 
                 TCaption(text: "Buttons")
                 NavigationLink { QuickControlsPage(car: car) } label: {
-                    nav("Quick controls", "square.grid.3x2", car.controls.map(\.short).joined(separator: " · "))
+                    nav("Quick controls", "square.grid.3x2", car.controls.prefix(QuickControlsPage.slots).map(\.short).joined(separator: " · "))
                 }.buttonStyle(.plain)
                 NavigationLink { AutogatePage(car: car) } label: {
                     nav("Autogate", "door.garage.open", gateAsk ? "Asks before sending" : "Sends straight away · asks when away", last: true)
@@ -44,6 +40,12 @@ struct CarSettingsPage: View {
             }
         }
         .teslaPage("My Car", black: true)
+    }
+
+    private var s3xyLine: String {
+        let wifi = "Wi-Fi " + (UserDefaults.standard.string(forKey: S3XYLink.ssidKey).flatMap { $0.isEmpty ? nil : $0 } ?? "S3XY_OBD")
+        if s3xy.state == .receiving, let r = s3xy.current { return "Connected · \(Int(r.mv.rounded())) mV now" }
+        return s3xy.statusWord + " · " + wifi
     }
 
     private func nav(_ t: String, _ icon: String, _ sub: String, dot: Color? = nil, last: Bool = false) -> some View {
@@ -152,25 +154,45 @@ struct QuickControlsPage: View {
                 TCaption(text: "Shortcut row", trailing: "\(Self.slots) buttons")
                 strip
                     .padding(.horizontal, 20)
-                TFootnote(text: "Exactly as on My Car. Tap a button, then pick its replacement below. Hold and drag to reorder.")
+                Text("Tap a button, then pick its replacement below. Hold and drag to reorder.")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 30).padding(.top, 10)
 
                 ForEach(CarControl.Group.allCases, id: \.self) { g in
-                    TCaption(text: g.rawValue)
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                        Text(g.rawValue.uppercased()).font(.app(size: 11, weight: .medium)).kerning(0.8)
+                        Spacer()
+                        Text("ASK FIRST").frame(width: 60)
+                        Text("ROW").frame(width: 26)
+                    }
+                    .font(.app(size: 9, weight: .medium))
+                    .foregroundStyle(TeslaDark.rowLabel)
+                    .padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 6)
                     let items = CarControl.allCases.filter { $0.group == g }
                     ForEach(items) { c in
                         Button { pick(c) } label: {
-                            TRow(c.title, icon: c.icon(car.car), subtitle: askLine(c), last: c == items.last) {
-                                HStack(spacing: 12) {
-                                    if !fixedAsk.contains(c) {
-                                        Toggle("", isOn: askBinding(c)).labelsHidden().tint(TSurface.green).scaleEffect(0.75)
+                            TRow(c.title, iconView: AnyView(ControlIcon(control: c, car: car.car, size: 18, color: TSurface.icon)),
+                                 subtitle: askLine(c), last: c == items.last) {
+                                HStack(spacing: 0) {
+                                    Group {
+                                        if c == .gate {
+                                            Text("Own").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                                        } else if fixedAsk.contains(c) {
+                                            Text("Always").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                                        } else {
+                                            Toggle("", isOn: askBinding(c)).labelsHidden().tint(TSurface.green).scaleEffect(0.75)
+                                        }
                                     }
-                                    slotBadge(c)
+                                    .frame(width: 60)
+                                    slotBadge(c).frame(width: 26)
                                 }
                             }
                         }.buttonStyle(.plain)
                     }
                 }
-                TFootnote(text: "The switch on a row = ask before doing it. Unlock, A/C on and the frunk always ask. The autogate's own setting is in My Car ☰ › Autogate.")
+                TFootnote(text: "Green = TesLah asks \"Are you sure?\" first. Number = slot in the row. The autogate's own setting is in My Car ☰ › Autogate.")
                 Button("Reset to default") { CarControl.save(CarControl.defaults); car.reloadControls() }
                     .font(.app(size: 14)).foregroundStyle(CarColors.red).padding(.top, 16)
                 Spacer(minLength: 40)
@@ -188,7 +210,7 @@ struct QuickControlsPage: View {
                 ForEach(row.indices, id: \.self) { i in
                     let c = row[i]
                     VStack(spacing: 4) {
-                        Image(systemName: c.icon(car.car)).font(.system(size: 20, weight: .light))
+                        ControlIcon(control: c, car: car.car, size: 20, color: .white).frame(height: 24)
                         Text(c.short).font(.app(size: 10)).lineLimit(1)
                     }
                     .foregroundStyle(.white)
@@ -221,9 +243,10 @@ struct QuickControlsPage: View {
                         .onEnded { _ in withAnimation(.easeOut(duration: 0.15)) { dragging = nil; dragX = 0 } })
                 }
             }
+            .frame(maxHeight: .infinity)
             .animation(.easeOut(duration: 0.15), value: car.controls)
         }
-        .frame(height: 78)
+        .frame(height: 76)
         .padding(.horizontal, 4)
         .background(RoundedRectangle(cornerRadius: 16).fill(TSurface.field))
     }
@@ -233,6 +256,7 @@ struct QuickControlsPage: View {
         case .lock: return "Asks before unlocking"
         case .climate: return "Asks before turning on"
         case .frunk: return "Always asks"
+        case .gate: return "Ask setting in My Car ☰ › Autogate"
         default: return nil
         }
     }
@@ -355,26 +379,17 @@ struct HomeSettingsPage: View {
 
 struct S3XYPage: View {
     @ObservedObject private var link = S3XYLink.shared
+    @ObservedObject private var history = BatteryHistory.shared
     @AppStorage(S3XYLink.ssidKey) private var ssid = "S3XY_OBD"
     @AppStorage(S3XYLink.enabledKey) private var enabled = true
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                TCaption(text: "Status")
-                TRow(statusTitle, icon: "waveform.path.ecg", subtitle: statusLine,
-                     dot: link.state == .receiving ? TSurface.green : nil, last: true) { EmptyView() }
-                TFootnote(text: diagnostics, color: TeslaDark.rowLabel)
-                Button { link.reconnect() } label: {
-                    Text("Connect now").font(.app(size: 15, weight: .medium))
-                        .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 13)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(TSurface.selected))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 20).padding(.top, 10)
+                statusCard
+                    .padding(.horizontal, 20).padding(.top, 8)
 
-                TCaption(text: "Wi-Fi")
+                TCaption(text: "Reading")
                 TRow("Read cell balance", icon: "battery.100percent") {
                     Toggle("", isOn: $enabled).labelsHidden().tint(TSurface.green)
                         .onChange(of: enabled) { _, on in on ? link.start() : link.stop() }
@@ -389,16 +404,141 @@ struct S3XYPage: View {
                     Text("192.168.4.1 · Panda").font(.app(size: 14)).foregroundStyle(TeslaDark.rowLabel)
                 }
 
-                TCaption(text: "How to connect")
-                steps([
+                TCaption(text: "Set up")
+                NavigationLink { S3XYConnectHelp(ssid: ssid) } label: {
+                    navRow("How to connect", "list.number", "ScanMyTesla support, join \(ssid)")
+                }.buttonStyle(.plain)
+                NavigationLink { S3XYDailyHelp(ssid: ssid) } label: {
+                    navRow("Daily reading", "arrow.clockwise", "Shortcuts opens TesLah in the car")
+                }.buttonStyle(.plain)
+                NavigationLink { S3XYDetailsPage() } label: {
+                    navRow("Connection details", "info.circle",
+                           "Wi-Fi \(link.onWifi ? "on" : "off") · \(link.sent) sent · \(link.frames) received", last: true)
+                }.buttonStyle(.plain)
+
+                TFootnote(text: "Only one app can use the Commander's Wi-Fi at a time. While TesLah reads it, the S3XY app may lose its gadgets.")
+            }
+            .padding(.bottom, 30)
+        }
+        .teslaPage("S3XY Commander", black: true)
+    }
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Circle().fill(link.statusDot).frame(width: 9, height: 9)
+                Text(link.statusWord).font(.app(size: 20, weight: .semibold)).foregroundStyle(.white)
+            }
+            Text(hint).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+            Rectangle().fill(TSurface.line).frame(height: 0.5).padding(.vertical, 14)
+            HStack {
+                Text(link.state == .receiving ? "NOW" : "LAST READING").kerning(0.6)
+                Spacer()
+                if link.state != .receiving, let r = shown { Text(r.date.formatted(.dateTime.day().month(.abbreviated).hour().minute())) }
+            }
+            .font(.app(size: 10, weight: .medium)).foregroundStyle(TeslaDark.dim)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                if let r = shown {
+                    Text("\(Int(r.mv.rounded())) mV").font(.app(size: 26, weight: .light)).foregroundStyle(.white)
+                    Text([r.parked ? "parked" : "driving", r.soc.map { "\(Int($0.rounded()))%" }].compactMap { $0 }.joined(separator: " · "))
+                        .font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                } else {
+                    Text("No reading yet").font(.app(size: 17, weight: .light)).foregroundStyle(TeslaDark.labelGrey)
+                }
+            }
+            .padding(.top, 4)
+            if link.state != .receiving {
+                Button { link.reconnect() } label: {
+                    Text("Connect now").font(.app(size: 15, weight: .medium))
+                        .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(TSurface.selected))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 14)
+            }
+        }
+        .padding(18)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(white: 0.125)))
+    }
+
+    private var shown: CellReading? { link.current ?? history.latestParked }
+
+    private var hint: String {
+        switch link.state {
+        case .receiving: return "Reading the cells over \(ssid)."
+        case .waiting: return "Join \(ssid) in the car, then tap Connect now."
+        case .off: return "Turn on Read cell balance below."
+        }
+    }
+
+    private func navRow(_ t: String, _ icon: String, _ sub: String, last: Bool = false) -> some View {
+        TRow(t, icon: icon, subtitle: sub, last: last) {
+            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+        }
+    }
+}
+
+extension S3XYLink {
+    var connecting: Bool { state == .waiting && ["starting", "preparing"].contains(link) }
+    var statusDot: Color {
+        switch state {
+        case .receiving: return TSurface.green
+        case .waiting: return connecting ? CarColors.amber : Color(white: 0.55)
+        case .off: return Color(white: 0.4)
+        }
+    }
+    var statusWord: String {
+        switch state {
+        case .receiving: return "Connected"
+        case .waiting: return connecting ? "Connecting…" : "Not connected"
+        case .off: return "Off"
+        }
+    }
+}
+
+private func s3xySteps(_ items: [String]) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+        ForEach(items.indices, id: \.self) { i in
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("\(i + 1)").font(.app(size: 14, weight: .semibold)).foregroundStyle(TSurface.green).frame(width: 14)
+                Text(items[i]).font(.app(size: 14)).foregroundStyle(.white).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(RoundedRectangle(cornerRadius: 12).fill(Color(white: 0.125)))
+    .padding(.horizontal, 20)
+}
+
+struct S3XYConnectHelp: View {
+    let ssid: String
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "Steps")
+                s3xySteps([
                     "In the S3XY app › Commander, turn on ScanMyTesla support.",
                     "In the car, join \(ssid) in iPhone Settings › Wi-Fi (password 12345678 unless you changed it).",
                     "Open TesLah. Cell balance updates by itself while it's open.",
                 ])
-                TFootnote(text: "Only one app can use the Commander's Wi-Fi at a time. While TesLah reads it, some S3XY gadgets may drop out of the S3XY app.", color: TeslaDark.rowLabel)
+                TFootnote(text: "The first time, iOS asks to let TesLah find devices on your local network. Tap Allow.")
+            }
+        }
+        .teslaPage("How to connect", black: true)
+    }
+}
 
-                TCaption(text: "Open TesLah in the car, every day")
-                steps([
+struct S3XYDailyHelp: View {
+    let ssid: String
+    @Environment(\.openURL) private var openURL
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "Shortcuts automation")
+                s3xySteps([
                     "Shortcuts › Automation › New.",
                     "Choose Wi-Fi › \(ssid) › When joining.",
                     "Choose Run Immediately.",
@@ -411,50 +551,37 @@ struct S3XYPage: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 20).padding(.top, 14)
-                TFootnote(text: "Getting in the car then opens TesLah, which takes the day's parked reading by itself.", color: TeslaDark.rowLabel)
+                TFootnote(text: "Getting in the car then opens TesLah, which takes the day's parked reading by itself.")
             }
-            .padding(.bottom, 30)
         }
-        .teslaPage("S3XY Commander", black: true)
+        .teslaPage("Daily reading", black: true)
     }
+}
 
-    /// For screenshots when it doesn't connect: Wi-Fi, link state, requests sent, last error.
-    private var diagnostics: String {
-        var s = "Wi-Fi \(link.onWifi ? "on" : "off") · link \(link.link) · \(link.sent) requests sent · \(link.frames) messages"
-        if let e = link.lastError { s += " · " + e }
-        return s
-    }
-
-    private var statusTitle: String {
-        switch link.state {
-        case .receiving: return "Connected"
-        case .waiting: return "Not connected"
-        case .off: return "Off"
-        }
-    }
-
-    private var statusLine: String {
-        switch link.state {
-        case .receiving:
-            if let r = link.current { return "\(link.frames) frames · cells \(Int(r.mv.rounded())) mV apart" }
-            return "\(link.frames) frames · waiting for battery data"
-        case .waiting: return "Join \(ssid) in the car"
-        case .off: return "Turn on Read cell balance"
-        }
-    }
-
-    private func steps(_ items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(items.indices, id: \.self) { i in
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("\(i + 1)").font(.app(size: 14, weight: .semibold)).foregroundStyle(TSurface.green)
-                    Text(items[i]).font(.app(size: 14)).foregroundStyle(.white).fixedSize(horizontal: false, vertical: true)
+struct S3XYDetailsPage: View {
+    @ObservedObject private var link = S3XYLink.shared
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "Link")
+                TRow("Wi-Fi", icon: "wifi") { value(link.onWifi ? "On" : "Off") }
+                TRow("Connection", icon: "point.3.connected.trianglepath.dotted") { value(link.link.capitalized) }
+                TRow("Requests sent", icon: "arrow.up") { value("\(link.sent)") }
+                TRow("Messages received", icon: "arrow.down", last: link.lastError == nil) { value("\(link.frames)") }
+                if let e = link.lastError {
+                    TRow("Last error", icon: "exclamationmark.triangle", subtitle: e, last: true) { EmptyView() }
                 }
+                Button { link.reconnect() } label: {
+                    Text("Connect now").font(.app(size: 15, weight: .medium))
+                        .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 13)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(TSurface.selected))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20).padding(.top, 16)
+                TFootnote(text: "Take a screenshot of this page if it won't connect.")
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(white: 0.13)))
-        .padding(.horizontal, 20)
+        .teslaPage("Connection details", black: true)
     }
+    private func value(_ s: String) -> some View { Text(s).font(.app(size: 14)).foregroundStyle(TeslaDark.rowLabel) }
 }
