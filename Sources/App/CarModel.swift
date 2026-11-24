@@ -602,7 +602,7 @@ final class CarModel: ObservableObject {
     func setLimit(_ pct: Double) {
         let p = min(max(pct.rounded(), 50), 100)
         limitTask?.cancel()
-        if abs(p - car.limit) < 0.5 {
+        if let now = car.limit, abs(p - now) < 0.5 {
             // Same as the car already has: nothing to send.
             pendingLimit = nil
             show(Banner(title: "Already at \(Int(p))%", detail: "Same as the car · nothing sent", icon: "equal", tint: CarColors.muted))
