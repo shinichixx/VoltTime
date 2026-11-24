@@ -5,12 +5,13 @@ import MapKit
 struct CarPage: View {
     @ObservedObject var car: CarModel
     @ObservedObject var home: HomeModel
+    @ObservedObject var myHome: MyHomeModel
     @Binding var path: [Route]
     var active = true
     @Environment(\.scenePhase) private var phase
 
     var body: some View {
-        CarView2(model: car, home: home, path: $path, active: active)
+        CarView2(model: car, home: home, myHome: myHome, path: $path, active: active)
             .task(id: phase) {
                 guard phase == .active else { return }
                 while !Task.isCancelled {
@@ -131,9 +132,11 @@ enum TeslaApp {
 struct CarView2: View {
     @ObservedObject var model: CarModel
     @ObservedObject var home: HomeModel
+    @ObservedObject var myHome: MyHomeModel
     @Binding var path: [Route]
     var active = true
     @State private var sliderLimit: Double?
+    @State private var limitArmed = false     // press and hold 0.5 s before the limit slider moves
     @State private var scroll: CGFloat = 0
     @State private var portAsk: PortAsk?
     @State private var onScreen = true       // live copy of `active` for the delayed scroll reset
@@ -310,8 +313,12 @@ struct CarView2: View {
         return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
-                    Text("Charge limit: \(Int(limit))%").font(.app(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
-                    Text("  ·  " + boxState).font(.app(size: 13, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
+                    if limitArmed {
+                        Text("Slide to set the limit").font(.app(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
+                    } else {
+                        Text("Charge limit: \(Int(limit))%").font(.app(size: 13, weight: .semibold)).foregroundStyle(K.boxText)
+                        Text("  ·  " + boxState).font(.app(size: 13, weight: .medium)).foregroundStyle(K.boxGrey).lineLimit(1)
+                    }
                 }
                 .frame(height: 16)
                 if c.charging {   // like the Tesla app: kW / amps / volts only while charging
@@ -325,13 +332,34 @@ struct CarView2: View {
                         Capsule().fill(K.track).frame(height: 4.4)
                         Capsule().fill(c.charging ? K.sliderGreen : (c.soc ?? 0) < 20 ? CarColors.amber : K.sliderGreen)
                             .frame(width: max(4, w * (c.soc ?? 0) / 100), height: 4.4)
-                        Circle().fill(K.boxText).frame(width: 15, height: 15).offset(x: w * limit / 100 - 7.5)
+                        Circle().fill(K.boxText).frame(width: limitArmed ? 19 : 15, height: limitArmed ? 19 : 15)
+                            .overlay(Circle().stroke(.white, lineWidth: 1.5).padding(-3).opacity(limitArmed ? 1 : 0))
+                            .offset(x: w * limit / 100 - (limitArmed ? 9.5 : 7.5))
+                        if limitArmed {
+                            Text("\(Int(limit))%").font(.app(size: 12, weight: .semibold)).foregroundStyle(.white)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Capsule().fill(Color(white: 0.3)))
+                                .fixedSize()
+                                .offset(x: w * limit / 100 - 20, y: -24)
+                        }
                     }
                     .frame(height: 30)
                     .contentShape(Rectangle())
-                    .gesture(DragGesture(minimumDistance: 0)
-                        .onChanged { v in sliderLimit = min(max((v.location.x / w * 100).rounded(), 50), 100) }
-                        .onEnded { _ in if let s = sliderLimit { model.setLimit(s) }; sliderLimit = nil })
+                    // A quick swipe goes to the page swipe; press and hold half a second to move the limit.
+                    .gesture(LongPressGesture(minimumDuration: 0.5).sequenced(before: DragGesture(minimumDistance: 0))
+                        .onChanged { v in
+                            guard case .second(true, let drag) = v else { return }
+                            if !limitArmed {
+                                limitArmed = true
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            }
+                            if let drag { sliderLimit = min(max((drag.location.x / w * 100).rounded(), 50), 100) }
+                        }
+                        .onEnded { _ in
+                            if let s = sliderLimit { model.setLimit(s) }
+                            sliderLimit = nil
+                            limitArmed = false
+                        })
                 }
                 .frame(height: 30)
                 .padding(.top, 12.7)
@@ -421,8 +449,8 @@ struct CarView2: View {
         let street = c.address?.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespaces) }
         return VStack(spacing: 0) {
             row("car.side", "Controls", nil) { path.append(.carDetail(.controls)) }
-            row("fanblades", "Climate", "Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC)) · \(c.climateOn ? "On" : "Off")") { path.append(.carDetail(.climate)) }
-            row("bolt", "Charging", chargingSub) { path.append(.settings) }
+            row("fanblades", "Climate", "\(c.climateOn ? "On" : "Off") · Interior \(deg(c.insideC)) · Exterior \(deg(c.outsideC))") { path.append(.carDetail(.climate)) }
+            row("bolt", "Charging", chargingSub, rich: chargingNow) { path.append(.settings) }
             row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · "), rich: batteryLine) { path.append(.carDetail(.battery)) }
             row("circle.circle", "Tyres", tyres, rich: tyreLine) { path.append(.carDetail(.tyres)) }
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",
@@ -476,6 +504,20 @@ struct CarView2: View {
     }
 
     /// Under "Charging": the Home Assistant charging mode; Routine shows tonight's start and ready time.
+    /// While charging: "7.2 kW · 62% solar · +18 kWh this session" (solar share only at home, from Home Assistant).
+    private var chargingNow: Text? {
+        guard c.charging else { return nil }
+        var parts: [String] = []
+        if model.isHome, let s = myHome.solarW {
+            let supply = max(s, 0) + max(myHome.gridW ?? 0, 0)
+            if supply > 50 { parts.append("\(Int((max(s, 0) / supply * 100).rounded()))% solar") }
+        }
+        if let e = c.energyAddedKWh { parts.append(String(format: "+%.0f kWh this session", e)) }
+        let kw = c.chargerPowerKW.map { String(format: "%.1f kW", $0) } ?? "Charging"
+        return Text(kw).foregroundColor(K.sliderGreen)
+            + Text(parts.isEmpty ? "" : " · " + parts.joined(separator: " · ")).foregroundColor(K.grey)
+    }
+
     private var chargingSub: String? {
         guard let m = home.chargingMode else { return nil }
         if m == "Routine" {
@@ -796,7 +838,7 @@ struct CarDetailPage: View {
             RangePicker(options: opts, selected: $healthRange)
             if pts.count >= 2 {
                 HistoryGraph(points: pts, lo: lo, hi: hi, guides: guides, color: Color(red: 90 / 255, green: 200 / 255, blue: 250 / 255),
-                             startLabel: cut == nil ? "Delivery" : "",
+                             startLabel: pts.first.map { Self.day.string(from: $0.date) } ?? "",
                              format: { String(format: "%.1f%%", $0) }, guideLabel: { String(format: "%g%%", $0) })
                     .frame(height: 96)
             } else {
@@ -806,6 +848,7 @@ struct CarDetailPage: View {
         }
     }
 
+    private static let day: DateFormatter = { let f = DateFormatter(); f.dateFormat = "d MMM yyyy"; return f }()
     private static let stamp: DateFormatter = { let f = DateFormatter(); f.dateFormat = "d MMM, HH:mm"; return f }()
 
     private var cellBalance: some View {

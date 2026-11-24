@@ -52,7 +52,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $path) {
             TabView(selection: $page) {
-                CarPage(car: car, home: home, path: $path, active: page == 0)
+                CarPage(car: car, home: home, myHome: myHome, path: $path, active: page == 0)
                     .tag(0)
                 MyHomeView(model: myHome, path: $path)
                     .tag(1)

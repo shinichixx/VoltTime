@@ -324,6 +324,7 @@ struct TBatteryBar: View {
     /// When set, dragging along the bar sets the limit (like Tesla's charge-limit slider).
     var range: ClosedRange<Double> = 1...100
     var onDrag: ((Double) -> Void)? = nil
+    @State private var armed = false
 
     private struct Stripes: Shape {
         func path(in r: CGRect) -> Path {
@@ -367,14 +368,21 @@ struct TBatteryBar: View {
                     .offset(x: 5)
             }
             .contentShape(Rectangle().inset(by: -10))
+            // Press and hold half a second before it moves, so a sideways page swipe can't change it by accident.
             .gesture(
-                DragGesture(minimumDistance: 0).onChanged { v in
-                    guard let onDrag else { return }
-                    let pct = ((v.location.x - 3) / inner * 100).rounded()
-                    onDrag(min(max(pct, range.lowerBound), range.upperBound))
-                },
+                LongPressGesture(minimumDuration: 0.5).sequenced(before: DragGesture(minimumDistance: 0))
+                    .onChanged { v in
+                        guard let onDrag, case .second(true, let drag) = v else { return }
+                        if !armed { armed = true; UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+                        if let drag {
+                            let pct = ((drag.location.x - 3) / inner * 100).rounded()
+                            onDrag(min(max(pct, range.lowerBound), range.upperBound))
+                        }
+                    }
+                    .onEnded { _ in armed = false },
                 including: onDrag == nil ? .none : .all
             )
+            .scaleEffect(y: armed ? 1.08 : 1)
         }
         .frame(height: 30)
         .padding(.trailing, 6)
