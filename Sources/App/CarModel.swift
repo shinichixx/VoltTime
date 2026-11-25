@@ -169,7 +169,8 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .windows: return s.anyWindowOpen ? ("Close the windows?", "Make sure nothing is in the way.", "Yes")
                                               : ("Vent the windows?", "All 4 windows open a little.", "Yes")
         case .keyless: return ("Start keyless driving?", "You can drive without the phone key for the next 2 minutes.", "Start")
-        case .sentry: return s.sentry ? ("Turn off Sentry mode?", "", "Yes") : ("Turn on Sentry mode?", "", "Yes")
+        case .sentry: return s.sentry ? ("Turn off Sentry mode?", "", "Yes")
+                                      : ("Turn on Sentry mode?", "Low Power Mode will be turned off first.", "Yes")
         case .valet: return s.valet ? ("Turn off valet mode?", "The car goes back to your normal settings.", "Turn off")
                                     : ("Turn on valet mode?", "Speed is limited and the glovebox locks.", "Turn on")
         case .precondition: return s.preconditioning ? ("Stop preconditioning?", "The A/C turns off.", "Stop")
@@ -448,7 +449,17 @@ final class CarModel: ObservableObject {
             case .amps5: try await t.command(vin, "set_charging_amps", ["amps": "5"])
             case .amps32: try await t.command(vin, "set_charging_amps", ["amps": "32"])
             case .boombox: try await t.command(vin, "remote_boombox")
-            case .sentry: try await t.command(vin, s.sentry ? "disable_sentry" : "enable_sentry")
+            case .sentry:
+                if s.sentry {
+                    try await t.command(vin, "disable_sentry")
+                } else {
+                    // Low Power Mode off first, then Sentry (same as the A/C).
+                    show(Banner(title: "Turning off Low Power Mode…", icon: "leaf", tint: CarColors.muted, spinning: true))
+                    try await t.command(vin, "disable_low_power_mode")
+                    var n = car; n.lowPower = false; car = n
+                    show(Banner(title: "Turning Sentry on…", icon: "record.circle", tint: CarColors.muted, spinning: true))
+                    try await t.command(vin, "enable_sentry")
+                }
             case .valet: try await t.command(vin, s.valet ? "disable_valet" : "enable_valet")
             case .guest: try await t.command(vin, s.guest == true ? "disable_guest" : "enable_guest")
             case .lowPower: try await t.command(vin, s.lowPower == true ? "disable_low_power_mode" : "enable_low_power_mode")

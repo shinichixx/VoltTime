@@ -4,6 +4,7 @@ import SwiftUI
 struct VoltTimeApp: App {
     init() {
         BackupReminder.registerDefaults()
+        BatteryAlerts.registerDefaults()
         ScenarioPhotos.moveOldFolder()
     }
 

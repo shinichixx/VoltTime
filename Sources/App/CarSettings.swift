@@ -30,6 +30,11 @@ struct CarSettingsPage: View {
                     nav("Autogate", "door.garage.open", iconView: AnyView(GateGlyph(size: 20, color: TSurface.icon)), gateAsk ? "Asks before sending" : "Sends straight away · asks when away", last: true)
                 }.buttonStyle(.plain)
 
+                TCaption(text: "Alerts")
+                NavigationLink { NotificationsPage() } label: {
+                    nav("Notifications", "bell", alertsLine, last: true)
+                }.buttonStyle(.plain)
+
                 TCaption(text: "Data")
                 NavigationLink { BackupPage(energy: energy, home: home) } label: {
                     nav("Backup", "arrow.triangle.2.circlepath", (backup.lastDate == nil ? "Not saved yet" : backup.lastText) + " · iCloud Drive",
@@ -40,6 +45,12 @@ struct CarSettingsPage: View {
             }
         }
         .teslaPage("My Car", black: true)
+    }
+
+    private var alertsLine: String {
+        let d = UserDefaults.standard
+        let on = [d.bool(forKey: BatteryAlerts.cellKey) ? "Cell gap" : nil, d.bool(forKey: BatteryAlerts.healthKey) ? "Battery health" : nil].compactMap { $0 }
+        return on.isEmpty ? "Off" : on.joined(separator: " · ")
     }
 
     private var s3xyLine: String {
@@ -584,4 +595,32 @@ struct S3XYDetailsPage: View {
         .teslaPage("Connection details", black: true)
     }
     private func value(_ s: String) -> some View { Text(s).font(.app(size: 14)).foregroundStyle(TeslaDark.rowLabel) }
+}
+
+
+struct NotificationsPage: View {
+    @AppStorage(BatteryAlerts.cellKey) private var cell = true
+    @AppStorage(BatteryAlerts.healthKey) private var health = true
+    @AppStorage(BatteryAlerts.backKey) private var back = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "Tell me when it turns amber or red")
+                TRow("Cell gap", icon: "waveform.path.ecg", subtitle: "Parked reading above 20 mV, then above 50 mV") {
+                    Toggle("", isOn: $cell).labelsHidden().tint(TSurface.green)
+                }
+                TRow("Battery health", icon: "minus.plus.batteryblock", subtitle: "Below 80%, then below 70%", last: true) {
+                    Toggle("", isOn: $health).labelsHidden().tint(TSurface.green)
+                }
+                TCaption(text: "Also")
+                TRow("Tell me when it's back to normal", icon: "checkmark.circle", last: true) {
+                    Toggle("", isOn: $back).labelsHidden().tint(TSurface.green)
+                }
+                TFootnote(text: "Each alert comes once per change: grey → amber, amber → red. TesLah checks when it's open (the cell gap is only read then anyway). Tyre alerts come from the Tessie app.")
+            }
+        }
+        .teslaPage("Notifications", black: true)
+        .onAppear { BatteryAlerts.askPermission() }
+    }
 }

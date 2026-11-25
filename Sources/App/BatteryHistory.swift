@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 import Network
 
 // Build 47: battery health and cell balance kept over time.
@@ -29,9 +30,9 @@ enum CellStatus {
         if !r.parked || (r.soc ?? 50) < 20 { self = .notJudged; return }
         switch r.mv {
         case ..<10: self = .excellent
-        case ..<20: self = .normal
-        case ..<50: self = .watch
-        default: self = .check
+        case ...20: self = .normal       // up to 20 mV: grey
+        case ...50: self = .watch        // 21 – 50 mV: amber
+        default: self = .check           // above 50 mV: red
         }
     }
 
@@ -99,8 +100,10 @@ final class BatteryHistory: ObservableObject {
     /// One parked reading a day (the latest of the day wins).
     func addParked(_ r: CellReading) {
         let cal = Calendar.current
+        let before = parked.last { !cal.isDate($0.date, inSameDayAs: r.date) && CellStatus($0) != .notJudged }
         if let i = parked.lastIndex(where: { cal.isDate($0.date, inSameDayAs: r.date) }) { parked[i] = r } else { parked.append(r) }
         save()
+        BatteryAlerts.cellGap(r, before: before)
     }
 
     /// The highest gap on the current drive (a new drive starts after 30 minutes without readings).
@@ -120,6 +123,7 @@ final class BatteryHistory: ObservableObject {
         let cal = Calendar.current
         if let i = health.lastIndex(where: { cal.isDate($0.date, inSameDayAs: point.date) }) { health[i] = point } else { health.append(point) }
         save()
+        BatteryAlerts.health(p, maxKm: h.maxRangeKm)
     }
 
     // MARK: Backup
@@ -445,5 +449,62 @@ struct RangePicker: View {
     static func cutoff(_ days: Int?) -> Date? {
         guard let d = days else { return nil }
         return Calendar.current.date(byAdding: .day, value: -d, to: Date())
+    }
+}
+
+
+// MARK: - Alerts (local notifications when the cell gap or battery health turns amber or red)
+
+enum BatteryAlerts {
+    static let cellKey = "alerts.cell", healthKey = "alerts.health", backKey = "alerts.backToNormal"
+    private static let cellLevelKey = "alerts.cell.level", healthLevelKey = "alerts.health.level"
+
+    static func registerDefaults() {
+        UserDefaults.standard.register(defaults: [cellKey: true, healthKey: true, backKey: false])
+    }
+
+    /// 0 grey, 1 amber, 2 red.
+    static func cellGap(_ r: CellReading, before: CellReading?) {
+        let st = CellStatus(r)
+        guard st != .notJudged else { return }
+        let level = st == .check ? 2 : (st == .watch ? 1 : 0)
+        let mv = Int(r.mv.rounded())
+        var body = "\(mv) mV, parked" + (r.soc.map { " at \(Int($0.rounded()))%" } ?? "") + "."
+        if let b = before { body += " Was \(Int(b.mv.rounded())) mV on \(b.date.formatted(.dateTime.day().month(.abbreviated)))." }
+        step(level, key: cellLevelKey, enabled: cellKey,
+             title: level == 2 ? "Cell gap needs checking" : "Cell gap worth watching", body: body,
+             normal: ("Cell gap back to normal", "\(mv) mV, parked."))
+    }
+
+    static func health(_ pct: Double, maxKm: Double?) {
+        let level = pct < 70 ? 2 : (pct < 80 ? 1 : 0)
+        let body = String(format: "%.1f%%", pct) + (maxKm.map { " · Max \(Int($0.rounded())) km" } ?? "")
+        step(level, key: healthLevelKey, enabled: healthKey,
+             title: level == 2 ? "Battery health below 70%" : "Battery health below 80%", body: body,
+             normal: ("Battery health back above 80%", body))
+    }
+
+    /// Notifies once per change: grey → amber, amber → red (and back to grey, if asked).
+    private static func step(_ level: Int, key: String, enabled: String, title: String, body: String, normal: (String, String)) {
+        let d = UserDefaults.standard
+        let last = d.object(forKey: key) as? Int
+        d.set(level, forKey: key)
+        guard let last, d.bool(forKey: enabled) else { return }   // first value ever: just remember it
+        if level > last { post(title, body) }
+        else if level == 0 && last > 0 && d.bool(forKey: backKey) { post(normal.0, normal.1) }
+    }
+
+    private static func post(_ title: String, _ body: String) {
+        Task {
+            let center = UNUserNotificationCenter.current()
+            guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+            let c = UNMutableNotificationContent()
+            c.title = title; c.body = body; c.sound = .default
+            try? await center.add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+        }
+    }
+
+    static func askPermission() {
+        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
     }
 }

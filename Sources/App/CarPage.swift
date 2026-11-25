@@ -449,9 +449,7 @@ struct CarView2: View {
         let street = c.address?.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespaces) }
         return VStack(spacing: 0) {
             row("car.side", "Controls", nil) { path.append(.carDetail(.controls)) }
-            row(c.climateOn ? "fanblades.fill" : "fanblades", "Climate", climateSub,
-                rich: c.climateOn ? (Text("On").foregroundColor(CarColors.blue) + Text(climateSub.dropFirst(2)).foregroundColor(K.grey)) : nil,
-                iconColor: c.climateOn ? CarColors.blue : nil) { path.append(.carDetail(.climate)) }
+            row(c.climateOn ? "fanblades.fill" : "fanblades", "Climate", climateSub) { path.append(.carDetail(.climate)) }
             row(c.charging ? "bolt.fill" : "bolt", "Charging", chargingSub, rich: chargingNow,
                 iconColor: c.charging ? TSurface.green : nil) { path.append(.settings) }
             row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · "), rich: batteryLine) { path.append(.carDetail(.battery)) }
@@ -517,18 +515,26 @@ struct CarView2: View {
         }
         if let e = c.energyAddedKWh { parts.append(String(format: "+%.0f kWh this session", e)) }
         let kw = c.chargerPowerKW.map { String(format: "%.1f kW", $0) } ?? "Charging"
-        return Text(kw).foregroundColor(K.sliderGreen)
-            + Text(parts.isEmpty ? "" : " · " + parts.joined(separator: " · ")).foregroundColor(K.grey)
+        return Text(([kw] + parts).joined(separator: " · ")).foregroundColor(K.grey)
     }
 
     private var chargingSub: String? {
         guard let m = home.chargingMode else { return nil }
-        if m == "Routine" {
+        if let lim = c.limit, let soc = c.soc, soc >= lim - 0.5 {
+            return "Ready to go · at \(Int(lim.rounded()))% limit"
+        }
+        switch m {
+        case "Routine":
+            let h = Calendar.current.component(.hour, from: Date())
+            guard h >= 19 || h < 7 else { return "Starts on excess solar power at home" }
             let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
             let r = home.readyMinutes
             return "Starts " + Self.hhmm.string(from: start) + " · Ready by " + String(format: "%02d:%02d", r / 60, r % 60)
+        case "Excess Solar": return "Starts on excess solar power at home"
+        case "Fast": return "Fast · charges at \(c.ampsCap)A when plugged in"
+        case "Off": return "Off · no charging required"
+        default: return ChargingMode.named(m).title
         }
-        return ChargingMode.named(m).title
     }
 
     private var planLine: String {

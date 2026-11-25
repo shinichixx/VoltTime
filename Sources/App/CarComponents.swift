@@ -280,7 +280,7 @@ struct ControlStrip: View {
                                         .shadow(color: TSurface.green.opacity(0.7), radius: 6)
                                 } else {
                                     ControlIcon(control: c, car: model.car, size: 21,
-                                                color: plain ? (c == .climate && model.car.climateOn ? CarColors.blue : TeslaApp.icon) : c.tint(model.car),
+                                                color: plain ? TeslaApp.icon : c.tint(model.car),
                                                 weight: plain ? .medium : .light)
                                 }
                             }
