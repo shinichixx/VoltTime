@@ -172,7 +172,7 @@ struct EnergyView: View {
                 Text(headerLabel).font(.app(size: 17, weight: .semibold))
                 if store.loading && selection == nil { ProgressView().tint(.white).scaleEffect(0.6) }
                 Spacer()
-                PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true)
+                PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: store.firstDay)
                     .opacity(selection == nil ? 1 : 0)
                     .allowsHitTesting(selection == nil)
             }
@@ -561,6 +561,15 @@ private struct EnergyChartView: View {
                 ctx.draw(t, at: CGPoint(x: plot.minX + px, y: plot.maxY + 6), anchor: .top)
             }
         }
+        // Bars: day / month labels centred under their own bars.
+        if !isDay && !lines {
+            for (d, label) in barLabels() {
+                guard let px = proxy.position(forX: d) else { continue }
+                let t = ctx.resolve(Text(label).font(.app(size: 11)).foregroundColor(TeslaDark.rowLabel))
+                ctx.draw(t, at: CGPoint(x: plot.minX + px, y: plot.maxY + 6), anchor: .top)
+            }
+        }
+        // Every line runs to the edge; its number sits just under it at the right. The bottom line has none.
         var v = scale.domain.lowerBound
         while v <= scale.domain.upperBound + 0.0001 {
             defer { v += scale.step }
@@ -568,25 +577,47 @@ private struct EnergyChartView: View {
             let y = plot.minY + py
             let isTop = abs(v - scale.domain.upperBound) < 0.0001
             let isBottom = abs(v - scale.domain.lowerBound) < 0.0001
-            // Grid and All: when the graph goes below zero, "0" sits just under the zero line.
-            let isZero = (comp == .grid || comp == .all) && abs(v) < 0.0001 && !isTop && !isBottom
-            let text = ctx.resolve(Text(scale.label(v, top: isTop, unit: unitName))
-                .font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
-            let w = text.measure(in: size).width
-            let right = plot.maxX - 4
             if lines {
                 var p = Path()
                 p.move(to: CGPoint(x: plot.minX, y: y))
-                p.addLine(to: CGPoint(x: isTop || isBottom || isZero ? plot.maxX : right - w - 6, y: y))
+                p.addLine(to: CGPoint(x: plot.maxX, y: y))
                 ctx.stroke(p, with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
-            } else if isTop || isZero {
-                shadowed.draw(text, at: CGPoint(x: right, y: y + 2), anchor: .topTrailing)
-            } else if isBottom {
-                shadowed.draw(text, at: CGPoint(x: right, y: y - 2), anchor: .bottomTrailing)
-            } else {
-                shadowed.draw(text, at: CGPoint(x: right, y: y), anchor: .trailing)
+            } else if !isBottom {
+                let text = ctx.resolve(Text(scale.label(v, top: isTop, unit: unitName))
+                    .font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
+                shadowed.draw(text, at: CGPoint(x: plot.maxX - 4, y: y + 2), anchor: .topTrailing)
             }
         }
+    }
+
+    /// Where each bar's label goes (the middle of its day or month) and what it says.
+    private func barLabels() -> [(Date, String)] {
+        var out: [(Date, String)] = []
+        var d = range.start
+        var i = 0
+        let end = range.end
+        while d < end {
+            guard let next = cal.date(byAdding: unit, value: 1, to: d) else { break }
+            let mid = d.addingTimeInterval(next.timeIntervalSince(d) / 2)
+            switch period {
+            case .week:
+                out.append((mid, d.formatted(.dateTime.weekday(.narrow))))
+            case .month:
+                let day = cal.component(.day, from: d)
+                if [1, 8, 15, 22, 29].contains(day) { out.append((mid, "\(day)")) }
+            case .year:
+                out.append((mid, d.formatted(.dateTime.month(.narrow))))
+            case .lifetime:
+                let months = cal.dateComponents([.month], from: range.start, to: end).month ?? 0
+                let every = months > 24 ? 6 : (months > 12 ? 3 : 1)
+                if i % every == 0 { out.append((mid, d.formatted(months > 12 ? .dateTime.month(.abbreviated).year(.twoDigits) : .dateTime.month(.narrow)))) }
+            case .day:
+                break
+            }
+            d = next
+            i += 1
+        }
+        return out
     }
 
     /// Tap and hold (then move) reads values; otherwise a sideways swipe turns the page.
@@ -627,7 +658,9 @@ private struct EnergyChartView: View {
             }
         } else {
             AxisMarks(values: .stride(by: unit, count: axisCount(pts.count))) { _ in
-                AxisValueLabel(format: axisFormat, centered: true)
+                AxisValueLabel {   // keeps the room; the visible labels are drawn under their own bars (drawScale)
+                    Text("0").font(.app(size: 11)).foregroundStyle(Color.clear)
+                }
             }
         }
     }
@@ -782,14 +815,16 @@ private struct EnergyChartView: View {
                     VStack(spacing: 4) {
                         FlowGlyph(kind: it.0, color: it.1, height: 14, maxWidth: 18)
                             .frame(height: 15)
-                        Text(n(it.2)).font(.app(size: 12.5, weight: .semibold)).foregroundStyle(.white)
+                        Text(n(it.2)).font(.app(size: 12.5, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
+                            .fixedSize()
                     }
+                    .frame(minWidth: 28)
                 }
                 Text(u).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
         .lineLimit(1)
-        .fixedSize()
+        .fixedSize(horizontal: true, vertical: true)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(white: 0.21)))
