@@ -277,7 +277,9 @@ final class EnergyStore: ObservableObject {
         var ids = [ImpactStat.odometer, ImpactStat.lifetimeEnergy, ImpactStat.forecastToday, ImpactStat.peakToday]
         if needForecast { ids += [ImpactStat.forecastTomorrow, ImpactStat.peakTomorrow] }
         let s = await ha.states(ids.filter { !$0.isEmpty })
-        if needForecast, let kwh = s[ImpactStat.forecastTomorrow]?.number {
+        let k = SolarSensors.current.scale
+        if needForecast, let raw = s[ImpactStat.forecastTomorrow]?.number {
+            let kwh = raw * k
             forecastTomorrow = kwh
             peakTomorrow = s[ImpactStat.peakTomorrow].flatMap { HAClient.parseISO($0.state) }
             let d = UserDefaults.standard
@@ -285,7 +287,7 @@ final class EnergyStore: ObservableObject {
             d.set(kwh, forKey: "impact.forecastKWh")
             if let p = peakTomorrow { d.set(p.timeIntervalSince1970, forKey: "impact.forecastPeak") } else { d.removeObject(forKey: "impact.forecastPeak") }
         }
-        forecastToday = s[ImpactStat.forecastToday]?.number ?? forecastToday
+        forecastToday = s[ImpactStat.forecastToday]?.number.map { $0 * k } ?? forecastToday
         peakToday = s[ImpactStat.peakToday].flatMap { HAClient.parseISO($0.state) } ?? peakToday
         await SolarForecastLog.shared.update(ha)
         if let v = forecastToday { SolarForecastLog.shared.noteToday(v) }
@@ -407,24 +409,45 @@ struct SolarSensors {
     var peakToday = "sensor.power_highest_peak_time_today"
     var peakTomorrow = "sensor.power_highest_peak_time_tomorrow"
     var isSolcast = false
+    /// Multiply a reading by this to get kWh (Solcast can report Wh).
+    var scale = 1.0
 
     static var current = SolarSensors()
     private static var resolved = false
 
+    /// The Solcast sensors set up in Home Assistant (roof site "Mezzanine").
+    private static let mezzanine = SolarSensors(
+        today: "sensor.mezzanine_solcast_pv_forecast_forecast_today",
+        tomorrow: "sensor.mezzanine_solcast_pv_forecast_forecast_tomorrow",
+        peakToday: "sensor.mezzanine_solcast_pv_forecast_peak_time_today",
+        peakTomorrow: "sensor.mezzanine_solcast_pv_forecast_peak_time_tomorrow",
+        isSolcast: true)
+
     @MainActor static func resolve(_ ha: HAClient) async {
-        guard !resolved, let ids = try? await ha.entityIDs() else { return }
+        guard !resolved else { return }
+        var pick: SolarSensors?
+        if let st = try? await ha.state(mezzanine.today), st.isAvailable {
+            pick = mezzanine
+        } else if let ids = try? await ha.entityIDs() {
+            let solcast = ids.filter { $0.hasPrefix("sensor.") && $0.contains("solcast") }
+            func find(_ suf: String) -> String? { solcast.first { $0.hasSuffix(suf) } }
+            if let t = find("_forecast_today"), let tm = find("_forecast_tomorrow") {
+                pick = SolarSensors(today: t, tomorrow: tm, peakToday: find("_peak_time_today") ?? "",
+                                    peakTomorrow: find("_peak_time_tomorrow") ?? "", isSolcast: true)
+            }
+        } else { return }   // Home Assistant not reachable: try again next refresh
         resolved = true
-        let solcast = ids.filter { $0.hasPrefix("sensor.") && $0.contains("solcast") }
-        func pick(_ suffixes: [String]) -> String? {
-            for suf in suffixes { if let m = solcast.first(where: { $0.hasSuffix(suf) }) { return m } }
-            return nil
+        guard var s = pick else { return }
+        // Work out the unit from the sensor itself.
+        if let st = try? await ha.state(s.today) {
+            switch (st.attributes["unit_of_measurement"] as? String ?? "").lowercased() {
+            case "wh": s.scale = 0.001
+            case "mwh": s.scale = 1000
+            case "kwh": s.scale = 1
+            default: s.scale = (st.number ?? 0) > SolarForecastLog.maxDay ? 0.001 : 1
+            }
         }
-        if let t = pick(["forecast_today"]), let tm = pick(["forecast_tomorrow"]) {
-            current = SolarSensors(today: t, tomorrow: tm,
-                                   peakToday: pick(["peak_time_today"]) ?? "",
-                                   peakTomorrow: pick(["peak_time_tomorrow"]) ?? "",
-                                   isSolcast: true)
-            SolarForecastLog.shared.noteSolcast()
-        }
+        current = s
+        SolarForecastLog.shared.noteSolcast()
     }
 }

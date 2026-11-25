@@ -25,6 +25,8 @@ final class SolarForecastLog: ObservableObject {
         d.removeObject(forKey: Self.checkedKey)
     }
     private static let checkedKey = "forecastLog.checked"
+    /// No day on an 8.85 kWp roof makes this much: a bigger figure is a unit mix-up.
+    static let maxDay = 150.0
 
     @Published private(set) var days: [String: Double] = [:]
 
@@ -37,6 +39,13 @@ final class SolarForecastLog: ObservableObject {
             try? FileManager.default.removeItem(at: Self.file)
             ud.removeObject(forKey: Self.checkedKey)
             ud.set(true, forKey: "forecastLog.v55")
+        }
+        // Build 65 saved Solcast's Wh figure as kWh: drop anything impossible for the roof.
+        let bad = days.filter { $0.value >= Self.maxDay }.map(\.key)
+        if !bad.isEmpty {
+            bad.forEach { days[$0] = nil }
+            save()
+            ud.removeObject(forKey: Self.checkedKey)
         }
     }
 
@@ -65,7 +74,9 @@ final class SolarForecastLog: ObservableObject {
             let six = day.addingTimeInterval(6 * 3600)
             guard days[k] == nil, Date() > six else { continue }
             guard let h = try? await ha.history([Self.todaySensor], since: six, until: six.addingTimeInterval(60)),
-                  let v = h[Self.todaySensor]?.first?.1, v > 0 else { continue }
+                  let raw = h[Self.todaySensor]?.first?.1 else { continue }
+            let v = raw * SolarSensors.current.scale
+            guard v > 0, v < Self.maxDay else { continue }
             days[k] = v
             changed = true
         }
@@ -75,7 +86,7 @@ final class SolarForecastLog: ObservableObject {
     /// The live figure, if nothing was saved for today yet (e.g. history is unavailable).
     func noteToday(_ v: Double) {
         let k = EnergyStore.keyFormatter.string(from: Date())
-        guard v > 0, days[k] == nil else { return }
+        guard v > 0, v < Self.maxDay, days[k] == nil else { return }
         days[k] = v
         save()
     }
