@@ -57,10 +57,7 @@ struct ImpactView: View {
             .padding(.bottom, 8)
         }
         .scrollIndicators(.hidden)
-        .teslaPage("Impact")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { PeriodMenu(periodRaw: $periodRaw, offset: $offset) }
-        }
+        .teslaPage("Impact", trailing: AnyView(PeriodMenu(periodRaw: $periodRaw, offset: $offset)))
         .task { await model.refresh() }
     }
 

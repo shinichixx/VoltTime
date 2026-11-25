@@ -42,20 +42,17 @@ struct SystemTile: View {
 }
 
 extension View {
-    /// Dark page with a small centred title and the system back button (white).
-    func teslaPage(_ title: String, black: Bool = false) -> some View {
-        self
-            .background((black ? TSurface.page : TeslaDark.bg).ignoresSafeArea())
+    /// Dark page with our own slim top bar (Tesla app): thin grey back arrow, small centred title, optional
+    /// item on the right. Replaces the system bar, which is much taller on iOS 26.
+    func teslaPage(_ title: String, black: Bool = false, trailing: AnyView? = nil) -> some View {
+        let bg = black ? TSurface.page : TeslaDark.bg
+        return self
+            .background(bg.ignoresSafeArea())
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {   // the title in Albert Sans (the system bar would draw it in SF Pro)
-                ToolbarItem(placement: .principal) {
-                    Text(title).font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
-                }
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                TeslaTopBar(title: title, trailing: trailing, background: bg)
             }
-            .toolbarBackground(black ? TSurface.page : TeslaDark.bg, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .plainBackButton()
     }
 
     /// Tesla app back button: a thin grey arrow, no circle behind it (iOS 26 would put the system one in glass).
@@ -67,6 +64,29 @@ extension View {
             self.navigationBarBackButtonHidden(true)
                 .toolbar { ToolbarItem(placement: .topBarLeading) { PlainBackButton() } }
         }
+    }
+}
+
+/// The slim top bar: 32 pt under the status bar; content starts right below it.
+struct TeslaTopBar: View {
+    let title: String
+    let trailing: AnyView?
+    let background: Color
+
+    var body: some View {
+        ZStack {
+            Text(title).font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 80)
+            HStack(spacing: 0) {
+                PlainBackButton().padding(.leading, 14)
+                Spacer()
+                if let trailing { trailing.padding(.trailing, 18) }
+            }
+        }
+        .frame(height: 32)
+        .frame(maxWidth: .infinity)
+        .background(background.ignoresSafeArea(edges: .top))
     }
 }
 
@@ -217,7 +237,7 @@ struct SettingsPage: View {
         ScrollView {
             VStack(spacing: 0) {
                 TCaption(text: "Car charging mode")
-                    .padding(.top, -18)          // close under the title, clear of the top bar
+                    .padding(.top, 0)            // close under the slim top bar
                 modeTiles
                     .padding(.horizontal, 20)
                 Text(ChargingMode.named(myHome.pendingMode ?? myHome.mode ?? "Routine").detail)

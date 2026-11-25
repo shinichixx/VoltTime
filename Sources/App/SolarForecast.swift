@@ -184,8 +184,7 @@ struct ForecastVsActualView: View {
             .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 20)
         }
         .scrollIndicators(.hidden)
-        .teslaPage("Forecast vs actual")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { PeriodMenu(periodRaw: $periodRaw, offset: $offset) } }
+        .teslaPage("Forecast vs actual", trailing: AnyView(PeriodMenu(periodRaw: $periodRaw, offset: $offset)))
         .onChange(of: periodRaw) { _, _ in picked = nil }
         .onChange(of: offset) { _, _ in picked = nil }
     }

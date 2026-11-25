@@ -80,6 +80,8 @@ struct EnergyView: View {
     @State private var offset = 0
     /// Which way the last swipe went (the graph slides in from that side).
     @State private var forward = false
+    /// Tap and hold on the graph: the time (or bar) being read.
+    @State private var selection: Date?
 
     init(store: EnergyStore, start: EnergyComponent = .all) {
         _store = ObservedObject(wrappedValue: store)
@@ -98,6 +100,7 @@ struct EnergyView: View {
     private func step(_ by: Int) {
         guard by < 0 ? canBack : canForward else { return }
         forward = by > 0
+        selection = nil
         DispatchQueue.main.async {   // the leaving graph picks up the new direction first
             withAnimation(.easeInOut(duration: 0.28)) { offset += by }
         }
@@ -117,14 +120,15 @@ struct EnergyView: View {
                     header(t)
                         .padding(.horizontal, 20)
                     ZStack {
-                        EnergyChartView(store: store, period: period, comp: comp, range: range, swipe: step)
+                        EnergyChartView(store: store, period: period, comp: comp, range: range, swipe: step, selection: $selection)
                             .id("\(periodRaw)|\(offset)")
                             .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
                                                     removal: .move(edge: forward ? .leading : .trailing)))
                     }
                     .frame(height: comp == .all ? 250 : 270)
-                    .clipped()
+                    .clipShape(OpenTopClip())   // the slide stays inside the graph; the reading box may rise above it
                     .padding(.top, 18)
+                    Group {
                     Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
                     Group {
                         if comp == .all {
@@ -143,11 +147,14 @@ struct EnergyView: View {
                         }
                     }
                     .padding(.horizontal, 20)
+                    }
+                    .opacity(selection == nil ? 1 : 0.25)   // dims while reading the graph (Tesla app)
+                    .animation(.easeOut(duration: 0.15), value: selection == nil)
                     Color.clear.frame(height: 96)   // clear of the floating bar
                 }
             }
             .scrollIndicators(.hidden)
-            EnergyTabBar(selected: Binding(get: { comp }, set: { compRaw = $0.rawValue }))
+            EnergyTabBar(selected: Binding(get: { comp }, set: { compRaw = $0.rawValue; selection = nil }))
                 .padding(.bottom, 6)
         }
         .teslaPage(comp.pageTitle)
@@ -162,12 +169,15 @@ struct EnergyView: View {
     private func header(_ t: EnergyFlow) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                Text(range.label).font(.app(size: 17, weight: .semibold))
-                if store.loading { ProgressView().tint(.white).scaleEffect(0.6) }
+                Text(headerLabel).font(.app(size: 17, weight: .semibold))
+                if store.loading && selection == nil { ProgressView().tint(.white).scaleEffect(0.6) }
                 Spacer()
                 PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true)
+                    .opacity(selection == nil ? 1 : 0)
+                    .allowsHitTesting(selection == nil)
             }
-            .padding(.top, -11)   // close under the page title (the top bar would hide anything higher)
+            .padding(.top, 6)
+            Group {
             switch comp {
             case .all:
                 EmptyView()
@@ -186,6 +196,21 @@ struct EnergyView: View {
             case .vehicle:
                 figure("Charged", arrow: "arrow.down", t.car).padding(.top, 14)
             }
+            }
+            .opacity(selection == nil ? 1 : 0)   // the reading box takes this space while you hold the graph
+        }
+    }
+
+    /// "Today", or while reading the graph "Today · 2:35 PM" (Day) / the bar's day or month.
+    private var headerLabel: String {
+        guard let sel = selection else { return range.label }
+        switch period {
+        case .day:
+            return range.label + " · " + sel.addingTimeInterval(-450).formatted(date: .omitted, time: .shortened)
+        case .week, .month:
+            return sel.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        default:
+            return sel.formatted(.dateTime.month(.wide).year())
         }
     }
 
@@ -327,8 +352,7 @@ private struct EnergyChartView: View {
     let comp: EnergyComponent
     let range: PeriodRange
     let swipe: (Int) -> Void
-
-    @State private var selection: Date?
+    @Binding var selection: Date?
 
     private let cal = Calendar.current
     private var isDay: Bool { period == .day }
@@ -439,7 +463,9 @@ private struct EnergyChartView: View {
                             .interpolationMethod(.monotone)
                     }
                 }
-                ForEach(Array(template.enumerated()), id: \.offset) { i, t in
+                // Edge lines from the top layer down, so a lower layer's line wins where they meet
+                // (a 0 kW layer never paints over the one beneath it).
+                ForEach(Array(template.enumerated()).reversed(), id: \.offset) { i, t in
                     ForEach(pts) { p in
                         let b = bounds(p, i)
                         LineMark(x: .value("Time", p.date), y: .value("Edge", negative(i) ? b.lo : b.hi), series: .value("Line", t.0))
@@ -456,14 +482,23 @@ private struct EnergyChartView: View {
                     }
                 }
             }
-            if let sel = selection {
-                RuleMark(x: .value("Selected", sel))
-                    .foregroundStyle(Color.white.opacity(0.6))
+            if let sel = selection, let hit = hitPoint(sel, pts) {
+                RuleMark(x: isDay ? .value("Selected", hit.date) : .value("Selected", hit.date, unit: unit))
+                    .foregroundStyle(Color.white.opacity(0.85))
                     .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: .top, alignment: .center, spacing: 4,
-                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                        scrub(sel, pts)
+                    .annotation(position: .top, alignment: .center, spacing: 6,
+                                overflowResolution: .init(x: .fit(to: .chart), y: comp == .all ? .fit(to: .chart) : .disabled)) {
+                        readingBox(hit)
                     }
+                if isDay {
+                    ForEach(dots(hit), id: \.0) { d in
+                        PointMark(x: .value("Time", hit.date), y: .value("V", d.1))
+                            .symbol {
+                                Circle().fill(d.2).frame(width: 9, height: 9)
+                                    .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
+                            }
+                    }
+                }
             }
         }
         .chartForegroundStyleScale(domain: template.map(\.0), range: template.map(\.1))
@@ -517,6 +552,15 @@ private struct EnergyChartView: View {
         let unitName = isDay ? "kW" : "kWh"
         var shadowed = ctx   // numbers keep a faint dark shadow, readable over the graph
         shadowed.addFilter(.shadow(color: .black.opacity(0.85), radius: 2))
+        // Day: 6 AM, 12 PM, 6 PM centred under their dotted lines.
+        if isDay && !lines {
+            for h in [6, 12, 18] {
+                let d = range.start.addingTimeInterval(Double(h) * 3600)
+                guard let px = proxy.position(forX: d) else { continue }
+                let t = ctx.resolve(Text(Self.hourLabel(d)).font(.app(size: 11)).foregroundColor(TeslaDark.rowLabel))
+                ctx.draw(t, at: CGPoint(x: plot.minX + px, y: plot.maxY + 6), anchor: .top)
+            }
+        }
         var v = scale.domain.lowerBound
         while v <= scale.domain.upperBound + 0.0001 {
             defer { v += scale.step }
@@ -554,7 +598,9 @@ private struct EnergyChartView: View {
             .onChanged { v in
                 if case .first(let s) = v, case .second(true, let d?) = s {
                     let x = d.location.x - (proxy.plotFrame.map { g[$0].minX } ?? 0)
-                    selection = proxy.value(atX: x, as: Date.self)
+                    if let raw = proxy.value(atX: x, as: Date.self), let hit = hitPoint(raw, points) {
+                        if selection != hit.date { selection = hit.date }
+                    }
                 }
             }
             .onEnded { v in
@@ -575,8 +621,8 @@ private struct EnergyChartView: View {
                 let d = v.as(Date.self) ?? Date()
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 4]))
                     .foregroundStyle(Color.white.opacity(0.1))
-                AxisValueLabel(anchor: .top) {   // centred under its line
-                    Text(Self.hourLabel(d)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                AxisValueLabel {   // keeps the room; the visible label is drawn centred under its line (drawScale)
+                    Text(Self.hourLabel(d)).font(.app(size: 11)).foregroundStyle(Color.clear)
                 }
             }
         } else {
@@ -669,49 +715,90 @@ private struct EnergyChartView: View {
         }
     }
 
-    // MARK: Scrub box (tap and hold)
+    // MARK: Reading the graph (tap and hold)
 
-    private func scrub(_ sel: Date, _ points: [FlowPoint]) -> some View {
-        let hit: FlowPoint? = isDay
-            ? points.min { abs($0.date.timeIntervalSince(sel)) < abs($1.date.timeIntervalSince(sel)) }
-            : points.first { cal.isDate($0.date, equalTo: sel, toGranularity: unit) }
-        let title: String
-        if let h = hit {
-            if isDay {
-                let a = h.date.addingTimeInterval(-450)
-                title = a.formatted(date: .omitted, time: .shortened)
+    private func hitPoint(_ d: Date, _ pts: [FlowPoint]) -> FlowPoint? {
+        if isDay { return pts.min { abs($0.date.timeIntervalSince(d)) < abs($1.date.timeIntervalSince(d)) } }
+        return pts.first { cal.isDate($0.date, equalTo: d, toGranularity: unit) }
+    }
+
+    /// A dot on each line that has power at that moment, in its colour.
+    private func dots(_ p: FlowPoint) -> [(String, Double, Color)] {
+        if comp == .all {
+            let f = p.flow, k = p.k
+            var out: [(String, Double, Color)] = [("solar", f.solar * k, EnergyColor.solar), ("home", f.house * k, EnergyColor.home)]
+            if f.car > 0 { out.append(("used", (f.house + f.car) * k, EnergyColor.vehicle)) }
+            if f.exp > 0 { out.append(("export", -f.exp * k, EnergyColor.grid)) }
+            return out
+        }
+        let template = parts(p)
+        return template.indices.compactMap { i in
+            let v = template[i].2
+            guard abs(v) > 0.001 else { return nil }
+            let b = bounds(p, i)
+            return (template[i].0, negative(i) ? b.lo : b.hi, template[i].1)
+        }
+    }
+
+    /// Tesla app: a summary line, then each source / destination as icon over value, then the unit.
+    private func readingBox(_ p: FlowPoint) -> some View {
+        let f = p.flow, k = p.k
+        let u = isDay ? "kW" : "kWh"
+        func n(_ v: Double) -> String { String(format: "%.1f", v).replacingOccurrences(of: "-", with: "−") }
+        var arrow: String? = nil
+        var summary = ""
+        var items: [(FlowGlyph.Kind, Color, Double)] = []
+        switch comp {
+        case .grid:
+            if f.exp > f.imp {
+                arrow = "arrow.down"; summary = "\(n(f.exp * k)) \(u) Exported"
+                items = [(.solar, EnergyColor.solar, f.exp * k)]
             } else {
-                title = h.date.formatted(byMonth ? .dateTime.month(.wide).year() : .dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                arrow = "arrow.up"; summary = "\(n(f.imp * k)) \(u) Imported"
+                items = [(.home, EnergyColor.home, f.homeGrid * k), (.car, EnergyColor.vehicle, f.carGrid * k)]
             }
-        } else { title = "" }
-        let fmt = isDay ? "%.1f kW" : "%.1f kWh"
-        let rows: [(String, Color, Double)]
-        if let h = hit {
-            if comp == .all {
-                let f = h.flow, k = h.k
-                rows = [("Solar", EnergyColor.solar, f.solar * k), ("Home", EnergyColor.home, f.house * k),
-                        ("Model 3", EnergyColor.vehicle, f.car * k), ("Grid", EnergyColor.grid, (f.imp - f.exp) * k)]
-            } else {
-                rows = parts(h).map { ($0.0, $0.1, abs($0.2)) }
+        case .home:
+            summary = "\(n(f.house * k)) \(u) Used"
+            items = [(.solar, EnergyColor.solar, f.homeSolar * k), (.grid, EnergyColor.grid, f.homeGrid * k)]
+        case .vehicle:
+            summary = "\(n(f.car * k)) \(u) Charging"
+            items = [(.solar, EnergyColor.solar, f.carSolar * k), (.grid, EnergyColor.grid, f.carGrid * k)]
+        case .solar:
+            summary = "\(n(f.solar * k)) \(u) Generated"
+            items = [(.home, EnergyColor.home, f.homeSolar * k), (.car, EnergyColor.vehicle, f.carSolar * k), (.grid, EnergyColor.grid, f.exp * k)]
+        case .all:
+            summary = "\(n((f.house + f.car) * k)) \(u) Used"
+            items = [(.solar, EnergyColor.solar, f.solar * k), (.home, EnergyColor.home, f.house * k),
+                     (.car, EnergyColor.vehicle, f.car * k), (.grid, EnergyColor.grid, (f.imp - f.exp) * k)]
+        }
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 4) {
+                if let arrow { Image(systemName: arrow).font(.system(size: 10, weight: .medium)) }
+                Text(summary).font(.app(size: 12))
             }
-        } else { rows = [] }
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.app(size: 11, weight: .semibold))
-            ForEach(rows, id: \.0) { r in
-                HStack(spacing: 5) {
-                    Circle().fill(r.1).frame(width: 6, height: 6)
-                    Text(r.0).font(.app(size: 11)).foregroundStyle(TeslaDark.labelGrey)
-                    Spacer(minLength: 10)
-                    Text(String(format: fmt, r.2)).font(.app(size: 11, weight: .medium).monospacedDigit())
+            .foregroundStyle(TeslaDark.rowLabel)
+            HStack(alignment: .bottom, spacing: 14) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+                    VStack(spacing: 4) {
+                        FlowGlyph(kind: it.0, color: it.1, height: 14, maxWidth: 18)
+                            .frame(height: 15)
+                        Text(n(it.2)).font(.app(size: 12.5, weight: .semibold)).foregroundStyle(.white)
+                    }
                 }
+                Text(u).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
         .lineLimit(1)
         .fixedSize()
-        .padding(8)
-        .background(Color(white: 0.17))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(white: 0.21)))
     }
+}
+
+/// Clips left, right and bottom only: the reading box can rise above the graph into the header.
+private struct OpenTopClip: Shape {
+    func path(in r: CGRect) -> Path { Path(CGRect(x: r.minX, y: r.minY - 200, width: r.width, height: r.height + 200)) }
 }
 
 /// Y range fitted to what's on screen: neat steps, 4–5 gridlines; negatives (export) below zero.
