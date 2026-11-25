@@ -3,12 +3,27 @@ import Charts
 
 // Build 54: one solar forecast a day, kept forever, to set against what the inverter actually made.
 
-/// Each day's forecast (kWh), as Forecast.Solar gave it before sunrise that day.
+/// Each day's solar forecast (kWh): Solcast (Forecast.Solar before), as it stood before sunrise that day.
 @MainActor
 final class SolarForecastLog: ObservableObject {
     static let shared = SolarForecastLog()
     nonisolated static var file: URL { AppData.support.appendingPathComponent("solar-forecast.json") }
-    static let todaySensor = "sensor.energy_production_today"
+    static var todaySensor: String { SolarSensors.current.today }
+    private static let solcastKey = "forecastLog.solcastSince"
+
+    /// First day whose forecast comes from Solcast (Forecast.Solar before it).
+    var solcastSince: Date? { UserDefaults.standard.object(forKey: Self.solcastKey) as? Date }
+
+    func noteSolcast() {
+        let d = UserDefaults.standard
+        guard d.object(forKey: Self.solcastKey) == nil else { return }
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        // Today already saved from Forecast.Solar? Then Solcast starts tomorrow.
+        let start = days[EnergyStore.keyFormatter.string(from: today)] != nil ? (cal.date(byAdding: .day, value: 1, to: today) ?? today) : today
+        d.set(start, forKey: Self.solcastKey)
+        d.removeObject(forKey: Self.checkedKey)
+    }
     private static let checkedKey = "forecastLog.checked"
 
     @Published private(set) var days: [String: Double] = [:]
@@ -122,7 +137,7 @@ struct ForecastVsActualView: View {
                     chart(r, bs)
                     table(bs)
                 }
-                Text("Forecast: the solar forecast for the day, saved each morning.\nActual: what the inverter produced.")
+                Text(footnote)
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .lineSpacing(3)
                     .padding(.top, 10).padding(.horizontal, 16)
@@ -134,6 +149,15 @@ struct ForecastVsActualView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) { PeriodMenu(periodRaw: $periodRaw, offset: $offset) } }
         .onChange(of: periodRaw) { _, _ in picked = nil }
         .onChange(of: offset) { _, _ in picked = nil }
+    }
+
+    private var footnote: String {
+        guard let since = log.solcastSince else {
+            return "Forecast: the solar forecast for the day, saved each morning.\nActual: what the inverter produced."
+        }
+        let day = since.formatted(.dateTime.day().month(.abbreviated))
+        let older = (log.firstDay.map { $0 < since } ?? false) ? "\nForecast.Solar before \(day)." : ""
+        return "Forecast: Solcast (2 roof planes), saved each morning." + older + "\nActual: what the inverter produced."
     }
 
     // MARK: Data

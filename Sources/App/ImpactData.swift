@@ -33,10 +33,12 @@ enum ImpactStat {
     static let car = "sensor.tesla_wall_connector_tuya_meter_energy"
     static let all = [solar, imp, exp, car]
 
-    static let forecastTomorrow = "sensor.energy_production_tomorrow"
-    static let forecastToday = "sensor.energy_production_today"
-    static let peakToday = "sensor.power_highest_peak_time_today"
-    static let peakTomorrow = "sensor.power_highest_peak_time_tomorrow"
+    // Solar forecast sensors: Solcast's when present (found by name, since setups name them differently),
+    // else Forecast.Solar's. Resolved once per launch by SolarSensors.resolve.
+    static var forecastTomorrow: String { SolarSensors.current.tomorrow }
+    static var forecastToday: String { SolarSensors.current.today }
+    static var peakToday: String { SolarSensors.current.peakToday }
+    static var peakTomorrow: String { SolarSensors.current.peakTomorrow }
     static let odometer = "sensor.ultra_rouge_odometer_2"
     static let lifetimeEnergy = "sensor.ultra_rouge_lifetime_energy_used"
 
@@ -270,11 +272,11 @@ final class EnergyStore: ObservableObject {
     }
 
     private func refreshLive(_ ha: HAClient) async {
-        loadForecastIfToday()
-        let needForecast = forecastTomorrow == nil
+        await SolarSensors.resolve(ha)
+        let needForecast = true   // Solcast refines tomorrow during the day: read it each time
         var ids = [ImpactStat.odometer, ImpactStat.lifetimeEnergy, ImpactStat.forecastToday, ImpactStat.peakToday]
         if needForecast { ids += [ImpactStat.forecastTomorrow, ImpactStat.peakTomorrow] }
-        let s = await ha.states(ids)
+        let s = await ha.states(ids.filter { !$0.isEmpty })
         if needForecast, let kwh = s[ImpactStat.forecastTomorrow]?.number {
             forecastTomorrow = kwh
             peakTomorrow = s[ImpactStat.peakTomorrow].flatMap { HAClient.parseISO($0.state) }
@@ -393,6 +395,36 @@ final class HAWebSocket {
                 }
             }
             return out
+        }
+    }
+}
+
+
+/// Which entities hold the solar forecast.
+struct SolarSensors {
+    var today = "sensor.energy_production_today"
+    var tomorrow = "sensor.energy_production_tomorrow"
+    var peakToday = "sensor.power_highest_peak_time_today"
+    var peakTomorrow = "sensor.power_highest_peak_time_tomorrow"
+    var isSolcast = false
+
+    static var current = SolarSensors()
+    private static var resolved = false
+
+    @MainActor static func resolve(_ ha: HAClient) async {
+        guard !resolved, let ids = try? await ha.entityIDs() else { return }
+        resolved = true
+        let solcast = ids.filter { $0.hasPrefix("sensor.") && $0.contains("solcast") }
+        func pick(_ suffixes: [String]) -> String? {
+            for suf in suffixes { if let m = solcast.first(where: { $0.hasSuffix(suf) }) { return m } }
+            return nil
+        }
+        if let t = pick(["forecast_today"]), let tm = pick(["forecast_tomorrow"]) {
+            current = SolarSensors(today: t, tomorrow: tm,
+                                   peakToday: pick(["peak_time_today"]) ?? "",
+                                   peakTomorrow: pick(["peak_time_tomorrow"]) ?? "",
+                                   isSolcast: true)
+            SolarForecastLog.shared.noteSolcast()
         }
     }
 }

@@ -135,6 +135,13 @@ struct HAClient {
         return HAState(state: (obj["state"] as? String) ?? "unknown", attributes: (obj["attributes"] as? [String: Any]) ?? [:])
     }
 
+    /// Every entity id Home Assistant has (one request).
+    func entityIDs() async throws -> [String] {
+        let data = try await send("/api/states", timeout: 30)
+        guard let list = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        return list.compactMap { $0["entity_id"] as? String }
+    }
+
     /// Reads many entities in parallel; missing ones are simply left out.
     func states(_ entities: [String]) async -> [String: HAState] {
         await withTaskGroup(of: (String, HAState?).self) { group in
