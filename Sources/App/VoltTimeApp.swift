@@ -28,6 +28,7 @@ struct ContentView: View {
     @StateObject private var car = CarModel()
     @State private var path: [Route] = []
     @State private var page = 0
+    @State private var pageID: Int? = 0      // the pager's scroll position (kept in step with `page`)
     @StateObject private var fx = PagerFX()
 
     /// Page dots centred between the last row of text and the bottom edge of the screen
@@ -71,16 +72,39 @@ struct ContentView: View {
                     .opacity(min(PagerFX.swipe(fx.homeX, w), PagerFX.scrolled(fx.homeScroll)))
                     .allowsHitTesting(false)
             }
-            TabView(selection: $page) {
-                CarPage(car: car, home: home, myHome: myHome, path: $path, active: page == 0)
-                    .tag(0)
-                MyHomeView(model: myHome, path: $path)
-                    .tag(1)
-                SimulationPage(home: home)
-                    .tag(2)
+            // The pager is a plain paging scroll view drawn over the whole screen (build 63). The page-style
+            // TabView it replaces kept its own idea of the home-bar safe area and cut every page ~17 pt short
+            // at the bottom (and ~17 pt early at the top). Each page now starts under the status bar by
+            // plain padding, and runs to the very bottom edge of the screen.
+            GeometryReader { g in
+                let top = g.safeAreaInsets.top > 0 ? g.safeAreaInsets.top : 59
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 0) {
+                        CarPage(car: car, home: home, myHome: myHome, path: $path, active: page == 0, topInset: top)
+                            .pagerPage(top: top)
+                            .id(0)
+                        MyHomeView(model: myHome, path: $path)
+                            .pagerPage(top: top)
+                            .id(1)
+                        SimulationPage(home: home)
+                            .pagerPage(top: top)
+                            .id(2)
+                    }
+                    .scrollTargetLayout()
+                    .scrollBounceBehavior(.always)   // the pages' own scroll views keep the app-wide spring
+                }
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: $pageID)
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.basedOnSize, axes: .vertical)   // the pager itself never moves up or down
+                .ignoresSafeArea(.container)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .ignoresSafeArea(.container, edges: .bottom)
+            .onChange(of: pageID) { _, v in
+                if let v, v != page { page = v }
+            }
+            .onChange(of: page) { _, v in
+                if pageID != v { withAnimation(.easeInOut(duration: 0.3)) { pageID = v } }
+            }
             // The house's power figures float above the pager (the Model 3 one opens Charging).
             GeometryReader { g in
                 MyHomeView(model: myHome, path: $path, layer: .labels)
@@ -308,5 +332,14 @@ struct HomeAssistantPage: View {
             connected = false
             testResult = error.localizedDescription
         }
+    }
+}
+
+private extension View {
+    /// One page of the pager: exactly one screen wide and tall, laid out from just under the status bar
+    /// down to the very bottom edge of the screen (under the home bar).
+    func pagerPage(top: CGFloat) -> some View {
+        padding(.top, top)
+            .containerRelativeFrame([.horizontal, .vertical], alignment: .top)
     }
 }

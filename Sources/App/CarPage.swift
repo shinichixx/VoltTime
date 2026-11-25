@@ -8,10 +8,11 @@ struct CarPage: View {
     @ObservedObject var myHome: MyHomeModel
     @Binding var path: [Route]
     var active = true
+    var topInset: CGFloat = 59               // status bar height: the rows scroll up under it and fade out
     @Environment(\.scenePhase) private var phase
 
     var body: some View {
-        CarView2(model: car, home: home, myHome: myHome, path: $path, active: active)
+        CarView2(model: car, home: home, myHome: myHome, path: $path, active: active, topInset: topInset)
             .task(id: phase) {
                 guard phase == .active else { return }
                 while !Task.isCancelled {
@@ -168,6 +169,7 @@ struct CarView2: View {
     @ObservedObject var myHome: MyHomeModel
     @Binding var path: [Route]
     var active = true
+    var topInset: CGFloat = 59
     @State private var sliderLimit: Double?
     @State private var limitArmed = false     // press and hold 0.5 s before the limit slider moves
     @State private var scroll: CGFloat = 0
@@ -201,7 +203,7 @@ struct CarView2: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         GeometryReader { g in
-                            Color.clear.preference(key: ScrollY.self, value: -g.frame(in: .named("v2")).minY)
+                            Color.clear.preference(key: ScrollY.self, value: topInset - g.frame(in: .named("v2")).minY)
                         }
                         .frame(height: 0)
                         .id("top")
@@ -227,6 +229,7 @@ struct CarView2: View {
                 .coordinateSpace(name: "v2")
                 .modifier(TrackScroll(y: $scroll))
                 .scrollIndicators(.hidden)
+                .contentMargins(.top, topInset, for: .scrollContent)   // at rest everything sits where it always did
                 .refreshable { await model.refresh() }
                 .alert(portAsk == .unlock ? "Unlock the charge cable?" : "Open the charge port?",
                        isPresented: Binding(get: { portAsk != nil }, set: { if !$0 { portAsk = nil } }),
@@ -241,7 +244,19 @@ struct CarView2: View {
                 } message: { a in
                     Text(a == .unlock ? "The cable is released so you can unplug it." : "The port door opens, ready for the cable.")
                 }
-                .ignoresSafeArea(.container, edges: .bottom)   // rows run to the very bottom edge, no fade
+                // Tesla app: rows keep scrolling up under the clock and fade away as they near the top of the
+                // screen (gone 30 pt from the top, full again 60 pt lower) instead of being cut off.
+                // At the bottom they run to the very edge of the screen, no fade.
+                .mask {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: max(0, topInset - 29))
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 60)
+                        Color.black
+                    }
+                }
+                .ignoresSafeArea(.container)
+                .padding(.top, -topInset)   // the scroll view itself reaches the top of the screen
                 // Swiped away to My Home: back to the top, so the car page always opens at the top.
                 .onChange(of: active) { _, on in
                     // Back to the top only once the swipe has settled on another page (out of sight),
