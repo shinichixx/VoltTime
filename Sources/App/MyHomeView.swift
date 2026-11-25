@@ -297,12 +297,12 @@ struct MyHomeView: View {
             case .labels:
                 labels(width: w).compositingGroup()
             case .page:
-                page(width: w, height: height, px: geo.frame(in: .global).minX)
+                page(width: w, height: height, screen: geo.size.height, px: geo.frame(in: .global).minX)
             }
         }
     }
 
-    private func page(width w: CGFloat, height: CGFloat, px: CGFloat) -> some View {
+    private func page(width w: CGFloat, height: CGFloat, screen: CGFloat, px: CGFloat) -> some View {
         ZStack(alignment: .top) {
             Color.clear
                 .onAppear { fx.homeX = px }
@@ -317,8 +317,9 @@ struct MyHomeView: View {
                     .frame(height: 0)
                     Color.clear.frame(height: height)
                     rows
-                    Color.clear.frame(height: 66)   // clear of the page dots
                 }
+                // Exactly one screen tall: the rows only bounce, and always spring back to where they were.
+                .frame(height: screen, alignment: .top)
             }
             .coordinateSpace(name: "home")
             .modifier(TrackScroll(y: $scroll))

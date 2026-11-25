@@ -65,7 +65,7 @@ struct ContentView: View {
                     .clipped()
                     .compositingGroup()
                     .opacity(min(PagerFX.swipe(fx.carX, w), PagerFX.scrolled(fx.carScroll)))
-                    .padding(.top, 92)
+                    .padding(.top, 82)   // 10 pt closer to the status line (build 58)
                     .allowsHitTesting(false)
                 MyHomeView(model: myHome, path: $path, layer: .backdrop)
                     .opacity(min(PagerFX.swipe(fx.homeX, w), PagerFX.scrolled(fx.homeScroll)))

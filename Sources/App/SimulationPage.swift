@@ -32,6 +32,6 @@ struct SimulationPage: View {
             }
             .ignoresSafeArea(.container, edges: .bottom)   // cards scroll all the way to the screen edge
         }
-        .background(TSurface.page.ignoresSafeArea())
+        // No background of its own: the house behind the pager shows through while swiping in (same colour as before).
     }
 }
