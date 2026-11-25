@@ -387,6 +387,27 @@ private struct EnergyChartView: View {
         }
     }
 
+    /// Grid's export is the one part drawn below zero.
+    private func negative(_ i: Int) -> Bool { comp == .grid && i == 1 }
+
+    /// Where part `i` sits at this point: stacked on the parts before it (above zero), or hanging below zero.
+    private func bounds(_ p: FlowPoint, _ i: Int) -> (lo: Double, hi: Double) {
+        let vs = parts(p).map(\.2)
+        if negative(i) { return (min(vs[i], 0), 0) }
+        let below = vs.prefix(i).enumerated().filter { !negative($0.offset) }.map { max($0.element, 0) }.reduce(0, +)
+        return (below, below + max(vs[i], 0))
+    }
+
+    /// Strong (62%) at the far edge of the graph, 10% at the 0 line; the gradient spans the plot area.
+    private func fade(_ c: Color, below: Bool, _ scale: EnergyScale) -> LinearGradient {
+        let span = scale.domain.upperBound - scale.domain.lowerBound
+        let zero = span > 0 ? scale.domain.upperBound / span : 1   // 0 = top of the plot, 1 = bottom
+        let stops = [Gradient.Stop(color: c.opacity(0.62), location: 0), Gradient.Stop(color: c.opacity(0.10), location: 1)]
+        return below
+            ? LinearGradient(stops: stops, startPoint: .bottom, endPoint: UnitPoint(x: 0.5, y: zero))
+            : LinearGradient(stops: stops, startPoint: .top, endPoint: UnitPoint(x: 0.5, y: zero))
+    }
+
     private func yScale(_ pts: [FlowPoint]) -> EnergyScale {
         if comp == .all {
             return EnergyScale(lo: -(pts.map { $0.flow.exp * $0.k }.max() ?? 0),
@@ -408,18 +429,30 @@ private struct EnergyChartView: View {
         return Chart {
             if comp == .all {
                 allMarks(pts)
+            } else if isDay {
+                // Tesla app: each colour fades from strong at its line to 10% at the 0 line, with a solid edge on top.
+                ForEach(Array(template.enumerated()), id: \.offset) { i, t in
+                    ForEach(pts) { p in
+                        let b = bounds(p, i)
+                        AreaMark(x: .value("Time", p.date), yStart: .value("Lo", b.lo), yEnd: .value("Hi", b.hi), series: .value("Area", t.0))
+                            .foregroundStyle(fade(t.1, below: negative(i), scale))
+                            .interpolationMethod(.monotone)
+                    }
+                }
+                ForEach(Array(template.enumerated()), id: \.offset) { i, t in
+                    ForEach(pts) { p in
+                        let b = bounds(p, i)
+                        LineMark(x: .value("Time", p.date), y: .value("Edge", negative(i) ? b.lo : b.hi), series: .value("Line", t.0))
+                            .foregroundStyle(t.1)
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                            .interpolationMethod(.monotone)
+                    }
+                }
             } else {
                 ForEach(pts) { p in
                     ForEach(parts(p), id: \.0) { part in
-                        if isDay {
-                            AreaMark(x: .value("Time", p.date), y: .value("kW", part.2), stacking: .standard)
-                                .foregroundStyle(by: .value("Part", part.0))
-                                .interpolationMethod(.monotone)
-                                .opacity(0.85)
-                        } else {
-                            BarMark(x: .value("Date", p.date, unit: unit), y: .value("kWh", part.2), width: .ratio(0.6))
-                                .foregroundStyle(by: .value("Part", part.0))
-                        }
+                        BarMark(x: .value("Date", p.date, unit: unit), y: .value("kWh", part.2), width: .ratio(0.6))
+                            .foregroundStyle(by: .value("Part", part.0))
                     }
                 }
             }
@@ -482,6 +515,8 @@ private struct EnergyChartView: View {
         guard let anchor = proxy.plotFrame else { return }
         let plot = g[anchor]
         let unitName = isDay ? "kW" : "kWh"
+        var shadowed = ctx   // numbers keep a faint dark shadow, readable over the graph
+        shadowed.addFilter(.shadow(color: .black.opacity(0.85), radius: 2))
         var v = scale.domain.lowerBound
         while v <= scale.domain.upperBound + 0.0001 {
             defer { v += scale.step }
@@ -489,7 +524,8 @@ private struct EnergyChartView: View {
             let y = plot.minY + py
             let isTop = abs(v - scale.domain.upperBound) < 0.0001
             let isBottom = abs(v - scale.domain.lowerBound) < 0.0001
-            let isZero = comp == .grid && abs(v) < 0.0001 && !isTop && !isBottom   // Grid: "0" just under the zero line
+            // Grid and All: when the graph goes below zero, "0" sits just under the zero line.
+            let isZero = (comp == .grid || comp == .all) && abs(v) < 0.0001 && !isTop && !isBottom
             let text = ctx.resolve(Text(scale.label(v, top: isTop, unit: unitName))
                 .font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
             let w = text.measure(in: size).width
@@ -500,11 +536,11 @@ private struct EnergyChartView: View {
                 p.addLine(to: CGPoint(x: isTop || isBottom || isZero ? plot.maxX : right - w - 6, y: y))
                 ctx.stroke(p, with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
             } else if isTop || isZero {
-                ctx.draw(text, at: CGPoint(x: right, y: y + 2), anchor: .topTrailing)
+                shadowed.draw(text, at: CGPoint(x: right, y: y + 2), anchor: .topTrailing)
             } else if isBottom {
-                ctx.draw(text, at: CGPoint(x: right, y: y - 2), anchor: .bottomTrailing)
+                shadowed.draw(text, at: CGPoint(x: right, y: y - 2), anchor: .bottomTrailing)
             } else {
-                ctx.draw(text, at: CGPoint(x: right, y: y), anchor: .trailing)
+                shadowed.draw(text, at: CGPoint(x: right, y: y), anchor: .trailing)
             }
         }
     }
