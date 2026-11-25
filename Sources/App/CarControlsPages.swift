@@ -280,8 +280,9 @@ struct SecurityModesPage: View {
                 }
 
                 TCaption(text: "Power")
-                TRow("Low power mode", icon: "leaf", subtitle: "Saves energy when parked long") {
-                    toggle(c.lowPower == true) { _ in Task { await model.run(.lowPower) } }
+                TRow("Low power mode", icon: "leaf",
+                     subtitle: model.lowPowerKnown.map { ($0 ? "On" : "Off") + " · set " + (model.lowPowerNote?.at.formatted(date: .omitted, time: .shortened) ?? "") } ?? "Unknown · Tesla doesn't share it") {
+                    pillButton(model.busy == .lowPower ? "…" : "Set") { model.choosingLowPower = true }
                 }
                 TRow("Keep accessory power", icon: "powerplug", subtitle: "USB and 12 V stay on after you leave", last: true) {
                     toggle(c.accessoryPower == true) { _ in Task { await model.run(.accessoryPower) } }

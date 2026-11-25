@@ -222,6 +222,37 @@ final class CarModel: ObservableObject {
     @Published var toast: Banner?
     @Published var controls = CarControl.load()
     @Published var confirming: CarControl?
+    /// Low Power Mode: Tesla doesn't report it, so TesLah shows what it last set (for 3 hours), else "Unknown".
+    struct LowPowerNote: Codable, Equatable { var on: Bool; var at: Date }
+    @Published var lowPowerNote: LowPowerNote? = {
+        guard let d = UserDefaults.standard.data(forKey: "car.lowPowerNote") else { return nil }
+        return try? JSONDecoder().decode(LowPowerNote.self, from: d)
+    }()
+    @Published var choosingLowPower = false
+    var lowPowerKnown: Bool? {
+        guard let n = lowPowerNote, Date().timeIntervalSince(n.at) < 3 * 3600 else { return nil }
+        return n.on
+    }
+    func noteLowPower(_ on: Bool) {
+        let n = LowPowerNote(on: on, at: Date())
+        lowPowerNote = n
+        if let d = try? JSONEncoder().encode(n) { UserDefaults.standard.set(d, forKey: "car.lowPowerNote") }
+        var c = car; c.lowPower = on; car = c
+    }
+    func setLowPower(_ on: Bool) async {
+        choosingLowPower = false
+        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Car settings first")); return }
+        busy = .lowPower
+        defer { busy = nil }
+        show(Banner(title: on ? "Turning on Low Power Mode…" : "Turning off Low Power Mode…", icon: "leaf", tint: CarColors.muted, spinning: true))
+        do {
+            try await t.command(vin, on ? "enable_low_power_mode" : "disable_low_power_mode")
+            noteLowPower(on)
+            show(Banner(title: on ? "Low Power Mode on" : "Low Power Mode off", icon: "leaf.fill", tint: on ? TSurface.green : CarColors.muted))
+        } catch {
+            show(.failed(error))
+        }
+    }
     @Published var pendingLimit: Double?
     @Published var gateSent = false      // top-row gate icon shows radio waves for a few seconds
 
@@ -415,7 +446,7 @@ final class CarModel: ObservableObject {
                     // Low Power Mode off first (always: Tessie doesn't say whether it's on), then the A/C.
                     show(Banner(title: "Turning off Low Power Mode…", icon: "leaf", tint: CarColors.muted, spinning: true))
                     try await t.command(vin, "disable_low_power_mode")
-                    var n = car; n.lowPower = false; car = n
+                    noteLowPower(false)
                     show(Banner(title: "Turning on the A/C…", icon: "fanblades", tint: CarColors.muted, spinning: true))
                     try await t.command(vin, "start_climate")
                 }
@@ -456,13 +487,13 @@ final class CarModel: ObservableObject {
                     // Low Power Mode off first, then Sentry (same as the A/C).
                     show(Banner(title: "Turning off Low Power Mode…", icon: "leaf", tint: CarColors.muted, spinning: true))
                     try await t.command(vin, "disable_low_power_mode")
-                    var n = car; n.lowPower = false; car = n
+                    noteLowPower(false)
                     show(Banner(title: "Turning Sentry on…", icon: "record.circle", tint: CarColors.muted, spinning: true))
                     try await t.command(vin, "enable_sentry")
                 }
             case .valet: try await t.command(vin, s.valet ? "disable_valet" : "enable_valet")
             case .guest: try await t.command(vin, s.guest == true ? "disable_guest" : "enable_guest")
-            case .lowPower: try await t.command(vin, s.lowPower == true ? "disable_low_power_mode" : "enable_low_power_mode")
+            case .lowPower: try await t.command(vin, lowPowerKnown == true ? "disable_low_power_mode" : "enable_low_power_mode")
             case .accessoryPower: try await t.command(vin, s.accessoryPower == true ? "disable_keep_accessory_power_mode" : "enable_keep_accessory_power_mode")
             case .gate: break
             }

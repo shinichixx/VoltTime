@@ -45,7 +45,8 @@ struct ImpactView: View {
                     carCard(t)
                     carbonCard(t)
                 }
-                forecastCard
+                NavigationLink { ForecastVsActualView(model: model) } label: { forecastCard }
+                    .buttonStyle(.plain)
                 if let msg = model.message {
                     Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
@@ -174,13 +175,23 @@ struct ImpactView: View {
     private var forecastCard: some View {
         card("Solar forecast", "sun.max") {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                big(model.forecastTomorrow.map { String(format: "%.1f kWh", $0) } ?? "—")
-                Text("tomorrow").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                big(model.forecastToday.map { String(format: "%.1f kWh", $0) } ?? "—")
+                Text("today").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
-            Text([model.peakTomorrow.map { "Peak around \($0.formatted(date: .omitted, time: .shortened))" },
-                  home.dailyYield.map { String(format: "today %.1f kWh", $0) }]
-                .compactMap { $0 }.joined(separator: " · "))
+            Text(forecastLine)
                 .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
         }
+    }
+
+    /// Before today's peak: "Today's peak around 13:00 · tomorrow 13.9 kWh".
+    /// After it: "Tomorrow 13.9 kWh · peak around 12:45" (tomorrow's peak).
+    private var forecastLine: String {
+        let tomorrow = model.forecastTomorrow.map { String(format: "%.1f kWh", $0) }
+        let clock: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }
+        if let p = model.peakToday, Date() < p {
+            return ["Today's peak around \(clock(p))", tomorrow.map { "tomorrow " + $0 }].compactMap { $0 }.joined(separator: " · ")
+        }
+        return [tomorrow.map { "Tomorrow " + $0 }, model.peakTomorrow.map { "peak around \(clock($0))" }]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 }

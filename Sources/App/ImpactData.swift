@@ -34,6 +34,8 @@ enum ImpactStat {
     static let all = [solar, imp, exp, car]
 
     static let forecastTomorrow = "sensor.energy_production_tomorrow"
+    static let forecastToday = "sensor.energy_production_today"
+    static let peakToday = "sensor.power_highest_peak_time_today"
     static let peakTomorrow = "sensor.power_highest_peak_time_tomorrow"
     static let odometer = "sensor.ultra_rouge_odometer_2"
     static let lifetimeEnergy = "sensor.ultra_rouge_lifetime_energy_used"
@@ -68,6 +70,8 @@ final class EnergyStore: ObservableObject {
     @Published var message: String?
     @Published var forecastTomorrow: Double?
     @Published var peakTomorrow: Date?
+    @Published var forecastToday: Double?
+    @Published var peakToday: Date?
     @Published var kWhPerKm: Double?
 
     private let cal = Calendar.current
@@ -268,7 +272,7 @@ final class EnergyStore: ObservableObject {
     private func refreshLive(_ ha: HAClient) async {
         loadForecastIfToday()
         let needForecast = forecastTomorrow == nil
-        var ids = [ImpactStat.odometer, ImpactStat.lifetimeEnergy]
+        var ids = [ImpactStat.odometer, ImpactStat.lifetimeEnergy, ImpactStat.forecastToday, ImpactStat.peakToday]
         if needForecast { ids += [ImpactStat.forecastTomorrow, ImpactStat.peakTomorrow] }
         let s = await ha.states(ids)
         if needForecast, let kwh = s[ImpactStat.forecastTomorrow]?.number {
@@ -279,6 +283,9 @@ final class EnergyStore: ObservableObject {
             d.set(kwh, forKey: "impact.forecastKWh")
             if let p = peakTomorrow { d.set(p.timeIntervalSince1970, forKey: "impact.forecastPeak") } else { d.removeObject(forKey: "impact.forecastPeak") }
         }
+        forecastToday = s[ImpactStat.forecastToday]?.number ?? forecastToday
+        peakToday = s[ImpactStat.peakToday].flatMap { HAClient.parseISO($0.state) } ?? peakToday
+        await SolarForecastLog.shared.update(ha)
         if let km = s[ImpactStat.odometer]?.number, let kwh = s[ImpactStat.lifetimeEnergy]?.number, km > 100, kwh > 10 {
             kWhPerKm = kwh / km
         }

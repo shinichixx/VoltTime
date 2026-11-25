@@ -45,6 +45,7 @@ struct BackupContents {
     var settings: Data?
     var carPhotos: [String: Data] = [:]   // "car.png", "car-charging.png"
     var battery: Data? = nil              // battery-history.json
+    var forecast: Data? = nil             // solar-forecast.json
 }
 
 enum VoltArchive {
@@ -68,6 +69,9 @@ enum VoltArchive {
         if let s = AppData.settingsData() { try s.write(to: stage.appendingPathComponent("settings.plist")) }
         if fm.fileExists(atPath: BatteryHistory.file.path) {   // battery health and cell balance history
             try fm.copyItem(at: BatteryHistory.file, to: stage.appendingPathComponent("battery-history.json"))
+        }
+        if fm.fileExists(atPath: SolarForecastLog.file.path) {   // daily solar forecasts
+            try fm.copyItem(at: SolarForecastLog.file, to: stage.appendingPathComponent("solar-forecast.json"))
         }
         for name in ["car.png", "car-charging.png"] where includePhotos {
             let src = CarArt.folder.appendingPathComponent(name)
@@ -121,8 +125,9 @@ enum VoltArchive {
             if let d = try? Data(contentsOf: dest.appendingPathComponent(name)) { photos[name] = d }
         }
         let battery = try? Data(contentsOf: dest.appendingPathComponent("battery-history.json"))
-        guard energy != nil || settings != nil || !photos.isEmpty || battery != nil else { throw BadFile() }
-        return BackupContents(curves: energy ?? [:], settings: settings, carPhotos: photos, battery: battery)
+        let forecast = try? Data(contentsOf: dest.appendingPathComponent("solar-forecast.json"))
+        guard energy != nil || settings != nil || !photos.isEmpty || battery != nil || forecast != nil else { throw BadFile() }
+        return BackupContents(curves: energy ?? [:], settings: settings, carPhotos: photos, battery: battery, forecast: forecast)
     }
 
     /// A VoltTime backup of either kind: .aar (build 30 on) or the older CSV.
@@ -587,6 +592,10 @@ struct BackupPage: View {
         if let b = p.contents.battery {
             let n = BatteryHistory.shared.merge(b)
             if n > 0 { parts.append("\(n) battery readings back") }
+        }
+        if let f = p.contents.forecast {
+            let n = SolarForecastLog.shared.merge(f)
+            if n > 0 { parts.append("\(n) solar forecasts back") }
         }
         note = "Restored: " + (parts.isEmpty ? "nothing new" : parts.joined(separator: ", "))
         snapshots = Snapshots.list()

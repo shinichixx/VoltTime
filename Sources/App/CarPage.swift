@@ -70,7 +70,40 @@ struct CarConfirm: ViewModifier {
                     .transition(.opacity.combined(with: .scale(scale: 1.06)))
                 }
             }
+            .overlay {
+                if model.choosingLowPower {
+                    ZStack {
+                        Color.black.opacity(0.5).ignoresSafeArea()
+                            .onTapGesture { model.choosingLowPower = false }
+                        VStack(spacing: 0) {
+                            Text("Low Power Mode").font(.app(size: 19, weight: .semibold)).foregroundStyle(.white)
+                            Text("Tesla doesn't share whether it's on.").font(.app(size: 15)).foregroundStyle(Color(white: 0.6))
+                                .lineLimit(1).minimumScaleFactor(0.75).padding(.top, 8)
+                            VStack(spacing: 10) {
+                                button("Turn on", color: .white) { Task { await model.setLowPower(true) } }
+                                button("Turn off", color: .white) { Task { await model.setLowPower(false) } }
+                                Button { model.choosingLowPower = false } label: {
+                                    Text("Cancel").font(.app(size: 17)).foregroundStyle(Color(white: 0.6))
+                                        .frame(maxWidth: .infinity).frame(height: 44)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.top, 22)
+                        }
+                        .padding(.horizontal, 16).padding(.top, 26).padding(.bottom, 10)
+                        .frame(width: 310)
+                        .background(
+                            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                                .fill(Color(red: 44 / 255, green: 44 / 255, blue: 46 / 255))
+                                .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+                                .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
+                        )
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 1.06)))
+                }
+            }
             .animation(.easeOut(duration: 0.18), value: model.confirming)
+            .animation(.easeOut(duration: 0.18), value: model.choosingLowPower)
     }
 
     private func cancel() { model.confirming = nil; model.gateAway = nil }
@@ -716,7 +749,7 @@ struct CarDetailPage: View {
 
             // Low Power Mode and Accessory Power, side by side. Green outline while on.
             HStack(spacing: 10) {
-                modeButton(.lowPower, "Low Power Mode", on: c.lowPower == true)
+                lowPowerTile
                 modeButton(.accessoryPower, "Accessory Power", on: c.accessoryPower == true)
             }
             .padding(.top, 8)
@@ -773,6 +806,40 @@ struct CarDetailPage: View {
     }
 
     /// Half-width toggle box: icon, name, and On / Off under it. Goes through the same send path as the quick controls.
+    /// Tesla doesn't share Low Power Mode, so: "Unknown", or what TesLah last set ("Off · set 09:30") for 3 hours.
+    private var lowPowerTile: some View {
+        let K = TeslaApp.self
+        let green = TSurface.green
+        let known = model.lowPowerKnown
+        let on = known == true
+        let sub = known.map { ($0 ? "On" : "Off") + " · set " + (model.lowPowerNote?.at.formatted(date: .omitted, time: .shortened) ?? "") } ?? "Unknown"
+        return Button { model.choosingLowPower = true } label: {
+            HStack(spacing: 10) {
+                if model.busy == .lowPower {
+                    ProgressView().tint(.white).scaleEffect(0.75).frame(width: 22)
+                } else {
+                    Image(systemName: on ? "leaf.fill" : "leaf").font(.system(size: 17)).foregroundStyle(on ? green : K.grey).frame(width: 22)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Low Power Mode").font(.app(size: 13, weight: .medium)).foregroundStyle(K.title)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Text(sub).font(.app(size: 12, weight: .medium)).foregroundStyle(on ? green : K.grey).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(
+                RoundedRectangle(cornerRadius: 10).fill(K.panel)
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(on ? green.opacity(0.8) : .clear, lineWidth: 1.2))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.busy != nil)
+    }
+
     private func modeButton(_ ctl: CarControl, _ title: String, on: Bool) -> some View {
         let K = TeslaApp.self
         let green = TSurface.green
