@@ -183,11 +183,12 @@ struct HAClient {
     }
 
     /// Numeric history since `start` for several entities: entity -> [(time, value)], oldest first.
-    func history(_ entities: [String], since start: Date) async throws -> [String: [(Date, Double)]] {
+    func history(_ entities: [String], since start: Date, until end: Date? = nil) async throws -> [String: [(Date, Double)]] {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         f.timeZone = TimeZone(identifier: "UTC")
-        let path = "/api/history/period/\(f.string(from: start))?filter_entity_id=\(entities.joined(separator: ","))&minimal_response&no_attributes"
+        var path = "/api/history/period/\(f.string(from: start))?filter_entity_id=\(entities.joined(separator: ","))&minimal_response&no_attributes"
+        if let end { path += "&end_time=" + (f.string(from: end).addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "") }
         let data = try await send(path, timeout: 60)
         guard let lists = try JSONSerialization.jsonObject(with: data) as? [[[String: Any]]] else {
             throw APIError(message: "Unreadable history from Home Assistant")

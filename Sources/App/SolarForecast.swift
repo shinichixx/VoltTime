@@ -15,6 +15,14 @@ final class SolarForecastLog: ObservableObject {
 
     private init() {
         if let d = try? Data(contentsOf: Self.file), let v = try? JSONDecoder().decode([String: Double].self, from: d) { days = v }
+        // Build 54 read the wrong moment of the day: start again (Home Assistant still has the last 10 days).
+        let ud = UserDefaults.standard
+        if !ud.bool(forKey: "forecastLog.v55") {
+            days = [:]
+            try? FileManager.default.removeItem(at: Self.file)
+            ud.removeObject(forKey: Self.checkedKey)
+            ud.set(true, forKey: "forecastLog.v55")
+        }
     }
 
     var firstDay: Date? { days.keys.min().flatMap { EnergyStore.keyFormatter.date(from: $0) } }
@@ -26,34 +34,35 @@ final class SolarForecastLog: ObservableObject {
         if let d = try? JSONEncoder().encode(days) { try? d.write(to: Self.file, options: .atomic) }
     }
 
-    /// Reads Home Assistant's history of today's-forecast sensor (it keeps about 10 days) and fills in any day not
-    /// yet recorded. A day's forecast is the last value before 06:00 (before any sun), else the day's first value.
+    /// For each of the last 10 days not yet recorded, asks Home Assistant for the forecast as it stood at 06:00
+    /// (one small history request per day: the first value returned is the state at that moment).
     /// At most once an hour.
     func update(_ ha: HAClient) async {
         let d = UserDefaults.standard
         if let last = d.object(forKey: Self.checkedKey) as? Date, Date().timeIntervalSince(last) < 3600 { return }
+        d.set(Date(), forKey: Self.checkedKey)
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
-        guard let since = cal.date(byAdding: .day, value: -10, to: today),
-              let h = try? await ha.history([Self.todaySensor], since: since),
-              let pts = h[Self.todaySensor], !pts.isEmpty else { return }
-        d.set(Date(), forKey: Self.checkedKey)
-        var day = since
         var changed = false
-        while day <= today {
+        for back in 0...10 {
+            guard let day = cal.date(byAdding: .day, value: -back, to: today) else { continue }
             let k = EnergyStore.keyFormatter.string(from: day)
             let six = day.addingTimeInterval(6 * 3600)
-            guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
-            let early = pts.last { $0.0 >= day && $0.0 <= six }
-            let carried = pts.last { $0.0 < day }        // value still showing at midnight, if it was updated after
-            let first = pts.first { $0.0 >= day && $0.0 < next }
-            let still = day == today && Date() < six    // today's value can still be updated until 06:00
-            if days[k] == nil || still, let v = (early ?? first)?.1 ?? (still ? carried?.1 : nil), v > 0 {
-                if days[k] != v { days[k] = v; changed = true }
-            }
-            day = next
+            guard days[k] == nil, Date() > six else { continue }
+            guard let h = try? await ha.history([Self.todaySensor], since: six, until: six.addingTimeInterval(60)),
+                  let v = h[Self.todaySensor]?.first?.1, v > 0 else { continue }
+            days[k] = v
+            changed = true
         }
         if changed { save() }
+    }
+
+    /// The live figure, if nothing was saved for today yet (e.g. history is unavailable).
+    func noteToday(_ v: Double) {
+        let k = EnergyStore.keyFormatter.string(from: Date())
+        guard v > 0, days[k] == nil else { return }
+        days[k] = v
+        save()
     }
 
     /// Restore: adds days the app doesn't have.
@@ -70,11 +79,13 @@ final class SolarForecastLog: ObservableObject {
 
 private struct FBucket: Identifiable {
     let date: Date
-    let forecast: Double?
-    let actual: Double?
+    let forecast: Double?      // sum over days with a forecast
+    let actual: Double?        // sum over every day
+    var matchedActual: Double? = nil   // actual over the days that have a forecast
+    var isToday = false
     var id: Date { date }
     var diff: Double? {
-        guard let f = forecast, let a = actual, f > 0 else { return nil }
+        guard let f = forecast, let a = matchedActual, f > 0 else { return nil }
         return (a - f) / f * 100
     }
 }
@@ -99,26 +110,22 @@ struct ForecastVsActualView: View {
     private static let yellow = Color(red: 1, green: 0.8, blue: 0.2)
 
     var body: some View {
-        let r = PeriodRange.make(period, offset: offset, firstDay: log.firstDay)
+        let r = PeriodRange.make(period, offset: offset, firstDay: log.firstDay ?? cal.startOfDay(for: Date()))
         let bs = buckets(r)
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                PeriodBar(range: r, period: period, firstDay: log.firstDay, offset: $offset)
-                if log.days.isEmpty {
-                    Text("No forecast saved yet. TesLah records one each day from Home Assistant, starting today.")
-                        .font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-                        .frame(maxWidth: .infinity, minHeight: 160)
-                        .multilineTextAlignment(.center)
-                } else if period == .day {
+                PeriodBar(range: r, period: period, firstDay: log.firstDay ?? cal.startOfDay(for: Date()), offset: $offset)
+                if period == .day {
                     dayCard(r.start)
                 } else {
                     summary(r, bs)
                     chart(r, bs)
                     table(bs)
                 }
-                Text("Forecast = what Forecast.Solar said for that day before sunrise. Actual = the inverter's total for the day; today shows the total so far.")
+                Text("Forecast: the solar forecast for the day, saved each morning.\nActual: what the inverter produced.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
-                    .padding(.top, 6).padding(.horizontal, 4)
+                    .lineSpacing(3)
+                    .padding(.top, 10).padding(.horizontal, 16)
             }
             .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 20)
         }
@@ -136,22 +143,39 @@ struct ForecastVsActualView: View {
     /// One bucket per day (Week, Month) or per month (Year, Lifetime). Only days with a saved forecast count.
     private func buckets(_ r: PeriodRange) -> [FBucket] {
         var out: [FBucket] = []
-        let todayEnd = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date()
-        var d = r.start
+        let todayStart = cal.startOfDay(for: Date())
+        let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) ?? Date()
+        var d = byMonth ? (cal.dateInterval(of: .month, for: r.start)?.start ?? r.start) : r.start
         while d < r.end {
             let next = cal.date(byAdding: byMonth ? .month : .day, value: 1, to: d) ?? r.end
-            var f = 0.0, a = 0.0, any = false
-            var x = d
+            var f = 0.0, a = 0.0, m = 0.0, anyF = false, anyA = false
+            var x = max(d, byMonth ? cal.startOfDay(for: r.start) : d)
             while x < min(next, r.end, todayEnd) {
-                if let fx = log.forecast(x) {
-                    f += fx; a += actual(x) ?? 0; any = true
-                }
+                let ax = actual(x)
+                if let ax { a += ax; anyA = true }
+                if let fx = log.forecast(x) { f += fx; m += ax ?? 0; anyF = true }
                 x = cal.date(byAdding: .day, value: 1, to: x) ?? next
             }
-            out.append(FBucket(date: d, forecast: any ? f : nil, actual: any ? a : nil))
-            d = byMonth ? (cal.dateInterval(of: .month, for: next)?.start ?? next) : next
+            var b = FBucket(date: d, forecast: anyF ? f : nil, actual: anyA ? a : nil)
+            b.matchedActual = anyF ? m : nil
+            b.isToday = !byMonth && cal.isDate(d, inSameDayAs: todayStart)
+            out.append(b)
+            d = next
         }
         return out
+    }
+
+    /// Days in the period up to today, and how many of them have a forecast.
+    private func dayCounts(_ r: PeriodRange) -> (Int, Int) {
+        var have = 0, total = 0
+        var x = cal.startOfDay(for: r.start)
+        let end = min(r.end, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? r.end)
+        while x < end {
+            total += 1
+            if log.forecast(x) != nil { have += 1 }
+            x = cal.date(byAdding: .day, value: 1, to: x) ?? end
+        }
+        return (have, total)
     }
 
     /// Typical miss: the average size of the daily difference (finished days only).
@@ -191,7 +215,9 @@ struct ForecastVsActualView: View {
     private func summary(_ r: PeriodRange, _ bs: [FBucket]) -> some View {
         let f = bs.compactMap(\.forecast).reduce(0, +)
         let a = bs.compactMap(\.actual).reduce(0, +)
-        let p = f > 0 ? (a - f) / f * 100 : 0
+        let m = bs.compactMap(\.matchedActual).reduce(0, +)
+        let p = f > 0 ? (m - f) / f * 100 : 0
+        let (have, total) = dayCounts(r)
         return cardBox {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -200,8 +226,9 @@ struct ForecastVsActualView: View {
                         Text("\(k(a)) kWh").font(.app(size: 28, weight: .semibold))
                         Text("actual").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                     }
-                    Text(f > 0 ? "Forecast \(k(f)) kWh · actual came \(String(format: "%.0f", abs(p)))% \(p < 0 ? "lower" : "higher")"
-                               : "No forecast saved for this period")
+                    Text(f == 0 ? "No forecast saved for these days yet"
+                         : have < total ? "Forecast saved for \(have) of \(total) days so far"
+                         : "Forecast \(k(f)) kWh · actual came \(String(format: "%.0f", abs(p)))% \(p < 0 ? "lower" : "higher")")
                         .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                 }
                 Spacer()
@@ -224,7 +251,7 @@ struct ForecastVsActualView: View {
                 HStack(spacing: 5) { RoundedRectangle(cornerRadius: 2).fill(Self.yellow).frame(width: 11, height: 8); Text("Actual") }
                 HStack(spacing: 5) { Capsule().fill(.white).frame(width: 14, height: 2.5); Text("Forecast") }
                 Spacer()
-                if let s = sel, let f = s.forecast, let a = s.actual {
+                if let s = sel, let a = s.actual, let f = s.forecast {
                     Text("\(byMonth ? s.date.formatted(.dateTime.month(.abbreviated).year()) : s.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))) · \(k(f)) → \(k(a)) kWh")
                         .foregroundStyle(.white)
                 } else {
@@ -236,17 +263,17 @@ struct ForecastVsActualView: View {
             Chart {
                 ForEach(bs) { b in
                     if let a = b.actual {
-                        BarMark(x: .value("Date", b.date, unit: unit), y: .value("Actual", a), width: .ratio(0.62))
+                        BarMark(x: .value("Date", b.date, unit: unit), y: .value("Actual", a), width: bs.count <= 3 ? .fixed(28) : .ratio(0.62))
                             .foregroundStyle(Self.yellow.opacity(sel == nil || sel?.id == b.id ? 1 : 0.35))
                             .cornerRadius(3)
                     }
                     if let f = b.forecast {
-                        RectangleMark(x: .value("Date", b.date, unit: unit), y: .value("Forecast", f), width: .ratio(0.8), height: 2.5)
+                        RectangleMark(x: .value("Date", b.date, unit: unit), y: .value("Forecast", f), width: bs.count <= 3 ? .fixed(38) : .ratio(0.8), height: 2.5)
                             .foregroundStyle(.white)
                     }
                 }
             }
-            .chartXScale(domain: r.start...r.end)
+            .chartXScale(domain: chartDomain(r))
             .chartXSelection(value: $picked)
             .chartYAxis {
                 AxisMarks(position: .trailing) { _ in
@@ -263,6 +290,14 @@ struct ForecastVsActualView: View {
             }
             .frame(height: 200)
         }
+    }
+
+    /// Whole months for Year and Lifetime, so a month's bar sits inside the chart.
+    private func chartDomain(_ r: PeriodRange) -> ClosedRange<Date> {
+        guard byMonth else { return r.start...r.end }
+        let s = cal.dateInterval(of: .month, for: r.start)?.start ?? r.start
+        let e = cal.dateInterval(of: .month, for: r.end.addingTimeInterval(-1))?.end ?? r.end
+        return s...e
     }
 
     private func xStride(_ n: Int) -> Int {
@@ -283,14 +318,14 @@ struct ForecastVsActualView: View {
     }
 
     private func table(_ bs: [FBucket]) -> some View {
-        let rows = bs.filter { $0.forecast != nil }.reversed()
+        let rows = bs.filter { $0.forecast != nil || $0.actual != nil }.reversed()
         return VStack(spacing: 0) {
             HStack {
                 Text(byMonth ? "EVERY MONTH" : "EVERY DAY").font(.app(size: 11, weight: .medium)).kerning(0.6)
                 Spacer()
                 Text("FORECAST").frame(width: 70, alignment: .trailing)
                 Text("ACTUAL").frame(width: 62, alignment: .trailing)
-                Text("DIFF").frame(width: 56, alignment: .trailing)
+                Text("DIFF").frame(width: 72, alignment: .trailing)
             }
             .font(.app(size: 9, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
             .padding(.top, 16).padding(.bottom, 6)
@@ -301,9 +336,16 @@ struct ForecastVsActualView: View {
                     Spacer()
                     Text(b.forecast.map(k) ?? "—").foregroundStyle(TeslaDark.rowLabel).frame(width: 70, alignment: .trailing)
                     Text(b.actual.map(k) ?? "—").frame(width: 62, alignment: .trailing)
-                    Text(b.diff.map { String(format: "%+.0f%%", $0) } ?? "—")
-                        .foregroundStyle(b.diff.map(forecastDiffColor) ?? TeslaDark.rowLabel)
-                        .frame(width: 56, alignment: .trailing)
+                    Group {
+                        if b.isToday, let f = b.forecast, let a = b.actual, f > 0 {
+                            Text("\(String(format: "%.0f", a / f * 100))% so far").foregroundStyle(TeslaDark.rowLabel)
+                        } else {
+                            Text(b.diff.map { String(format: "%+.0f%%", $0) } ?? "—")
+                                .foregroundStyle(b.diff.map(forecastDiffColor) ?? TeslaDark.rowLabel)
+                        }
+                    }
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .frame(width: 72, alignment: .trailing)
                 }
                 .font(.app(size: 14))
                 .padding(.vertical, 12)
@@ -322,7 +364,7 @@ struct ForecastVsActualView: View {
     }
 
     private func dayCard(_ day: Date) -> some View {
-        let f = log.forecast(day)
+        let f = log.forecast(day) ?? (cal.isDateInToday(day) ? model.forecastToday : nil)
         let a = actual(day)
         let scale = max(f ?? 0, a ?? 0, 1) * 1.1
         return cardBox {
@@ -341,7 +383,13 @@ struct ForecastVsActualView: View {
                 Spacer()
             }
             .padding(.top, 12)
-            if let f, let a, f > 0 {
+            if cal.isDateInToday(day), let f, let a, f > 0 {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(String(format: "%.0f%%", a / f * 100)).font(.app(size: 22, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
+                    Text("of today's forecast so far").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                }
+                .padding(.top, 14)
+            } else if let f, let a, f > 0 {
                 let p = (a - f) / f * 100
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(String(format: "%+.0f%%", p)).font(.app(size: 22, weight: .semibold)).foregroundStyle(forecastDiffColor(p))

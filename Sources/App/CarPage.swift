@@ -559,11 +559,11 @@ struct CarView2: View {
         switch m {
         case "Routine":
             let h = Calendar.current.component(.hour, from: Date())
-            guard h >= 19 || h < 7 else { return "Starts on excess solar power at home" }
+            guard h >= 19 || h < 7 else { return "Charges from excess solar at home" }
             let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
             let r = home.readyMinutes
             return "Starts " + Self.hhmm.string(from: start) + " · Ready by " + String(format: "%02d:%02d", r / 60, r % 60)
-        case "Excess Solar": return "Starts on excess solar power at home"
+        case "Excess Solar": return "Charges from excess solar at home"
         case "Fast": return "Fast · charges at \(c.ampsCap)A when plugged in"
         case "Off": return "Off · no charging required"
         default: return ChargingMode.named(m).title

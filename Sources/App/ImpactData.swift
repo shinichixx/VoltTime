@@ -286,6 +286,7 @@ final class EnergyStore: ObservableObject {
         forecastToday = s[ImpactStat.forecastToday]?.number ?? forecastToday
         peakToday = s[ImpactStat.peakToday].flatMap { HAClient.parseISO($0.state) } ?? peakToday
         await SolarForecastLog.shared.update(ha)
+        if let v = forecastToday { SolarForecastLog.shared.noteToday(v) }
         if let km = s[ImpactStat.odometer]?.number, let kwh = s[ImpactStat.lifetimeEnergy]?.number, km > 100, kwh > 10 {
             kWhPerKm = kwh / km
         }
