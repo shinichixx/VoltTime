@@ -171,6 +171,7 @@ struct CarView2: View {
     @State private var sliderLimit: Double?
     @State private var limitArmed = false     // press and hold 0.5 s before the limit slider moves
     @State private var scroll: CGFloat = 0
+    @EnvironmentObject private var fx: PagerFX
     @State private var portAsk: PortAsk?
     @State private var onScreen = true       // live copy of `active` for the delayed scroll reset
     @ObservedObject private var history = BatteryHistory.shared
@@ -188,22 +189,13 @@ struct CarView2: View {
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            // Swiping to My Home: the car doesn't slide; it fades out over the first half of the swipe.
             let px = geo.frame(in: .global).minX
-            let swipe = max(0, 1 - 2 * min(1, abs(px) / max(w, 1)))
             ZStack(alignment: .top) {
-                K.bg.ignoresSafeArea()
-
-                // Car: stays put, fades as the page scrolls over it (8% at the end, like the Tesla app).
-                CarScene(car: c)
-                    .frame(width: w * 0.92)
-                    .frame(width: w, height: carHeight)
-                    .clipped()
-                    .offset(x: -px)
-                    .opacity(min(swipe, max(0.08, 1 - Double(max(scroll, 0)) / 150)))
-                    .padding(.top, carTop)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .allowsHitTesting(false)
+                // Background and car photo are drawn behind the pager (ContentView), so the swipe never cuts the car.
+                Color.clear
+                    .onAppear { fx.carX = px }
+                    .onChange(of: px) { _, v in fx.carX = v }
+                    .onChange(of: scroll) { _, v in fx.carScroll = v }
 
                 ScrollViewReader { proxy in
                 ScrollView {

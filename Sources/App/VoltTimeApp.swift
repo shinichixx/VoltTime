@@ -28,6 +28,7 @@ struct ContentView: View {
     @StateObject private var car = CarModel()
     @State private var path: [Route] = []
     @State private var page = 0
+    @StateObject private var fx = PagerFX()
 
     /// Page dots centred between the last row of text and the bottom edge of the screen
     /// (35 pt up from the edge: on the iPhone 15 Pro the last line ends 70 pt above it).
@@ -52,6 +53,24 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
+          ZStack {
+            // Behind the pager: the car and the house stay put and cross-fade as you swipe
+            // (car gone by half way, house in over the second half), and fade to 8% as their page scrolls.
+            TeslaDark.bg.ignoresSafeArea()
+            GeometryReader { g in
+                let w = g.size.width
+                CarScene(car: car.car)
+                    .frame(width: w * 0.92)
+                    .frame(width: w, height: 180)
+                    .clipped()
+                    .compositingGroup()
+                    .opacity(min(PagerFX.swipe(fx.carX, w), PagerFX.scrolled(fx.carScroll)))
+                    .padding(.top, 92)
+                    .allowsHitTesting(false)
+                MyHomeView(model: myHome, path: $path, layer: .backdrop)
+                    .opacity(min(PagerFX.swipe(fx.homeX, w), PagerFX.scrolled(fx.homeScroll)))
+                    .allowsHitTesting(false)
+            }
             TabView(selection: $page) {
                 CarPage(car: car, home: home, myHome: myHome, path: $path, active: page == 0)
                     .tag(0)
@@ -62,7 +81,14 @@ struct ContentView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea(.container, edges: .bottom)
-            .background(TeslaDark.bg.ignoresSafeArea())
+            // The house's power figures float above the pager (the Model 3 one opens Charging).
+            GeometryReader { g in
+                MyHomeView(model: myHome, path: $path, layer: .labels)
+                    .opacity(min(PagerFX.swipe(fx.homeX, g.size.width), PagerFX.scrolled(fx.homeScroll)))
+                    .allowsHitTesting(page == 1 && fx.homeScroll < 20 && PagerFX.swipe(fx.homeX, g.size.width) > 0.9)
+            }
+          }
+            .environmentObject(fx)
             .overlay { pageDots }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Route.self) { route in

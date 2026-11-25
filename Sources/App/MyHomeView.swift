@@ -279,59 +279,62 @@ final class MyHomeModel: ObservableObject {
 struct MyHomeView: View {
     @ObservedObject var model: MyHomeModel
     @Binding var path: [Route]
+    /// `.page` is the swiped page (title, rows). The house photo (`.backdrop`) and its power figures (`.labels`)
+    /// are drawn behind / above the pager by ContentView, so they stay put and fade instead of sliding.
+    enum Layer { case page, backdrop, labels }
+    var layer: Layer = .page
     @Environment(\.scenePhase) private var phase
+    @EnvironmentObject private var fx: PagerFX
     @State private var scroll: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             let height = w * 2400 / 1792 + 20
-            // Swipe between pages: the house photo doesn't slide; it fades in over the second half of the swipe.
-            let px = geo.frame(in: .global).minX
-            let swipe = max(0, 1 - 2 * min(1, abs(px) / max(w, 1)))
-            // Rows slide up over the photo, which fades to 8% (same as the car on My Car).
-            let fade = min(swipe, max(0.08, 1 - Double(max(scroll, 0)) / 150))
-            ZStack(alignment: .top) {
-                TeslaDark.bg.ignoresSafeArea()
-                backdrop(width: w, height: height)
-                    .offset(x: -px)
-                    .opacity(fade)
-                    .allowsHitTesting(false)
-
-                ScrollView {
-                    VStack(spacing: 0) {
-                        GeometryReader { g in
-                            Color.clear.preference(key: ScrollY.self, value: -g.frame(in: .named("home")).minY)
-                        }
-                        .frame(height: 0)
-                        Color.clear.frame(height: height)
-                        rows
-                        Color.clear.frame(height: 66)   // clear of the page dots
-                    }
-                }
-                .coordinateSpace(name: "home")
-                .modifier(TrackScroll(y: $scroll))
-                .scrollIndicators(.hidden)
-                .scrollBounceBehavior(.always)
-                .mask(   // rows fade out softly as they reach the title
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: 92)
-                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 40)
-                        Color.black
-                    }
-                )
-                .ignoresSafeArea(.container, edges: .bottom)
-
-                // Power figures sit on the photo: they stay and fade with it; the Model 3 one opens Charging.
-                labels(width: w)
-                    .offset(x: -px)
-                    .opacity(fade)
-                    .allowsHitTesting(scroll < 20 && swipe > 0.9)
-
-                header(width: w)
+            switch layer {
+            case .backdrop:
+                backdrop(width: w, height: height).compositingGroup()
+            case .labels:
+                labels(width: w).compositingGroup()
+            case .page:
+                page(width: w, height: height, px: geo.frame(in: .global).minX)
             }
         }
-        .background(TeslaDark.bg.ignoresSafeArea())
+    }
+
+    private func page(width w: CGFloat, height: CGFloat, px: CGFloat) -> some View {
+        ZStack(alignment: .top) {
+            Color.clear
+                .onAppear { fx.homeX = px }
+                .onChange(of: px) { _, v in fx.homeX = v }
+                .onChange(of: scroll) { _, v in fx.homeScroll = v }
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    GeometryReader { g in
+                        Color.clear.preference(key: ScrollY.self, value: -g.frame(in: .named("home")).minY)
+                    }
+                    .frame(height: 0)
+                    Color.clear.frame(height: height)
+                    rows
+                    Color.clear.frame(height: 66)   // clear of the page dots
+                }
+            }
+            .coordinateSpace(name: "home")
+            .modifier(TrackScroll(y: $scroll))
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.always)
+            .mask(   // rows fade out softly as they reach the title
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 92)
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 40)
+                    Color.black
+                }
+            )
+            .ignoresSafeArea(.container, edges: .bottom)
+
+            header(width: w)
+        }
         .task(id: phase) {
             // Live while the page is on screen, like the HA card (every 5 s).
             guard phase == .active else { return }
@@ -515,7 +518,6 @@ struct MyHomeView: View {
             }
             Spacer(minLength: 44) // room for the page dots
         }
-        .background(TeslaDark.bg)
     }
 }
 

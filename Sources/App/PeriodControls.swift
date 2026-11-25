@@ -91,3 +91,21 @@ enum Num {
     static func whole(_ v: Double) -> String { Int(v.rounded()).formatted(.number.locale(en)) }
     static func kwh(_ v: Double) -> String { v >= 100 ? whole(v) : String(format: "%.1f", v) }
 }
+
+
+/// Where My Car and My Home are mid-swipe, and how far each is scrolled. The two photos are drawn
+/// behind the pager (so a page edge never cuts them) and fade by these numbers.
+@MainActor
+final class PagerFX: ObservableObject {
+    @Published var carX: CGFloat = 0
+    @Published var carScroll: CGFloat = 0
+    @Published var homeX: CGFloat? = nil
+    @Published var homeScroll: CGFloat = 0
+
+    /// 1 while the page is in place, 0 once it's half way off.
+    static func swipe(_ x: CGFloat?, _ w: CGFloat) -> Double {
+        guard let x else { return 0 }
+        return max(0, 1 - 2 * min(1, abs(x) / max(w, 1)))
+    }
+    static func scrolled(_ y: CGFloat) -> Double { max(0.08, 1 - Double(max(y, 0)) / 150) }
+}
