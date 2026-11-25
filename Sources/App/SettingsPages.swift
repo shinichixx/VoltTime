@@ -182,9 +182,17 @@ struct SettingsPage: View {
                         .padding(.top, 6)
                 }
 
-                TCaption(text: "Tonight's charge", trailing: routine ? "Sat–Wed" : "Routine only")
-                tonight
-                    .opacity(routine ? 1 : 0.55)
+                // Tonight's charge only in Routine; other modes just keep Charge details (charger settings apply to all).
+                if routine {
+                    TCaption(text: "Tonight's charge", trailing: "Sat–Wed")
+                    tonight
+                } else {
+                    Rectangle().fill(Color.clear).frame(height: 20)
+                    TNavRow(title: "Charge details", icon: "list.bullet.rectangle",
+                            subtitle: "Reminders, safety buffer, charger settings", last: true) {
+                        path.append(.chargeDetails)
+                    }
+                }
 
                 Spacer(minLength: 12)
             }

@@ -487,6 +487,28 @@ struct BackupPage: View {
                 .buttonStyle(.plain)
                 TFootnote(text: "One small file with every energy day and your settings. In the save screen pick your backup folder in iCloud Drive. Restore also reads older VoltTime backups.")
 
+                TCaption(text: "On this iPhone", trailing: snapshotTotal)
+                if snapshots.isEmpty {
+                    TRow("No copies yet", icon: "clock.arrow.circlepath", subtitle: "The first one is made today", last: true) { EmptyView() }
+                }
+                ForEach(Array(snapshots.enumerated()), id: \.element.id) { i, s in
+                    Button { open(s) } label: {
+                        TRow(dayText(s.date), icon: i == 0 ? "clock.arrow.circlepath" : nil,
+                             subtitle: (s.beforeRestore ? "Before restore" : "Daily") + " · " + size(s.bytes),
+                             last: i == snapshots.count - 1) { chevron }
+                    }
+                    .buttonStyle(.plain)
+                }
+                TFootnote(text: "A copy each day (last \(Snapshots.keepDaily)) and one before every restore. Kept only on this iPhone, left out of iCloud backups.")
+
+                TCaption(text: "Export")
+                Button {
+                    Task { if let u = await backup.dailyTotalsFile(energy) { SystemSheets.shared.share(u) } }
+                } label: {
+                    TRow("Daily totals", icon: "tablecells", subtitle: "One row per day, for Excel or Numbers", last: true) { chevron }
+                }
+                .buttonStyle(.plain)
+
                 TCaption(text: "Reminder")
                 TRow("Weekly reminder", icon: "bell") {
                     Toggle("", isOn: $remindOn).labelsHidden().tint(TSurface.green)
@@ -509,28 +531,6 @@ struct BackupPage: View {
                 } else {
                     Rectangle().fill(TSurface.line).frame(height: 0.5).padding(.leading, 58).padding(.trailing, 20)
                 }
-
-                TCaption(text: "On this iPhone", trailing: snapshotTotal)
-                if snapshots.isEmpty {
-                    TRow("No copies yet", icon: "clock.arrow.circlepath", subtitle: "The first one is made today", last: true) { EmptyView() }
-                }
-                ForEach(Array(snapshots.enumerated()), id: \.element.id) { i, s in
-                    Button { open(s) } label: {
-                        TRow(dayText(s.date), icon: i == 0 ? "clock.arrow.circlepath" : nil,
-                             subtitle: (s.beforeRestore ? "Before restore" : "Daily") + " · " + size(s.bytes),
-                             last: i == snapshots.count - 1) { chevron }
-                    }
-                    .buttonStyle(.plain)
-                }
-                TFootnote(text: "A copy each day (last \(Snapshots.keepDaily)) and one before every restore. Kept only on this iPhone, left out of iCloud backups.")
-
-                TCaption(text: "Export")
-                Button {
-                    Task { if let u = await backup.dailyTotalsFile(energy) { SystemSheets.shared.share(u) } }
-                } label: {
-                    TRow("Daily totals", icon: "tablecells", subtitle: "One row per day, for Excel or Numbers", last: true) { chevron }
-                }
-                .buttonStyle(.plain)
                 Spacer(minLength: 40)
             }
         }

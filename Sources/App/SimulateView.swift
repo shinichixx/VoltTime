@@ -91,9 +91,17 @@ struct SimulateView: View {
         guard let live = model.liveSoc else { return nil }
         if abs(live - startSoc) < 0.5 { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
         return AnyView(
-            Button("Use car \(Int(live.rounded()))%") { startSoc = min(99, live.rounded()) }
-                .font(.app(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
-                .buttonStyle(.plain)
+            Button { startSoc = min(99, live.rounded()) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.counterclockwise").font(.system(size: 10, weight: .semibold))
+                    Text("Use car \(Int(live.rounded()))%").font(.app(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(TeslaDark.labelGrey)
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(Capsule().fill(Color(white: 0.19)))
+                .overlay(Capsule().strokeBorder(Color(white: 0.3), lineWidth: 0.8))
+            }
+            .buttonStyle(.plain)
         )
     }
 

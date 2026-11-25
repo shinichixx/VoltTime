@@ -491,6 +491,15 @@ struct CarView2: View {
 
     // MARK: Bottom block (Tesla app: divider, model name, trim, km / VIN / software, two pill buttons)
 
+    /// The Model 3 badge (same width as the VIN line); other models keep the spaced-out name.
+    @ViewBuilder private var modelBadge: some View {
+        if c.modelName == "MODEL 3", UIImage(named: "ModelWordmark") != nil {
+            Image("ModelWordmark").resizable().scaledToFit().frame(width: 133, alignment: .leading)
+        } else {
+            Text(c.modelName).font(.app(size: 14, weight: .semibold)).kerning(4.5).foregroundStyle(TeslaApp.title)
+        }
+    }
+
     private var carInfo: some View {
         let vin = c.vin ?? model.vin
         let lines = [c.odometerKm.map { "\($0.formatted(.number.precision(.fractionLength(0)))) km" },
@@ -498,7 +507,7 @@ struct CarView2: View {
                      c.software.map { "Software: " + $0 }].compactMap { $0 }
         return VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Color(white: 0.133)).frame(height: 1)
-            Text(c.modelName).font(.app(size: 14, weight: .semibold)).kerning(4.5).foregroundStyle(K.title)
+            modelBadge
                 .padding(.top, 29)
             if let t = c.trimName {
                 Text(t).font(.app(size: 13, weight: .semibold)).foregroundStyle(K.grey).padding(.top, 10)

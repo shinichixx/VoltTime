@@ -113,12 +113,8 @@ struct EnergyView: View {
                             .padding(.top, 8)
                         allTiles(total)
                             .padding(.top, 12)
-                        Text(period == .day
-                             ? "Model 3 sits on top of Home (red line = everything used). Grid sits on top of Solar (grey line = everything supplied). Below 0 = solar exported to TNB."
-                             : "Left bar = used (Home + Model 3). Right bar = supplied (Solar + Grid). Below 0 = solar exported to TNB.")
-                            .font(.app(size: 9.5))
-                            .foregroundStyle(Color(white: 0.36))
-                            .padding(.top, 10)
+                        ChartKey(day: period == .day)
+                            .padding(.top, 16)
                     } else {
                         Text(comp.title).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -686,5 +682,75 @@ struct EnergyView: View {
         .padding(.bottom, 2)
         .background(TeslaDark.bg)
         .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5) }
+    }
+}
+
+
+/// Small key under the All chart: mini drawings in the chart's own colours.
+private struct ChartKey: View {
+    let day: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                item(day ? "Red line" : "Left bar", day ? "Everything used" : "Used: Home + Model 3") {
+                    day ? AnyView(area(top: EnergyColor.vehicle, upper: EnergyColor.vehicle, lower: EnergyColor.home))
+                        : AnyView(stack(EnergyColor.home, EnergyColor.vehicle))
+                }
+                item(day ? "Grey line" : "Right bar", day ? "Everything supplied" : "Supplied: Solar + Grid") {
+                    day ? AnyView(area(top: EnergyColor.grid, upper: EnergyColor.grid, lower: EnergyColor.solar))
+                        : AnyView(stack(EnergyColor.solar, EnergyColor.grid))
+                }
+                item("Below 0", "Solar sent to TNB") { AnyView(below) }
+            }
+            if day {
+                Text("Model 3 sits on top of Home; Grid sits on top of Solar.")
+                    .font(.app(size: 10)).foregroundStyle(Color(white: 0.4))
+            }
+        }
+    }
+
+    private func item(_ t: String, _ sub: String, _ icon: () -> AnyView) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            icon().frame(width: 16, height: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(t).font(.app(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.labelGrey)
+                Text(sub).font(.app(size: 9.5)).foregroundStyle(TeslaDark.rowLabel).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func stack(_ bottom: Color, _ top: Color) -> some View {
+        VStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 1.5).fill(top).frame(width: 8, height: 10)
+            RoundedRectangle(cornerRadius: 1.5).fill(bottom).frame(width: 8, height: 14)
+        }
+        .frame(width: 16, height: 26, alignment: .bottom)
+    }
+
+    private func area(top: Color, upper: Color, lower: Color) -> some View {
+        Canvas { ctx, sz in
+            func wave(_ y: CGFloat, _ a: CGFloat, _ ph: CGFloat) -> Path {
+                var p = Path(); p.move(to: CGPoint(x: 0, y: sz.height))
+                for i in stride(from: 0, through: sz.width, by: 1) { p.addLine(to: CGPoint(x: i, y: y + a * sin(i / 3 + ph))) }
+                p.addLine(to: CGPoint(x: sz.width, y: sz.height)); p.closeSubpath(); return p
+            }
+            ctx.fill(wave(sz.height * 0.35, 2, 0), with: .color(upper.opacity(0.4)))
+            ctx.fill(wave(sz.height * 0.65, 1.5, 1), with: .color(lower.opacity(0.45)))
+            var line = Path()
+            for i in stride(from: 0, through: sz.width, by: 1) {
+                let pt = CGPoint(x: i, y: sz.height * 0.35 + 2 * sin(i / 3))
+                if i == 0 { line.move(to: pt) } else { line.addLine(to: pt) }
+            }
+            ctx.stroke(line, with: .color(top), lineWidth: 1.5)
+        }
+    }
+
+    private var below: some View {
+        VStack(spacing: 1) {
+            Rectangle().fill(Color(white: 0.35)).frame(width: 16, height: 1)
+            RoundedRectangle(cornerRadius: 1.5).fill(EnergyColor.gridOut).frame(width: 8, height: 12)
+        }
+        .frame(width: 16, height: 26, alignment: .center)
     }
 }

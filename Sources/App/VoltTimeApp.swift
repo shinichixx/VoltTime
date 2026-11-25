@@ -249,11 +249,6 @@ struct HomeAssistantPage: View {
                 howRow("clock", "The car's schedule is set for you", "Starts at the planned time, never before 10:15pm")
                 howRow("slider.horizontal.3", "Routine mode only", "Change it on the Charging page", last: true)
 
-                TCaption(text: "About")
-                TRow("Version", icon: "info.circle", last: true) {
-                    Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
-                        .font(.app(size: 14)).foregroundStyle(TeslaDark.rowLabel)
-                }
                 Spacer(minLength: 40)
             }
         }
