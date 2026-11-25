@@ -69,7 +69,7 @@ struct SimulateView: View {
             }
             .padding(.bottom, 60)
         }
-        .background(TSurface.page)
+        // See-through: the page background is drawn behind the pager (so the house can fade behind it).
         .onAppear {
             if !seeded {
                 startSoc = min(99, (model.liveSoc ?? model.startSoc).rounded())

@@ -65,7 +65,7 @@ struct PublicView: View {
             }
             .padding(.bottom, 60)
         }
-        .background(TSurface.page)
+        // See-through: the page background is drawn behind the pager (so the house can fade behind it).
     }
 
     private var chargerSummary: String {
