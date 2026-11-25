@@ -74,6 +74,8 @@ final class EnergyStore: ObservableObject {
     @Published var peakTomorrow: Date?
     @Published var forecastToday: Double?
     @Published var peakToday: Date?
+    @Published var forecastReadAt: Date?      // when Solcast last changed today's forecast
+    @Published var forecastNextRead: Date?    // estimate: 5 reads spread evenly from sunrise to sunset
     @Published var kWhPerKm: Double?
 
     private let cal = Calendar.current
@@ -276,6 +278,7 @@ final class EnergyStore: ObservableObject {
         let needForecast = true   // Solcast refines tomorrow during the day: read it each time
         var ids = [ImpactStat.odometer, ImpactStat.lifetimeEnergy, ImpactStat.forecastToday, ImpactStat.peakToday]
         if needForecast { ids += [ImpactStat.forecastTomorrow, ImpactStat.peakTomorrow] }
+        if SolarSensors.current.isSolcast { ids.append("sun.sun") }
         let s = await ha.states(ids.filter { !$0.isEmpty })
         let k = SolarSensors.current.scale
         if needForecast, let raw = s[ImpactStat.forecastTomorrow]?.number {
@@ -289,11 +292,33 @@ final class EnergyStore: ObservableObject {
         }
         forecastToday = s[ImpactStat.forecastToday]?.number.map { $0 * k } ?? forecastToday
         peakToday = s[ImpactStat.peakToday].flatMap { HAClient.parseISO($0.state) } ?? peakToday
+        if SolarSensors.current.isSolcast {
+            forecastReadAt = s[ImpactStat.forecastToday]?.lastChanged ?? forecastReadAt
+            forecastNextRead = Self.nextSolcastRead(sun: s["sun.sun"])
+        }
         await SolarForecastLog.shared.update(ha)
         if let v = forecastToday { SolarForecastLog.shared.noteToday(v) }
         if let km = s[ImpactStat.odometer]?.number, let kwh = s[ImpactStat.lifetimeEnergy]?.number, km > 100, kwh > 10 {
             kWhPerKm = kwh / km
         }
+    }
+
+    /// Solcast (auto update, 5 divisions) reads at sunrise and then every fifth of the daylight. Estimate only:
+    /// it adds a few minutes of random offset.
+    static func nextSolcastRead(sun: HAState?, now: Date = Date()) -> Date? {
+        guard let a = sun?.attributes,
+              let nr = (a["next_rising"] as? String).flatMap(HAClient.parseISO),
+              let ns = (a["next_setting"] as? String).flatMap(HAClient.parseISO) else { return nil }
+        let cal = Calendar.current
+        let rise = cal.isDate(nr, inSameDayAs: now) ? nr : nr.addingTimeInterval(-86400)
+        let set = cal.isDate(ns, inSameDayAs: now) ? ns : ns.addingTimeInterval(-86400)
+        guard set > rise else { return nil }
+        let step = set.timeIntervalSince(rise) / 5
+        for i in 0..<5 {
+            let t = rise.addingTimeInterval(Double(i) * step)
+            if t > now { return t }
+        }
+        return cal.isDate(nr, inSameDayAs: now) ? nil : nr   // after the last read: tomorrow at sunrise
     }
 
     private func date(_ y: Int, _ m: Int, _ d: Int) -> Date {

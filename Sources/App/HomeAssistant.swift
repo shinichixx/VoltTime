@@ -77,6 +77,7 @@ enum Keychain {
 struct HAState {
     let state: String
     let attributes: [String: Any]
+    var lastChanged: Date? = nil
     var number: Double? { Double(state) }
     var isOn: Bool { state == "on" }
     var isAvailable: Bool { state != "unavailable" && state != "unknown" }
@@ -132,7 +133,8 @@ struct HAClient {
     func state(_ entity: String) async throws -> HAState {
         let data = try await send("/api/states/\(entity)")
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw APIError(message: "Unreadable state for \(entity)") }
-        return HAState(state: (obj["state"] as? String) ?? "unknown", attributes: (obj["attributes"] as? [String: Any]) ?? [:])
+        return HAState(state: (obj["state"] as? String) ?? "unknown", attributes: (obj["attributes"] as? [String: Any]) ?? [:],
+                       lastChanged: (obj["last_changed"] as? String).flatMap(HAClient.parseISO))
     }
 
     /// Every entity id Home Assistant has (one request).

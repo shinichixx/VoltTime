@@ -53,6 +53,14 @@ final class SolarForecastLog: ObservableObject {
 
     func forecast(_ day: Date) -> Double? { days[EnergyStore.keyFormatter.string(from: day)] }
 
+    /// When Solcast made the saved read (its first after sunrise), per day.
+    private var readTimes: [String: Double] {
+        get { UserDefaults.standard.dictionary(forKey: "forecastLog.readTimes") as? [String: Double] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: "forecastLog.readTimes") }
+    }
+    func readTime(_ day: Date) -> Date? { readTimes[EnergyStore.keyFormatter.string(from: day)].map { Date(timeIntervalSince1970: $0) } }
+    func isSolcast(_ day: Date) -> Bool { solcastSince.map { day >= $0 } ?? false }
+
     private func save() {
         try? FileManager.default.createDirectory(at: AppData.support, withIntermediateDirectories: true)
         if let d = try? JSONEncoder().encode(days) { try? d.write(to: Self.file, options: .atomic) }
@@ -63,7 +71,7 @@ final class SolarForecastLog: ObservableObject {
     /// At most once an hour.
     func update(_ ha: HAClient) async {
         let d = UserDefaults.standard
-        if let last = d.object(forKey: Self.checkedKey) as? Date, Date().timeIntervalSince(last) < 3600 { return }
+        if let last = d.object(forKey: Self.checkedKey) as? Date, Date().timeIntervalSince(last) < 1800 { return }
         d.set(Date(), forKey: Self.checkedKey)
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
@@ -72,6 +80,25 @@ final class SolarForecastLog: ObservableObject {
             guard let day = cal.date(byAdding: .day, value: -back, to: today) else { continue }
             let k = EnergyStore.keyFormatter.string(from: day)
             let six = day.addingTimeInterval(6 * 3600)
+            if SolarSensors.current.isSolcast, let since = solcastSince, day >= since {
+                // Solcast reads 5 times a day from sunrise (the times move with sunrise). Save its first read of
+                // the day: the first change after 05:00. None by 10:00? Then the value it had at 05:00.
+                let five = day.addingTimeInterval(5 * 3600), ten = day.addingTimeInterval(10 * 3600)
+                guard days[k] == nil, Date() > five else { continue }
+                guard let h = try? await ha.history([Self.todaySensor], since: five, until: min(Date(), ten)),
+                      let pts = h[Self.todaySensor], !pts.isEmpty else { continue }
+                let pick: (Date, Double)?
+                if let first = pts.first(where: { $0.0 > five.addingTimeInterval(30) }) { pick = first }
+                else if Date() > ten { pick = (pts[0].0, pts[0].1) } else { pick = nil }
+                guard let pick else { continue }
+                let (t, raw) = pick
+                let v = raw * SolarSensors.current.scale
+                guard v > 0, v < Self.maxDay else { continue }
+                days[k] = v
+                if t > five.addingTimeInterval(30) { readTimes[k] = t.timeIntervalSince1970 }
+                changed = true
+                continue
+            }
             guard days[k] == nil, Date() > six else { continue }
             guard let h = try? await ha.history([Self.todaySensor], since: six, until: six.addingTimeInterval(60)),
                   let raw = h[Self.todaySensor]?.first?.1 else { continue }
@@ -86,7 +113,8 @@ final class SolarForecastLog: ObservableObject {
     /// The live figure, if nothing was saved for today yet (e.g. history is unavailable).
     func noteToday(_ v: Double) {
         let k = EnergyStore.keyFormatter.string(from: Date())
-        guard v > 0, v < Self.maxDay, days[k] == nil else { return }
+        guard !SolarSensors.current.isSolcast,   // Solcast days come from its first read after sunrise (update)
+              v > 0, v < Self.maxDay, days[k] == nil else { return }
         days[k] = v
         save()
     }
@@ -167,8 +195,9 @@ struct ForecastVsActualView: View {
             return "Forecast: the solar forecast for the day, saved each morning.\nActual: what the inverter produced."
         }
         let day = since.formatted(.dateTime.day().month(.abbreviated))
-        let older = (log.firstDay.map { $0 < since } ?? false) ? "\nForecast.Solar before \(day)." : ""
-        return "Forecast: Solcast (2 roof planes), saved each morning." + older + "\nActual: what the inverter produced."
+        let older = (log.firstDay.map { $0 < since } ?? false) ? " Forecast.Solar before \(day)." : ""
+        return "Forecast: Solcast (2 roof planes), first read after sunrise each day." + older
+            + "\nLatest: Solcast updates 5 times a day.\nActual: what the inverter produced."
     }
 
     // MARK: Data
@@ -443,6 +472,9 @@ struct ForecastVsActualView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                     Text(f.map { "\(k($0)) kWh" } ?? "—").font(.app(size: 28, weight: .semibold))
+                    if log.forecast(day) != nil {
+                        Text(sourceLine(day)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                    }
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 2) {
@@ -471,7 +503,35 @@ struct ForecastVsActualView: View {
                 bar(a ?? 0, scale, Self.yellow)
             }
             .padding(.top, 14)
+            if cal.isDateInToday(day), SolarSensors.current.isSolcast, let latest = model.forecastToday {
+                Rectangle().fill(Color(white: 0.22)).frame(height: 0.7).padding(.top, 14)
+                HStack(alignment: .center) {
+                    Text("Latest from Solcast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(k(latest)) kWh").font(.app(size: 13, weight: .semibold))
+                        Text(latestLine).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+                    }
+                }
+                .padding(.top, 10)
+            }
         }
+    }
+
+    private func hm(_ d: Date) -> String { d.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) }
+
+    private func sourceLine(_ day: Date) -> String {
+        guard log.isSolcast(day) else { return "Forecast.Solar" }
+        return log.readTime(day).map { "Solcast · first read \(hm($0))" } ?? "Solcast"
+    }
+
+    private var latestLine: String {
+        var parts: [String] = []
+        if let r = model.forecastReadAt { parts.append("read \(hm(r))") }
+        if let n = model.forecastNextRead {
+            parts.append(cal.isDateInToday(n) ? "next ~\(hm(n))" : "next tomorrow ~\(hm(n))")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func bar(_ v: Double, _ scale: Double, _ c: Color) -> some View {

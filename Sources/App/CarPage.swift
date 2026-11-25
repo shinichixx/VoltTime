@@ -273,8 +273,11 @@ struct CarView2: View {
                 }
                 }
 
-                // Header: pinned; fades out as the content comes up to it (Tesla app), back in on the way down.
-                let headerOpacity = Double(min(1, max(0, ((buttonsTop - scroll) - (headerBottom + 10)) / 50)))
+                // Header: pinned; fades out as the shortcut row comes up to it (Tesla app), back in on the way down.
+                // On screen the row's icons sit ~19 pt lower than `gap` says: start ~10 pt before they reach the
+                // "Asleep · Parked" line, ~60% when they touch it, gone ~15 pt under it.
+                let gap = (buttonsTop - scroll) - headerBottom
+                let headerOpacity = Double(min(1, max(0, (gap + 34) / 25)))
                 header(w)
                     .opacity(headerOpacity)
                     .allowsHitTesting(false)
