@@ -8,7 +8,7 @@ struct CarPage: View {
     @ObservedObject var myHome: MyHomeModel
     @Binding var path: [Route]
     var active = true
-    var topInset: CGFloat = 59               // status bar height: the rows scroll up under it and fade out
+    var topInset: CGFloat = 42               // where the page starts from the top of the screen: rows scroll up above it and fade out
     @Environment(\.scenePhase) private var phase
 
     var body: some View {
@@ -169,7 +169,7 @@ struct CarView2: View {
     @ObservedObject var myHome: MyHomeModel
     @Binding var path: [Route]
     var active = true
-    var topInset: CGFloat = 59
+    var topInset: CGFloat = 42
     @State private var sliderLimit: Double?
     @State private var limitArmed = false     // press and hold 0.5 s before the limit slider moves
     @State private var scroll: CGFloat = 0
@@ -247,9 +247,10 @@ struct CarView2: View {
                 // Tesla app: rows keep scrolling up under the clock and fade away as they near the top of the
                 // screen (gone 30 pt from the top, full again 60 pt lower) instead of being cut off.
                 // At the bottom they run to the very edge of the screen, no fade.
+                // (topInset is where the page starts, 17 pt above the safe area; the fade is fixed to the screen.)
                 .mask {
                     VStack(spacing: 0) {
-                        Color.clear.frame(height: max(0, topInset - 29))
+                        Color.clear.frame(height: max(0, topInset - 12))
                         LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
                             .frame(height: 60)
                         Color.black

@@ -77,7 +77,10 @@ struct ContentView: View {
             // at the bottom (and ~17 pt early at the top). Each page now starts under the status bar by
             // plain padding, and runs to the very bottom edge of the screen.
             GeometryReader { g in
-                let top = g.safeAreaInsets.top > 0 ? g.safeAreaInsets.top : 59
+                // Pages start 17 pt above the safe area: every title, line and gap was measured against the
+                // Tesla app with the old TabView, which drew its pages 17 pt high. Keeping that offset keeps
+                // "Ultra Rouge", "Home IM2 Kuantan" and "Simulation" exactly where they were (build 64).
+                let top = (g.safeAreaInsets.top > 0 ? g.safeAreaInsets.top : 59) - 17
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 0) {
                         CarPage(car: car, home: home, myHome: myHome, path: $path, active: page == 0, topInset: top)
