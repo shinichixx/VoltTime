@@ -76,8 +76,10 @@ struct EnergyView: View {
     @ObservedObject var store: EnergyStore
     @AppStorage("energy.period") private var periodRaw = ImpactPeriod.day.rawValue
     @State private var compRaw: String
-    /// The middle of what the graph shows (reported by the graph as you swipe).
-    @State private var focus = Date()
+    /// 0 = the current day / week / month / year, -1 = the one before, …
+    @State private var offset = 0
+    /// Which way the last swipe went (the graph slides in from that side).
+    @State private var forward = false
 
     init(store: EnergyStore, start: EnergyComponent = .all) {
         _store = ObservedObject(wrappedValue: store)
@@ -88,36 +90,23 @@ struct EnergyView: View {
     private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .day }
     private var comp: EnergyComponent { EnergyComponent(rawValue: compRaw) ?? .all }
 
-    /// The day / week / month / year under the middle of the graph.
-    private var focusInterval: DateInterval {
-        guard let c = period.component else {
-            let start = store.firstDay ?? cal.startOfDay(for: Date())
-            return DateInterval(start: start, end: cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date())
-        }
-        return cal.dateInterval(of: c, for: focus) ?? DateInterval(start: cal.startOfDay(for: focus), duration: 86400)
-    }
+    private var range: PeriodRange { PeriodRange.make(period, offset: offset, firstDay: store.firstDay) }
+    private var canBack: Bool { period != .lifetime && (store.firstDay.map { range.start > $0 } ?? false) }
+    private var canForward: Bool { period != .lifetime && offset < 0 }
 
-    private var focusLabel: String {
-        let i = focusInterval
-        switch period {
-        case .day:
-            if cal.isDateInToday(i.start) { return "Today" }
-            if cal.isDateInYesterday(i.start) { return "Yesterday" }
-            return i.start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-        case .week:
-            if cal.isDate(i.start, equalTo: Date(), toGranularity: .weekOfYear) { return "This week" }
-            let last = i.end.addingTimeInterval(-1)
-            return "\(i.start.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated)))"
-        case .month: return i.start.formatted(.dateTime.month(.wide).year())
-        case .year: return i.start.formatted(.dateTime.year())
-        case .lifetime: return "Since " + i.start.formatted(.dateTime.month(.abbreviated).year())
+    /// One swipe, one period: the old graph slides out and the next one slides in.
+    private func step(_ by: Int) {
+        guard by < 0 ? canBack : canForward else { return }
+        forward = by > 0
+        DispatchQueue.main.async {   // the leaving graph picks up the new direction first
+            withAnimation(.easeInOut(duration: 0.28)) { offset += by }
         }
     }
 
     private var total: EnergyFlow {
-        let i = focusInterval
-        if period == .day { return store.flow(i.start) ?? EnergyFlow() }
-        return store.flowTotal(from: i.start, to: i.end)
+        let r = range
+        if period == .day { return store.flow(r.start) ?? EnergyFlow() }
+        return store.flowTotal(from: r.start, to: r.end)
     }
 
     var body: some View {
@@ -127,10 +116,16 @@ struct EnergyView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header(t)
                         .padding(.horizontal, 20)
-                    EnergyChartView(store: store, period: period, comp: comp, focus: $focus)
-                        .frame(height: comp == .all ? 250 : 270)
-                        .padding(.top, 18)
-                        .padding(.leading, 6)
+                    ZStack {
+                        EnergyChartView(store: store, period: period, comp: comp, range: range, swipe: step)
+                            .id("\(periodRaw)|\(offset)")
+                            .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
+                                                    removal: .move(edge: forward ? .leading : .trailing)))
+                    }
+                    .frame(height: comp == .all ? 250 : 270)
+                    .clipped()
+                    .padding(.top, 18)
+                    .padding(.leading, 6)
                     Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
                     Group {
                         if comp == .all {
@@ -157,7 +152,7 @@ struct EnergyView: View {
                 .padding(.bottom, 6)
         }
         .teslaPage(comp.pageTitle)
-        .task(id: "\(periodRaw)|\(Int(focusInterval.start.timeIntervalSince1970))") {
+        .task(id: "\(periodRaw)|\(offset)") {
             // Saved days show at once; this only tops up today / missing days (at most once a minute).
             await store.refresh()
         }
@@ -168,10 +163,10 @@ struct EnergyView: View {
     private func header(_ t: EnergyFlow) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                Text(focusLabel).font(.app(size: 17, weight: .semibold))
+                Text(range.label).font(.app(size: 17, weight: .semibold))
                 if store.loading { ProgressView().tint(.white).scaleEffect(0.6) }
                 Spacer()
-                PeriodMenu(periodRaw: $periodRaw, offset: .constant(0), boxed: true)
+                PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true)
             }
             .padding(.top, 4)
             switch comp {
@@ -323,18 +318,17 @@ struct EnergyView: View {
     }
 }
 
-// MARK: - The swipeable graph
+// MARK: - The graph (one period at a time)
 
-/// Owns the scroll position, so swiping only redraws the graph; reports the middle of the view back up.
+/// Draws only the period on screen. A sideways swipe asks the page for the next / previous period (it slides in);
+/// tap and hold, then move, to read the values at a point.
 private struct EnergyChartView: View {
     @ObservedObject var store: EnergyStore
     let period: ImpactPeriod
     let comp: EnergyComponent
-    @Binding var focus: Date
+    let range: PeriodRange
+    let swipe: (Int) -> Void
 
-    @State private var scrollX = Date()           // leading edge of what's on screen
-    @State private var points: [FlowPoint] = []
-    @State private var builtFor = ""              // what `points` was built for
     @State private var selection: Date?
 
     private let cal = Calendar.current
@@ -342,97 +336,38 @@ private struct EnergyChartView: View {
     private var byMonth: Bool { period == .year || period == .lifetime }
     private var unit: Calendar.Component { byMonth ? .month : .day }
 
-    /// Everything you can swipe through: from the first recorded day to the end of the current period.
-    private var domain: ClosedRange<Date> {
-        let now = Date()
-        let first = store.firstDay ?? cal.startOfDay(for: now)
-        let comp = period.component ?? .month
-        let lo = cal.dateInterval(of: period == .lifetime ? .month : comp, for: first)?.start ?? first
-        let hi = cal.dateInterval(of: period == .lifetime ? .month : comp, for: now)?.end ?? now
-        return lo...max(hi, lo.addingTimeInterval(86400))
-    }
-
-    /// How much is on screen at once.
-    private var visibleLength: TimeInterval {
-        switch period {
-        case .day: return 86400
-        case .week: return 7 * 86400
-        case .month: return 31 * 86400
-        case .year: return 365 * 86400
-        case .lifetime: return domain.upperBound.timeIntervalSince(domain.lowerBound)
+    /// Day: 15-minute steps (kW). Week and Month: a bar per day; Year and Lifetime: a bar per month (kWh).
+    private var points: [FlowPoint] {
+        if isDay {
+            guard let raw = store.curve(range.start) else { return [] }
+            let c = raw.minutes < 15 ? raw.coarsened(to: 15) : raw
+            let step = TimeInterval(c.minutes * 60)
+            var last = c.count
+            if cal.isDateInToday(range.start) { last = min(c.count, max(0, Int(Date().timeIntervalSince(range.start) / step))) }
+            let k = 60.0 / Double(c.minutes)
+            return (0..<last).map { FlowPoint(date: range.start.addingTimeInterval(Double($0) * step + step / 2), flow: c.flow($0), k: k) }
         }
+        var out: [FlowPoint] = []
+        var d = range.start
+        let end = min(range.end, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date())
+        while d < end {
+            let next = cal.date(byAdding: unit, value: 1, to: d) ?? end
+            out.append(FlowPoint(date: d, flow: store.flowTotal(from: d, to: min(next, end)), k: 1))
+            d = byMonth ? (cal.dateInterval(of: .month, for: next)?.start ?? next) : next
+        }
+        return out
     }
 
-    /// Where a period opens: the current day / week / month / year.
-    private var homeX: Date {
-        guard let c = period.component else { return domain.lowerBound }
-        return cal.dateInterval(of: c, for: Date())?.start ?? cal.startOfDay(for: Date())
-    }
-
-    private var buildKey: String {
-        let centre = scrollX.addingTimeInterval(visibleLength / 2)
-        let day = isDay ? Int(cal.startOfDay(for: centre).timeIntervalSince1970) : 0
-        return "\(period.rawValue)|\(day)|\(store.loading)|\(store.firstDay?.timeIntervalSince1970 ?? 0)"
+    /// Bars: through the end of the last bucket, so this month / today isn't cut off.
+    private func xEnd(_ pts: [FlowPoint]) -> Date {
+        guard !isDay, let last = pts.last?.date, let e = cal.date(byAdding: unit, value: 1, to: last) else { return range.end }
+        return period == .lifetime ? e : max(range.end, e)
     }
 
     var body: some View {
-        let visible = points.filter { $0.date >= scrollX.addingTimeInterval(-3600) && $0.date <= scrollX.addingTimeInterval(visibleLength + 3600) }
-        let scale = yScale(visible)
-        chart(scale)
-            .onAppear {
-                scrollX = homeX
-                rebuild()
-                report()
-            }
-            .onChange(of: period) { _, _ in
-                selection = nil
-                scrollX = homeX
-                rebuild()
-                report()
-            }
-            .onChange(of: scrollX) { _, _ in
-                report()
-                if buildKey != builtFor { rebuild() }
-            }
-            .onChange(of: store.loading) { _, _ in rebuild() }
-            .onChange(of: comp) { _, _ in selection = nil }
-    }
-
-    private func report() {
-        let centre = min(scrollX.addingTimeInterval(visibleLength / 2), Date())
-        if period == .lifetime { focus = Date(); return }
-        focus = centre
-    }
-
-    /// Day: 15-minute points for the days around what's on screen (built again as you swipe on).
-    /// Week and Month: a bar per day; Year and Lifetime: a bar per month, across the whole history.
-    private func rebuild() {
-        builtFor = buildKey
-        var out: [FlowPoint] = []
-        if isDay {
-            let centre = cal.startOfDay(for: scrollX.addingTimeInterval(visibleLength / 2))
-            for off in -3...3 {
-                guard let day = cal.date(byAdding: .day, value: off, to: centre), day < domain.upperBound,
-                      day >= domain.lowerBound, let raw = store.curve(day) else { continue }
-                let c = raw.minutes < 15 ? raw.coarsened(to: 15) : raw
-                let step = TimeInterval(c.minutes * 60)
-                var last = c.count
-                if cal.isDateInToday(day) { last = min(c.count, max(0, Int(Date().timeIntervalSince(day) / step))) }
-                let k = 60.0 / Double(c.minutes)
-                for i in 0..<last {
-                    out.append(FlowPoint(date: day.addingTimeInterval(Double(i) * step + step / 2), flow: c.flow(i), k: k))
-                }
-            }
-        } else {
-            var d = domain.lowerBound
-            let end = min(domain.upperBound, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date())
-            while d < end {
-                let next = cal.date(byAdding: unit, value: 1, to: d) ?? end
-                out.append(FlowPoint(date: d, flow: store.flowTotal(from: d, to: min(next, end)), k: 1))
-                d = next
-            }
-        }
-        points = out
+        let pts = points
+        let scale = yScale(pts)
+        chart(pts, scale)
     }
 
     // MARK: What each view stacks
@@ -469,15 +404,13 @@ private struct EnergyChartView: View {
 
     // MARK: Chart
 
-    private func chart(_ scale: EnergyScale) -> some View {
+    private func chart(_ pts: [FlowPoint], _ scale: EnergyScale) -> some View {
         let template = parts(FlowPoint(date: Date(), flow: EnergyFlow(), k: 1))
-        let names = template.map(\.0)
-        let colors = template.map(\.1)
         return Chart {
             if comp == .all {
-                allMarks
+                allMarks(pts)
             } else {
-                ForEach(points) { p in
+                ForEach(pts) { p in
                     ForEach(parts(p), id: \.0) { part in
                         if isDay {
                             AreaMark(x: .value("Time", p.date), y: .value("kW", part.2), stacking: .standard)
@@ -497,19 +430,14 @@ private struct EnergyChartView: View {
                     .lineStyle(StrokeStyle(lineWidth: 1))
                     .annotation(position: .top, alignment: .center, spacing: 4,
                                 overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                        scrub(sel)
+                        scrub(sel, pts)
                     }
             }
         }
-        .chartForegroundStyleScale(domain: names, range: colors)
+        .chartForegroundStyleScale(domain: template.map(\.0), range: template.map(\.1))
         .chartLegend(.hidden)
-        .chartXScale(domain: domain)
-        .chartScrollableAxes(period == .lifetime ? [] : .horizontal)
-        .chartXVisibleDomain(length: visibleLength)
-        .chartScrollPosition(x: $scrollX)
-        .modifier(SnapToPeriod(period: period))
-        .chartXSelection(value: $selection)
-        .chartXAxis { xAxis }
+        .chartXScale(domain: range.start...xEnd(pts))
+        .chartXAxis { xAxis(pts) }
         .chartYScale(domain: scale.domain)
         .chartYAxis {
             AxisMarks(position: .trailing, values: .stride(by: scale.step)) { v in
@@ -519,6 +447,12 @@ private struct EnergyChartView: View {
                         Text(scale.label(d, top: abs(d - scale.domain.upperBound) < 0.001, unit: isDay ? "kW" : "kWh"))
                     }
                 }
+            }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { g in
+                Rectangle().fill(Color.clear).contentShape(Rectangle())
+                    .simultaneousGesture(gestures(proxy, g))
             }
         }
         .overlay(alignment: .topLeading) {
@@ -535,27 +469,48 @@ private struct EnergyChartView: View {
             }
         }
         .overlay {
-            if points.isEmpty && !store.loading {
-                Text("No data yet").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            if pts.isEmpty && !store.loading {
+                Text(isDay ? "No data for this day" : "No data for this period").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
     }
 
-    @AxisContentBuilder private var xAxis: some AxisContent {
+    /// Tap and hold (then move) reads values; otherwise a sideways swipe turns the page.
+    private func gestures(_ proxy: ChartProxy, _ g: GeometryProxy) -> some Gesture {
+        let hold = LongPressGesture(minimumDuration: 0.25, maximumDistance: 12)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+        let flick = DragGesture(minimumDistance: 18)
+        return hold.exclusively(before: flick)
+            .onChanged { v in
+                if case .first(let s) = v, case .second(true, let d?) = s {
+                    let x = d.location.x - (proxy.plotFrame.map { g[$0].minX } ?? 0)
+                    selection = proxy.value(atX: x, as: Date.self)
+                }
+            }
+            .onEnded { v in
+                switch v {
+                case .first:
+                    selection = nil
+                case .second(let d):
+                    let w = d.translation.width, h = d.translation.height
+                    guard abs(w) > 50, abs(w) > abs(h) * 1.4 else { return }
+                    swipe(w < 0 ? 1 : -1)   // finger to the left: the next (later) period
+                }
+            }
+    }
+
+    @AxisContentBuilder private func xAxis(_ pts: [FlowPoint]) -> some AxisContent {
         if isDay {
-            AxisMarks(values: .stride(by: .hour, count: 6)) { v in
+            AxisMarks(values: [0, 6, 12, 18].map { range.start.addingTimeInterval(Double($0) * 3600) }) { v in
                 let d = v.as(Date.self) ?? Date()
-                let midnight = cal.component(.hour, from: d) == 0
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 4]))
-                    .foregroundStyle(Color.white.opacity(midnight ? 0.25 : 0.1))
-                AxisValueLabel {
-                    Text(Self.hourLabel(d))
-                        .font(.app(size: 11, weight: midnight ? .semibold : .regular))
-                        .foregroundStyle(midnight ? Color.white : TeslaDark.rowLabel)
+                    .foregroundStyle(Color.white.opacity(0.1))
+                AxisValueLabel(anchor: cal.component(.hour, from: d) == 0 ? .topLeading : .top) {
+                    Text(Self.hourLabel(d)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
                 }
             }
         } else {
-            AxisMarks(values: .stride(by: unit, count: axisCount)) { _ in
+            AxisMarks(values: .stride(by: unit, count: axisCount(pts.count))) { _ in
                 AxisValueLabel(format: axisFormat, centered: true)
             }
         }
@@ -568,10 +523,10 @@ private struct EnergyChartView: View {
         return "\(h12) \(h < 12 ? "AM" : "PM")"
     }
 
-    private var axisCount: Int {
+    private func axisCount(_ n: Int) -> Int {
         switch period {
         case .month: return 7
-        case .lifetime: return points.count > 12 ? 3 : 1
+        case .lifetime: return n > 12 ? 3 : 1
         default: return 1
         }
     }
@@ -586,7 +541,7 @@ private struct EnergyChartView: View {
 
     /// All: Model 3 sits on Home (red top = everything used), grid sits on Solar (grey top = everything supplied),
     /// export below zero.
-    @ChartContentBuilder private var allMarks: some ChartContent {
+    @ChartContentBuilder private func allMarks(_ points: [FlowPoint]) -> some ChartContent {
         if isDay {
             ForEach(points) { p in
                 AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.solar * p.k), series: .value("F", "solar"))
@@ -646,7 +601,7 @@ private struct EnergyChartView: View {
 
     // MARK: Scrub box (tap and hold)
 
-    private func scrub(_ sel: Date) -> some View {
+    private func scrub(_ sel: Date, _ points: [FlowPoint]) -> some View {
         let hit: FlowPoint? = isDay
             ? points.min { abs($0.date.timeIntervalSince(sel)) < abs($1.date.timeIntervalSince(sel)) }
             : points.first { cal.isDate($0.date, equalTo: sel, toGranularity: unit) }
@@ -686,27 +641,6 @@ private struct EnergyChartView: View {
         .padding(8)
         .background(Color(white: 0.17))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-/// Week, Month and Year settle on a whole period when you let go; Day runs on freely.
-private struct SnapToPeriod: ViewModifier {
-    let period: ImpactPeriod
-    @ViewBuilder func body(content: Content) -> some View {
-        let first = Calendar.current.firstWeekday
-        switch period {
-        case .week:
-            content.chartScrollTargetBehavior(.valueAligned(matching: DateComponents(hour: 0),
-                                                            majorAlignment: .matching(DateComponents(weekday: first))))
-        case .month:
-            content.chartScrollTargetBehavior(.valueAligned(matching: DateComponents(hour: 0),
-                                                            majorAlignment: .matching(DateComponents(day: 1))))
-        case .year:
-            content.chartScrollTargetBehavior(.valueAligned(matching: DateComponents(day: 1),
-                                                            majorAlignment: .matching(DateComponents(month: 1, day: 1))))
-        default:
-            content
-        }
     }
 }
 
