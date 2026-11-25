@@ -200,7 +200,7 @@ struct ForecastVsActualView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func k(_ v: Double) -> String { v >= 100 ? String(format: "%.0f", v) : String(format: "%.1f", v) }
+    private func k(_ v: Double) -> String { Num.kwh(v) }
 
     private func summaryLabel(_ r: PeriodRange) -> String {
         let current = offset == 0
@@ -219,28 +219,39 @@ struct ForecastVsActualView: View {
         let p = f > 0 ? (m - f) / f * 100 : 0
         let (have, total) = dayCounts(r)
         return cardBox {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(summaryLabel(r)).font(.app(size: 10, weight: .medium)).kerning(0.6).foregroundStyle(TeslaDark.rowLabel)
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("\(k(a)) kWh").font(.app(size: 28, weight: .semibold))
-                        Text("actual").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-                    }
-                    Text(f == 0 ? "No forecast saved for these days yet"
-                         : have < total ? "Forecast saved for \(have) of \(total) days so far"
-                         : "Forecast \(k(f)) kWh · actual came \(String(format: "%.0f", abs(p)))% \(p < 0 ? "lower" : "higher")")
-                        .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            Text(summaryLabel(r)).font(.app(size: 10, weight: .medium)).kerning(0.6).foregroundStyle(TeslaDark.rowLabel)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(k(a)).font(.app(size: 32, weight: .semibold)).foregroundStyle(Self.yellow)
+                Text("kWh generated").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            }
+            .padding(.top, 4)
+            Rectangle().fill(Color(white: 0.22)).frame(height: 0.5).padding(.vertical, 12)
+            if f > 0 {
+                Text(have < total ? "ON THE \(have) \(have == 1 ? "DAY" : "DAYS") WITH A FORECAST" : "FORECAST VS ACTUAL")
+                    .font(.app(size: 9, weight: .medium)).kerning(0.6).foregroundStyle(TeslaDark.rowLabel)
+                HStack(alignment: .top, spacing: 0) {
+                    stat("Forecast", k(f), "kWh")
+                    stat("Actual", k(m), "kWh")
+                    stat("Typical miss", typicalMiss(r).map { "±" + String(format: "%.0f", $0) } ?? "—", "%")
                 }
-                Spacer()
-                if let m = typicalMiss(r) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("±\(String(format: "%.0f", m))%").font(.app(size: 22, weight: .semibold))
-                        Text("typical miss").font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-                    }
-                    .padding(.top, 14)
-                }
+                .padding(.top, 8)
+                Text("Actual came \(String(format: "%.0f", abs(p)))% \(p < 0 ? "lower" : "higher") than forecast")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 8)
+            } else {
+                Text("No forecast saved for these days yet").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
+    }
+
+    private func stat(_ label: String, _ value: String, _ unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value).font(.app(size: 19, weight: .semibold))
+                Text(unit).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func chart(_ r: PeriodRange, _ bs: [FBucket]) -> some View {
@@ -251,44 +262,60 @@ struct ForecastVsActualView: View {
                 HStack(spacing: 5) { RoundedRectangle(cornerRadius: 2).fill(Self.yellow).frame(width: 11, height: 8); Text("Actual") }
                 HStack(spacing: 5) { Capsule().fill(.white).frame(width: 14, height: 2.5); Text("Forecast") }
                 Spacer()
-                if let s = sel, let a = s.actual, let f = s.forecast {
-                    Text("\(byMonth ? s.date.formatted(.dateTime.month(.abbreviated).year()) : s.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))) · \(k(f)) → \(k(a)) kWh")
-                        .foregroundStyle(.white)
-                } else {
-                    Text("Press and slide")
-                }
             }
             .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-            .padding(.bottom, 12)
-            Chart {
-                ForEach(bs) { b in
-                    if let a = b.actual {
-                        BarMark(x: .value("Date", b.date, unit: unit), y: .value("Actual", a), width: bs.count <= 3 ? .fixed(28) : .ratio(0.62))
-                            .foregroundStyle(Self.yellow.opacity(sel == nil || sel?.id == b.id ? 1 : 0.35))
-                            .cornerRadius(3)
+            // Room above the bars for the press-and-slide label.
+            ZStack(alignment: .top) {
+                Chart {
+                    ForEach(bs) { b in
+                        if let a = b.actual {
+                            BarMark(x: .value("Date", b.date, unit: unit), y: .value("Actual", a), width: bs.count <= 3 ? .fixed(28) : .ratio(0.62))
+                                .foregroundStyle(Self.yellow.opacity(sel == nil || sel?.id == b.id ? 1 : 0.35))
+                                .cornerRadius(3)
+                        }
+                        if let f = b.forecast {
+                            RectangleMark(x: .value("Date", b.date, unit: unit), y: .value("Forecast", f), width: bs.count <= 3 ? .fixed(38) : .ratio(0.8), height: 2.5)
+                                .foregroundStyle(.white.opacity(sel == nil || sel?.id == b.id ? 1 : 0.4))
+                        }
                     }
-                    if let f = b.forecast {
-                        RectangleMark(x: .value("Date", b.date, unit: unit), y: .value("Forecast", f), width: bs.count <= 3 ? .fixed(38) : .ratio(0.8), height: 2.5)
-                            .foregroundStyle(.white)
-                    }
-                }
-            }
-            .chartXScale(domain: chartDomain(r))
-            .chartXSelection(value: $picked)
-            .chartYAxis {
-                AxisMarks(position: .trailing) { _ in
-                    AxisGridLine().foregroundStyle(Color(white: 0.25))
-                    AxisValueLabel().font(.app(size: 9)).foregroundStyle(TeslaDark.rowLabel)
-                }
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: unit, count: xStride(bs.count))) { v in
-                    AxisValueLabel {
-                        if let d = v.as(Date.self) { Text(xLabel(d)).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel) }
+                    if let s = sel {
+                        RuleMark(x: .value("Date", s.date, unit: unit)).foregroundStyle(Color(white: 0.4)).lineStyle(StrokeStyle(lineWidth: 1))
                     }
                 }
+                .chartXScale(domain: chartDomain(r))
+                .chartXSelection(value: $picked)
+                .chartYAxis {
+                    AxisMarks(position: .trailing) { _ in
+                        AxisGridLine().foregroundStyle(Color(white: 0.25))
+                        AxisValueLabel().font(.app(size: 9)).foregroundStyle(TeslaDark.rowLabel)
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: unit, count: xStride(bs.count))) { v in
+                        AxisValueLabel(centered: true) {
+                            if let d = v.as(Date.self) { Text(xLabel(d)).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel) }
+                        }
+                    }
+                }
+                .padding(.top, 44)
+                .frame(height: 250)
+                if let s = sel, let a = s.actual {
+                    VStack(spacing: 2) {
+                        Text(byMonth ? s.date.formatted(.dateTime.month(.abbreviated).year())
+                                     : s.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+                            .font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+                        Text(s.forecast.map { f in "Forecast \(k(f)) · actual \(k(a))" + (s.diff.map { String(format: " · %+.0f%%", $0) } ?? "") }
+                             ?? "Actual \(k(a)) kWh · no forecast")
+                            .font(.app(size: 12, weight: .semibold)).foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.24)))
+                    .allowsHitTesting(false)
+                }
             }
-            .frame(height: 200)
+            .padding(.top, 8)
+            Text(sel == nil ? "Press and slide on the chart to see a day" : " ")
+                .font(.app(size: 10)).foregroundStyle(TeslaDark.dim).padding(.top, 6)
         }
     }
 
@@ -325,33 +352,40 @@ struct ForecastVsActualView: View {
                 Spacer()
                 Text("FORECAST").frame(width: 70, alignment: .trailing)
                 Text("ACTUAL").frame(width: 62, alignment: .trailing)
-                Text("DIFF").frame(width: 72, alignment: .trailing)
+                Text("DIFF").frame(width: 84, alignment: .trailing)
             }
             .font(.app(size: 9, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
             .padding(.top, 16).padding(.bottom, 6)
             ForEach(Array(rows)) { b in
                 Rectangle().fill(Color(white: 0.2)).frame(height: 0.5)
                 HStack {
-                    Text(rowTitle(b.date)).font(.app(size: 14))
+                    Text(rowTitle(b.date)).font(.app(size: 15))
                     Spacer()
                     Text(b.forecast.map(k) ?? "—").foregroundStyle(TeslaDark.rowLabel).frame(width: 70, alignment: .trailing)
                     Text(b.actual.map(k) ?? "—").frame(width: 62, alignment: .trailing)
                     Group {
                         if b.isToday, let f = b.forecast, let a = b.actual, f > 0 {
-                            Text("\(String(format: "%.0f", a / f * 100))% so far").foregroundStyle(TeslaDark.rowLabel)
+                            pill("\(String(format: "%.0f", a / f * 100))% so far", TeslaDark.rowLabel)
+                        } else if let p = b.diff {
+                            pill(String(format: "%+.0f%%", p), forecastDiffColor(p), bold: true)
                         } else {
-                            Text(b.diff.map { String(format: "%+.0f%%", $0) } ?? "—")
-                                .foregroundStyle(b.diff.map(forecastDiffColor) ?? TeslaDark.rowLabel)
+                            Text("—").foregroundStyle(TeslaDark.rowLabel)
                         }
                     }
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                    .frame(width: 72, alignment: .trailing)
+                    .frame(width: 84, alignment: .trailing)
                 }
-                .font(.app(size: 14))
-                .padding(.vertical, 12)
+                .font(.app(size: 15))
+                .padding(.vertical, 13)
             }
         }
         .padding(.horizontal, 4)
+    }
+
+    private func pill(_ t: String, _ c: Color, bold: Bool = false) -> some View {
+        Text(t).font(.app(size: 12, weight: bold ? .semibold : .regular)).foregroundStyle(c)
+            .lineLimit(1).minimumScaleFactor(0.8)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Capsule().fill(c == TeslaDark.rowLabel ? Color(white: 0.2) : c.opacity(0.16)))
     }
 
     private func rowTitle(_ d: Date) -> String {
@@ -359,8 +393,8 @@ struct ForecastVsActualView: View {
             let s = d.formatted(.dateTime.month(.abbreviated).year())
             return cal.isDate(d, equalTo: Date(), toGranularity: .month) ? s + " (so far)" : s
         }
-        let s = d.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-        return cal.isDateInToday(d) ? s + " (today)" : s
+        if cal.isDateInToday(d) { return "Today" }
+        return d.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
 
     private func dayCard(_ day: Date) -> some View {

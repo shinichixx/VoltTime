@@ -280,21 +280,55 @@ struct MyHomeView: View {
     @ObservedObject var model: MyHomeModel
     @Binding var path: [Route]
     @Environment(\.scenePhase) private var phase
+    @State private var scroll: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
-            // Title, photo and power numbers stay put; only the rows below scroll (and spring back).
-            VStack(spacing: 0) {
-                hero(width: geo.size.width)
+            let w = geo.size.width
+            let height = w * 2400 / 1792 + 20
+            // Swipe between pages: the house photo doesn't slide; it fades in over the second half of the swipe.
+            let px = geo.frame(in: .global).minX
+            let swipe = max(0, 1 - 2 * min(1, abs(px) / max(w, 1)))
+            // Rows slide up over the photo, which fades to 8% (same as the car on My Car).
+            let fade = min(swipe, max(0.08, 1 - Double(max(scroll, 0)) / 150))
+            ZStack(alignment: .top) {
+                TeslaDark.bg.ignoresSafeArea()
+                backdrop(width: w, height: height)
+                    .offset(x: -px)
+                    .opacity(fade)
+                    .allowsHitTesting(false)
+
                 ScrollView {
-                    rows
+                    VStack(spacing: 0) {
+                        GeometryReader { g in
+                            Color.clear.preference(key: ScrollY.self, value: -g.frame(in: .named("home")).minY)
+                        }
+                        .frame(height: 0)
+                        Color.clear.frame(height: height)
+                        rows
+                        Color.clear.frame(height: 66)   // clear of the page dots
+                    }
                 }
+                .coordinateSpace(name: "home")
+                .modifier(TrackScroll(y: $scroll))
                 .scrollIndicators(.hidden)
                 .scrollBounceBehavior(.always)
-                .mask(   // rows fade out softly as they slide up under the photo
-                    LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.06),
-                                           .init(color: .black, location: 1)], startPoint: .top, endPoint: .bottom)
+                .mask(   // rows fade out softly as they reach the title
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 92)
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 40)
+                        Color.black
+                    }
                 )
+                .ignoresSafeArea(.container, edges: .bottom)
+
+                // Power figures sit on the photo: they stay and fade with it; the Model 3 one opens Charging.
+                labels(width: w)
+                    .offset(x: -px)
+                    .opacity(fade)
+                    .allowsHitTesting(scroll < 20 && swipe > 0.9)
+
+                header(width: w)
             }
         }
         .background(TeslaDark.bg.ignoresSafeArea())
@@ -310,9 +344,7 @@ struct MyHomeView: View {
 
     // MARK: Picture with live labels
 
-    private func hero(width w: CGFloat) -> some View {
-        let height = w * 2400 / 1792 + 20
-        let labelY = 30 + w * 0.2812
+    private func backdrop(width w: CGFloat, height: CGFloat) -> some View {
         let bg = TeslaDark.bg
         return ZStack(alignment: .topLeading) {
             bg
@@ -337,7 +369,13 @@ struct MyHomeView: View {
                 .init(color: bg.opacity(0), location: 0.34),
             ], startPoint: .bottom, endPoint: .top)
             .frame(width: w, height: height)
+        }
+        .frame(width: w, height: height)
+        .clipped()
+    }
 
+    private func header(width w: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
             Text("Home IM2 Kuantan")
                 .font(.app(size: 27, weight: .semibold))
                 .kerning(-0.3)
@@ -364,7 +402,14 @@ struct MyHomeView: View {
                 .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
                 .padding(.leading, w * 0.07)
                 .padding(.top, 58)
+        }
+        .frame(width: w, alignment: .topLeading)
+    }
 
+    private func labels(width w: CGFloat) -> some View {
+        let labelY = 30 + w * 0.2812
+        return ZStack(alignment: .topLeading) {
+            Color.clear
             anchored(x: w * 0.2901, y: labelY, bottom: true) {
                 // Tap the Model 3 figure for quick amps and start / stop.
                 Button { path.append(.charge) } label: {
@@ -386,8 +431,7 @@ struct MyHomeView: View {
                 FlowLabel(title: "GRID", value: Text("\(MyHomeModel.kw(model.gridW)) kW"))
             }
         }
-        .frame(width: w, height: height)
-        .clipped()
+        .frame(width: w, height: w * 2400 / 1792 + 20, alignment: .topLeading)
     }
 
     @ViewBuilder private func photo(width w: CGFloat) -> some View {

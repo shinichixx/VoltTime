@@ -191,7 +191,7 @@ struct EnergyView: View {
     }
 
     private func kwh(_ v: Double) -> String {
-        v >= 100 ? String(format: "%.0f kWh", v) : String(format: "%.1f kWh", v)
+        Num.kwh(v) + " kWh"
     }
 
     // MARK: Chart

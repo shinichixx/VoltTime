@@ -119,7 +119,7 @@ struct ImpactView: View {
     }
 
     private func kwh(_ v: Double) -> String {
-        v >= 100 ? String(format: "%.0f kWh", v) : String(format: "%.1f kWh", v)
+        Num.kwh(v) + " kWh"
     }
 
     private func pct(_ v: Double?) -> String { v.map { "\(Int(($0 * 100).rounded()))%" } ?? "—" }
@@ -149,7 +149,7 @@ struct ImpactView: View {
                 split(t.carSolar, max(t.car - t.carSolar, 0), "Solar", "Grid")
                 if let perKm = model.kWhPerKm, t.carSolar > 0 {
                     let km = t.carSolar * ImpactStat.chargeEfficiency / perKm
-                    Text("≈ \(km.formatted(.number.precision(.fractionLength(0)))) km driven on sunshine")
+                    Text("\(Num.whole(km)) km driven on sunshine")
                         .font(.app(size: 14)).padding(.top, 12)
                 }
             }

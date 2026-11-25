@@ -119,14 +119,14 @@ struct CarConfirm: ViewModifier {
     }
 }
 
-private struct ScrollY: PreferenceKey {
+struct ScrollY: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 /// How far the page has scrolled (0 at rest). iOS 18+ reads it from the scroll view itself;
 /// iOS 17 falls back to the preference read from the top of the content.
-private struct TrackScroll: ViewModifier {
+struct TrackScroll: ViewModifier {
     @Binding var y: CGFloat
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
@@ -188,6 +188,9 @@ struct CarView2: View {
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
+            // Swiping to My Home: the car doesn't slide; it fades out over the first half of the swipe.
+            let px = geo.frame(in: .global).minX
+            let swipe = max(0, 1 - 2 * min(1, abs(px) / max(w, 1)))
             ZStack(alignment: .top) {
                 K.bg.ignoresSafeArea()
 
@@ -196,7 +199,8 @@ struct CarView2: View {
                     .frame(width: w * 0.92)
                     .frame(width: w, height: carHeight)
                     .clipped()
-                    .opacity(max(0.08, 1 - Double(max(scroll, 0)) / 150))
+                    .offset(x: -px)
+                    .opacity(min(swipe, max(0.08, 1 - Double(max(scroll, 0)) / 150)))
                     .padding(.top, carTop)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .allowsHitTesting(false)

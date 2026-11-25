@@ -83,3 +83,11 @@ struct PeriodMenu: View {
         }
     }
 }
+
+
+/// Numbers in the app: thousands always with a comma ("1,065"), one decimal under 100 ("13.7").
+enum Num {
+    static let en = Locale(identifier: "en_US")
+    static func whole(_ v: Double) -> String { Int(v.rounded()).formatted(.number.locale(en)) }
+    static func kwh(_ v: Double) -> String { v >= 100 ? whole(v) : String(format: "%.1f", v) }
+}
