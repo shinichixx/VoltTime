@@ -19,7 +19,7 @@ enum AppData {
     static var energy: URL { support.appendingPathComponent("energy.plist") }
 
     /// Settings that go into a backup (the Home Assistant token stays in the Keychain, never in a file).
-    private static let settingPrefixes = ["home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", "car.", HAClient.urlKey]
+    private static let settingPrefixes = ["home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", "car.", "profile.", HAClient.urlKey]
 
     static func settingsData() -> Data? {
         let all = UserDefaults.standard.dictionaryRepresentation()
@@ -73,7 +73,7 @@ enum VoltArchive {
         if fm.fileExists(atPath: SolarForecastLog.file.path) {   // daily solar forecasts
             try fm.copyItem(at: SolarForecastLog.file, to: stage.appendingPathComponent("solar-forecast.json"))
         }
-        for name in ["car.png", "car-charging.png"] where includePhotos {
+        for name in ["car.png", "car-charging.png", ProfileStore.photoName] where includePhotos {
             let src = CarArt.folder.appendingPathComponent(name)
             if fm.fileExists(atPath: src.path) { try fm.copyItem(at: src, to: stage.appendingPathComponent(name)) }
         }
@@ -121,7 +121,7 @@ enum VoltArchive {
         let energy = (try? Data(contentsOf: dest.appendingPathComponent("energy.plist"))).flatMap { StoreFile.curves(from: $0) }
         let settings = try? Data(contentsOf: dest.appendingPathComponent("settings.plist"))
         var photos: [String: Data] = [:]
-        for name in ["car.png", "car-charging.png"] {
+        for name in ["car.png", "car-charging.png", ProfileStore.photoName] {
             if let d = try? Data(contentsOf: dest.appendingPathComponent(name)) { photos[name] = d }
         }
         let battery = try? Data(contentsOf: dest.appendingPathComponent("battery-history.json"))

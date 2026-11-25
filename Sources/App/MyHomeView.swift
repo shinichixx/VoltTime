@@ -391,7 +391,7 @@ struct MyHomeView: View {
             // ☰ (Tesla app, top right): My Home settings and backup. Same spot as on My Car.
             HStack {
                 Spacer()
-                Button { path.append(.homeSettings) } label: { MenuGlyph() }
+                Button { path.append(.menu) } label: { MenuGlyph() }
                     .buttonStyle(.plain)
                     .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
                     .accessibilityLabel("My Home settings")
@@ -498,15 +498,15 @@ struct MyHomeView: View {
 
     private var rows: some View {
         VStack(spacing: 0) {
-            TeslaRow(icon: "chart.xyaxis.line", name: "Energy",
+            TeslaRow(icon: AnyView(EnergyGlyph(size: 24)), name: "Energy",
                      label: model.dailyYield.map { String(format: "%.1f kWh Generated Today", $0) } ?? "Generated Today") {
                 path.append(.energy)
             }
-            TeslaRow(icon: "leaf", name: "Impact",
+            TeslaRow(icon: AnyView(ImpactGlyph(size: 24)), name: "Impact",
                      label: model.selfPowered.map { "\(Int($0.rounded()))% Self-Powered Today" } ?? "Self-Powered Today") {
                 path.append(.impact)
             }
-            TeslaRow(icon: "bolt.fill", name: "Charging", label: model.mode.map { $0 == "Routine" ? "Routine" : ChargingMode.named($0).title } ?? "—") {
+            TeslaRow(icon: AnyView(GearGlyph(size: 24)), name: "Settings", label: nil) {
                 path.append(.settings)
             }
             if let msg = model.message {
@@ -543,11 +543,11 @@ struct FlowLabel: View {
     }
 }
 
-/// Icon on the left, white name over a grey label (the tesla_row button-card template).
+/// Icon on the left, white name over a grey label, chevron on the right (Tesla app's Home rows).
 struct TeslaRow: View {
-    let icon: String
+    let icon: AnyView
     let name: String
-    let label: String
+    let label: String?
     var action: (() -> Void)?
 
     var body: some View {
@@ -564,15 +564,16 @@ struct TeslaRow: View {
 
     private func content(_ width: CGFloat) -> some View {
         HStack(spacing: 0) {
-            Image(systemName: icon)
-                .font(.system(size: 21, weight: .medium))
-                .foregroundStyle(TeslaDark.rowIcon)
+            icon
                 .frame(width: 44, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.app(size: 16, weight: .semibold)).foregroundStyle(.white)
-                Text(label).font(.app(size: 12, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
+                if let label {
+                    Text(label).font(.app(size: 12, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
+                }
             }
             Spacer()
+            Image(systemName: "chevron.right").font(.system(size: 14, weight: .regular)).foregroundStyle(TeslaDark.dim)
         }
         .padding(.horizontal, width * 0.07)
         .frame(maxHeight: .infinity)

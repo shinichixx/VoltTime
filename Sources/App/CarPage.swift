@@ -284,7 +284,7 @@ struct CarView2: View {
                 // ☰ (Tesla app, top right): My Car settings and backup.
                 HStack {
                     Spacer()
-                    Button { path.append(.carSettings) } label: { MenuGlyph() }
+                    Button { path.append(.menu) } label: { MenuGlyph() }
                         .buttonStyle(.plain)
                         .accessibilityLabel("My Car settings")
                 }
@@ -990,7 +990,7 @@ struct CarDetailPage: View {
                 } else {
                     Text(live.state == .receiving ? "Reading the cells…" : "No reading yet")
                         .font(.app(size: 15, weight: .medium)).foregroundStyle(K.title)
-                    Text("In the car, join the S3XY_OBD Wi-Fi and open TesLah. My Car ☰ › S3XY Commander shows how.")
+                    Text("In the car, join the S3XY_OBD Wi-Fi and open TesLah. Menu › Connection › S3XY Commander shows how.")
                         .font(.app(size: 12)).foregroundStyle(K.grey).padding(.top, 4).padding(.bottom, 6)
                 }
                 if let road = history.road {

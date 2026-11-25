@@ -147,7 +147,7 @@ final class HomeModel: ObservableObject {
                                  Entity.destination, Entity.active, Entity.answered, Entity.chargingMode,
                                  Entity.reminders, Entity.remindersOff])
         if s.isEmpty {
-            message = "Can't reach Home Assistant. Check the address and token in My Home ☰ (and Tailscale)."
+            message = "Can't reach Home Assistant. Check the address and token in Menu › Connection (and Tailscale)."
             return
         }
         message = s[Entity.readyTime] == nil ? "VoltTime helpers not found in Home Assistant – install homeassistant/volttime.yaml." : nil

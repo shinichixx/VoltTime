@@ -3,7 +3,7 @@ import SwiftUI
 /// Pages pushed from My Home.
 enum Route: Hashable {
     case energy, settings, chargeDetails, homeAssistant, charge, impact
-    case carSettings, homeSettings, carDetail(CarDetail)
+    case menu, carDetail(CarDetail)
 }
 
 // MARK: - Shared dark building blocks
@@ -55,6 +55,57 @@ extension View {
             }
             .toolbarBackground(black ? TSurface.page : TeslaDark.bg, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .plainBackButton()
+    }
+
+    /// Tesla app back button: a thin grey arrow, no circle behind it (iOS 26 would put the system one in glass).
+    @ViewBuilder func plainBackButton() -> some View {
+        if #available(iOS 26.0, *) {
+            self.navigationBarBackButtonHidden(true)
+                .toolbar { ToolbarItem(placement: .topBarLeading) { PlainBackButton() }.sharedBackgroundVisibility(.hidden) }
+        } else {
+            self.navigationBarBackButtonHidden(true)
+                .toolbar { ToolbarItem(placement: .topBarLeading) { PlainBackButton() } }
+        }
+    }
+}
+
+/// 7 × 13 pt chevron in mid grey, like the Tesla app; the tap area stays 44 pt.
+struct PlainBackButton: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Button { dismiss() } label: {
+            BackChevron()
+                .stroke(Color(white: 0.54), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                .frame(width: 7.5, height: 13.5)
+                .frame(width: 44, height: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
+    }
+}
+
+struct BackChevron: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.maxX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.midY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        return p
+    }
+}
+
+/// Keeps the swipe-from-the-edge back gesture working with the system back button hidden.
+extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.delegate = self
+    }
+
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        viewControllers.count > 1
     }
 }
 
@@ -165,7 +216,7 @@ struct SettingsPage: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                TCaption(text: "Charging mode")
+                TCaption(text: "Car charging mode")
                     .padding(.top, -18)          // close under the title, clear of the top bar
                 modeTiles
                     .padding(.horizontal, 20)
@@ -197,7 +248,7 @@ struct SettingsPage: View {
                 Spacer(minLength: 12)
             }
         }
-        .teslaPage("Charging", black: true)
+        .teslaPage("Settings", black: true)
         .task {
             await home.refresh()
             await myHome.refresh()

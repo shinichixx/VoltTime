@@ -1,71 +1,5 @@
 import SwiftUI
 
-// ☰ on My Car: the car's settings and backup, one page of groups, each opening its own page.
-
-struct CarSettingsPage: View {
-    @ObservedObject var car: CarModel
-    @ObservedObject var energy: EnergyStore
-    @ObservedObject var home: HomeModel
-    @ObservedObject private var backup = BackupManager.shared
-    @AppStorage("car.gate.ask") private var gateAsk = true
-    @ObservedObject private var s3xy = S3XYLink.shared
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                TCaption(text: "Connection")
-                NavigationLink { TessiePage(car: car) } label: {
-                    nav("Tessie", "bolt.car", car.configured ? (car.error == nil ? "Connected · \(car.car.name)" : "Can't reach Tessie · tap to check") : "Not set up · add your token",
-                        dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : Color(white: 0.55))
-                }.buttonStyle(.plain)
-                NavigationLink { S3XYPage() } label: {
-                    nav("S3XY Commander", "waveform.path.ecg", s3xyLine, dot: s3xy.statusDot, last: true)
-                }.buttonStyle(.plain)
-
-                TCaption(text: "Buttons")
-                NavigationLink { QuickControlsPage(car: car) } label: {
-                    nav("Quick controls", "square.grid.3x2", car.controls.prefix(QuickControlsPage.slots).map(\.short).joined(separator: " · "))
-                }.buttonStyle(.plain)
-                NavigationLink { AutogatePage(car: car) } label: {
-                    nav("Autogate", "door.garage.open", iconView: AnyView(GateGlyph(size: 20, color: TSurface.icon)), gateAsk ? "Asks before sending" : "Sends straight away · asks when away", last: true)
-                }.buttonStyle(.plain)
-
-                TCaption(text: "Alerts")
-                NavigationLink { NotificationsPage() } label: {
-                    nav("Notifications", "bell", alertsLine, last: true)
-                }.buttonStyle(.plain)
-
-                TCaption(text: "Data")
-                NavigationLink { BackupPage(energy: energy, home: home) } label: {
-                    nav("Backup", "arrow.triangle.2.circlepath", (backup.lastDate == nil ? "Not saved yet" : backup.lastText) + " · iCloud Drive",
-                        dot: backup.summaryColor, last: true)
-                }.buttonStyle(.plain)
-
-                AppVersionFooter()
-            }
-        }
-        .teslaPage("My Car", black: true)
-    }
-
-    private var alertsLine: String {
-        let d = UserDefaults.standard
-        let on = [d.bool(forKey: BatteryAlerts.cellKey) ? "Cell gap" : nil, d.bool(forKey: BatteryAlerts.healthKey) ? "Battery health" : nil].compactMap { $0 }
-        return on.isEmpty ? "Off" : on.joined(separator: " · ")
-    }
-
-    private var s3xyLine: String {
-        let wifi = "Wi-Fi " + (UserDefaults.standard.string(forKey: S3XYLink.ssidKey).flatMap { $0.isEmpty ? nil : $0 } ?? "S3XY_OBD")
-        if s3xy.state == .receiving, let r = s3xy.current { return "Connected · \(Int(r.mv.rounded())) mV now" }
-        return s3xy.statusWord + " · " + wifi
-    }
-
-    private func nav(_ t: String, _ icon: String, iconView: AnyView? = nil, _ sub: String, dot: Color? = nil, last: Bool = false) -> some View {
-        TRow(t, icon: icon, iconView: iconView, subtitle: sub, dot: dot, last: last) {
-            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-        }
-    }
-}
-
 // MARK: Tessie
 
 struct TessiePage: View {
@@ -203,7 +137,7 @@ struct QuickControlsPage: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                TFootnote(text: "Green = TesLah asks \"Are you sure?\" first. Number = slot in the row. The autogate's own setting is in My Car ☰ › Autogate.")
+                TFootnote(text: "Green = TesLah asks \"Are you sure?\" first. Number = slot in the row. The autogate's own setting is in Menu › Autogate.")
                 Button("Reset to default") { CarControl.save(CarControl.defaults); car.reloadControls() }
                     .font(.app(size: 14)).foregroundStyle(CarColors.red).padding(.top, 16)
                 Spacer(minLength: 40)
@@ -267,7 +201,7 @@ struct QuickControlsPage: View {
         case .lock: return "Asks before unlocking"
         case .climate: return "Asks before turning on"
         case .frunk: return "Always asks"
-        case .gate: return "Ask setting in My Car ☰ › Autogate"
+        case .gate: return "Ask setting in Menu › Autogate"
         default: return nil
         }
     }
@@ -327,7 +261,7 @@ struct AutogatePage: View {
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
                 }
-                TFootnote(text: "The Gate button turns this switch on for 1 second, then off: one RF pulse, the same as your autogate script. With Ask before sending on, you confirm it first. If the car is outside the home zone, it always asks, and says how far away the car is. Uses the Home Assistant address and token from My Home ☰ › Home Assistant.")
+                TFootnote(text: "The Gate button turns this switch on for 1 second, then off: one RF pulse, the same as your autogate script. With Ask before sending on, you confirm it first. If the car is outside the home zone, it always asks, and says how far away the car is. Uses the Home Assistant address and token from Menu › Connection › Home Assistant.")
             }
         }
         .teslaPage("Autogate", black: true)
@@ -336,56 +270,6 @@ struct AutogatePage: View {
 }
 
 /// "VoltTime · Version 1.0 (36)" and the release date, at the foot of the ☰ pages.
-struct AppVersionFooter: View {
-    var body: some View {
-        VStack(spacing: 3) {
-            Text("TesLah · " + CarModel.versionLine).foregroundStyle(TeslaDark.rowLabel)
-            if !CarModel.releaseLine.isEmpty { Text(CarModel.releaseLine).foregroundStyle(TeslaDark.dim) }
-        }
-        .font(.app(size: 11))
-        .frame(maxWidth: .infinity)
-        .padding(.top, 28)
-        .padding(.bottom, 20)
-    }
-}
-
-// ☰ on My Home: Home Assistant and backup.
-
-struct HomeSettingsPage: View {
-    @ObservedObject var home: HomeModel
-    @ObservedObject var energy: EnergyStore
-    @ObservedObject private var backup = BackupManager.shared
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                TCaption(text: "Connection")
-                NavigationLink { HomeAssistantPage() } label: {
-                    TRow("Home Assistant", icon: "house",
-                         subtitle: home.haConfigured ? (home.message == nil ? "Connected" : "Can't connect") : "Not set up",
-                         dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : nil, last: true) {
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-                    }
-                }.buttonStyle(.plain)
-
-                TCaption(text: "Data")
-                NavigationLink { BackupPage(energy: energy, home: home) } label: {
-                    TRow("Backup", icon: "arrow.triangle.2.circlepath",
-                         subtitle: (backup.lastDate == nil ? "Not saved yet" : backup.lastText) + " · iCloud Drive",
-                         dot: backup.summaryColor, last: true) {
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-                    }
-                }.buttonStyle(.plain)
-
-                AppVersionFooter()
-            }
-        }
-        .teslaPage("My Home", black: true)
-        .task { await home.refresh() }
-    }
-}
-
-
 // MARK: S3XY Commander (cell balance)
 
 struct S3XYPage: View {

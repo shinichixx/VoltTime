@@ -126,8 +126,11 @@ struct ContentView: View {
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
                 case .impact: ImpactView(model: energy, home: myHome)
-                case .carSettings: CarSettingsPage(car: car, energy: energy, home: home)
-                case .homeSettings: HomeSettingsPage(home: home, energy: energy)
+                case .menu: MenuPage(car: car, energy: energy, home: home) { i in
+                    // My Products: close the menu and show that tab (Tesla app).
+                    path.removeAll()
+                    page = i
+                }
                 case .carDetail(let d): CarDetailPage(model: car, detail: d)
                 }
             }

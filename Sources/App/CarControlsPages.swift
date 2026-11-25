@@ -295,7 +295,7 @@ struct SecurityModesPage: View {
                     big("Boombox") { model.tap(.boombox) }
                 }
                 .padding(.horizontal, 20)
-                TFootnote(text: "Which buttons ask first is set in My Car ☰ › Quick controls.")
+                TFootnote(text: "Which buttons ask first is set in Menu › Quick Controls.")
                 Spacer(minLength: 40)
             }
             .frame(maxWidth: .infinity)

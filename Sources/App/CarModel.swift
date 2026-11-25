@@ -315,7 +315,7 @@ final class CarModel: ObservableObject {
         if homeZone == nil { Task { _ = await loadZone() } }   // for "at home" (Home-Outer zone)
         let useLive = live || (liveUntil.map { $0 > Date() } ?? false)
         guard let t = TessieClient.configured(), let vin else {
-            error = "Add your Tessie token: ☰ → Tessie"
+            error = "Add your Tessie token: ☰ › Connection › Tessie"
             return
         }
         refreshing = true
