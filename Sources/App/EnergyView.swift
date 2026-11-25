@@ -167,7 +167,7 @@ struct EnergyView: View {
                 Spacer()
                 PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true)
             }
-            .padding(.top, 4)
+            .padding(.top, -11)   // close under the page title (the top bar would hide anything higher)
             switch comp {
             case .all:
                 EmptyView()
@@ -489,6 +489,7 @@ private struct EnergyChartView: View {
             let y = plot.minY + py
             let isTop = abs(v - scale.domain.upperBound) < 0.0001
             let isBottom = abs(v - scale.domain.lowerBound) < 0.0001
+            let isZero = comp == .grid && abs(v) < 0.0001 && !isTop && !isBottom   // Grid: "0" just under the zero line
             let text = ctx.resolve(Text(scale.label(v, top: isTop, unit: unitName))
                 .font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
             let w = text.measure(in: size).width
@@ -496,9 +497,9 @@ private struct EnergyChartView: View {
             if lines {
                 var p = Path()
                 p.move(to: CGPoint(x: plot.minX, y: y))
-                p.addLine(to: CGPoint(x: isTop || isBottom ? plot.maxX : right - w - 6, y: y))
+                p.addLine(to: CGPoint(x: isTop || isBottom || isZero ? plot.maxX : right - w - 6, y: y))
                 ctx.stroke(p, with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
-            } else if isTop {
+            } else if isTop || isZero {
                 ctx.draw(text, at: CGPoint(x: right, y: y + 2), anchor: .topTrailing)
             } else if isBottom {
                 ctx.draw(text, at: CGPoint(x: right, y: y - 2), anchor: .bottomTrailing)
@@ -538,7 +539,7 @@ private struct EnergyChartView: View {
                 let d = v.as(Date.self) ?? Date()
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 4]))
                     .foregroundStyle(Color.white.opacity(0.1))
-                AxisValueLabel {
+                AxisValueLabel(anchor: .top) {   // centred under its line
                     Text(Self.hourLabel(d)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
                 }
             }

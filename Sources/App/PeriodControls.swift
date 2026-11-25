@@ -83,7 +83,7 @@ struct PeriodMenu: View {
             }
             .foregroundStyle(.white)
             .padding(.horizontal, boxed ? 10 : 0)
-            .padding(.vertical, boxed ? 6 : 0)
+            .padding(.vertical, boxed ? 5 : 0)
             .background {
                 if boxed {
                     RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color(white: 0.11))
