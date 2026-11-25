@@ -1,15 +1,21 @@
 import SwiftUI
 import Charts
 
-/// Tesla-app style Energy page: timescale menu top right, one component at a time (bar at the bottom),
-/// stacked areas for a day (tap and hold to scrub), stacked bars for longer periods, Energy Flow rows below.
-enum EnergyComponent: String, CaseIterable, Identifiable {
+/// Tesla-app style Energy page: "Today" and the boxed timescale picker at the top, one component at a time
+/// (floating bar at the bottom), a graph you swipe through continuously (Day runs on across midnight; Week,
+/// Month and Year settle on a whole period), the kW / kWh scale fitted to what's on screen, and Energy Flow
+/// tables below.
+enum EnergyComponent: String, CaseIterable, Identifiable, Hashable {
     case all, home, solar, vehicle, grid
     var id: String { rawValue }
 
-    var name: String {
+    /// Order on the floating bar.
+    static let barOrder: [EnergyComponent] = [.all, .home, .vehicle, .solar, .grid]
+
+    /// Page title (Tesla app: the component's name).
+    var pageTitle: String {
         switch self {
-        case .all: return "All"
+        case .all: return "Energy"
         case .home: return "Home"
         case .solar: return "Solar"
         case .vehicle: return "Vehicle"
@@ -17,31 +23,24 @@ enum EnergyComponent: String, CaseIterable, Identifiable {
         }
     }
 
-    var icon: String {
+    /// The graph's colour, used for the dot under the selected icon.
+    var color: Color {
         switch self {
-        case .all: return "chart.xyaxis.line"
-        case .home: return "house.fill"
-        case .solar: return "sun.max.fill"
-        case .vehicle: return "car.side.fill"
-        case .grid: return "bolt.horizontal.fill"
+        case .all: return .white
+        case .home: return EnergyColor.home
+        case .solar: return EnergyColor.solar
+        case .vehicle: return EnergyColor.vehicle
+        case .grid: return EnergyColor.grid
         }
     }
 
-    var title: String {
+    var glyph: FlowGlyph.Kind {
         switch self {
-        case .all: return "Power"
-        case .home: return "Home usage"
-        case .solar: return "Solar generated"
-        case .vehicle: return "Vehicle charged"
-        case .grid: return "Grid net"
-        }
-    }
-
-    var flowCaption: String {
-        switch self {
-        case .home, .vehicle: return "FROM"
-        case .solar: return "USED BY"
-        case .all, .grid: return ""
+        case .all: return .all
+        case .home: return .home
+        case .solar: return .solar
+        case .vehicle: return .car
+        case .grid: return .grid
         }
     }
 }
@@ -58,487 +57,227 @@ struct EnergyPart: Identifiable {
     let name: String
     let color: Color
     let kwh: Double
+    var glyph: FlowGlyph.Kind = .grid
     var id: String { name }
 }
 
-private struct ChartPoint: Identifiable {
+/// One time step on a graph: the energy flow in that step, and the factor that turns it into what the graph
+/// shows (×4 for a 15-minute step gives kW; 1 for a day or month bar gives kWh).
+struct FlowPoint: Identifiable {
     let date: Date
-    let part: String
-    let value: Double
-    var id: String { "\(part)-\(date.timeIntervalSince1970)" }
+    let flow: EnergyFlow
+    let k: Double
+    var id: Double { date.timeIntervalSince1970 }
 }
+
+// MARK: - Page
 
 struct EnergyView: View {
     @ObservedObject var store: EnergyStore
     @AppStorage("energy.period") private var periodRaw = ImpactPeriod.day.rawValue
-    @State private var compRaw = EnergyComponent.all.rawValue   // always opens on All
-    @State private var offset = 0
-    @State private var selection: Date?
+    @State private var compRaw: String
+    /// The middle of what the graph shows (reported by the graph as you swipe).
+    @State private var focus = Date()
+
+    init(store: EnergyStore, start: EnergyComponent = .all) {
+        _store = ObservedObject(wrappedValue: store)
+        _compRaw = State(initialValue: start.rawValue)
+    }
 
     private let cal = Calendar.current
     private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .day }
-    private var comp: EnergyComponent { EnergyComponent(rawValue: compRaw) ?? .home }
-    private var range: PeriodRange { PeriodRange.make(period, offset: offset, firstDay: store.firstDay) }
-    /// The day's curve (Day view only), straight from the shared store.
-    private var curve: DayCurve? { period == .day ? store.curve(range.start) : nil }
-    /// What the Day graph draws: 5-minute days shown as 15-minute points (smoother); totals still use `curve`.
-    private var chartCurve: DayCurve? { curve.map { $0.minutes < 15 ? $0.coarsened(to: 15) : $0 } }
+    private var comp: EnergyComponent { EnergyComponent(rawValue: compRaw) ?? .all }
 
-    /// "10:00–10:15 AM": the slot a Day graph point stands for.
-    private func slotTitle(_ start: Date, _ step: TimeInterval) -> String {
-        let a = splitClock(start.formatted(date: .omitted, time: .shortened)).time
-        return a + "–" + start.addingTimeInterval(step).formatted(date: .omitted, time: .shortened)
+    /// The day / week / month / year under the middle of the graph.
+    private var focusInterval: DateInterval {
+        guard let c = period.component else {
+            let start = store.firstDay ?? cal.startOfDay(for: Date())
+            return DateInterval(start: start, end: cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date())
+        }
+        return cal.dateInterval(of: c, for: focus) ?? DateInterval(start: cal.startOfDay(for: focus), duration: 86400)
+    }
+
+    private var focusLabel: String {
+        let i = focusInterval
+        switch period {
+        case .day:
+            if cal.isDateInToday(i.start) { return "Today" }
+            if cal.isDateInYesterday(i.start) { return "Yesterday" }
+            return i.start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        case .week:
+            if cal.isDate(i.start, equalTo: Date(), toGranularity: .weekOfYear) { return "This week" }
+            let last = i.end.addingTimeInterval(-1)
+            return "\(i.start.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated)))"
+        case .month: return i.start.formatted(.dateTime.month(.wide).year())
+        case .year: return i.start.formatted(.dateTime.year())
+        case .lifetime: return "Since " + i.start.formatted(.dateTime.month(.abbreviated).year())
+        }
+    }
+
+    private var total: EnergyFlow {
+        let i = focusInterval
+        if period == .day { return store.flow(i.start) ?? EnergyFlow() }
+        return store.flowTotal(from: i.start, to: i.end)
     }
 
     var body: some View {
-        let r = range
-        let total = periodTotal(r)
-        VStack(spacing: 0) {
+        let t = total
+        ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    PeriodBar(range: r, period: period, firstDay: store.firstDay, offset: $offset)
-                        .padding(.horizontal, -4)
-                        .padding(.top, 4)
-                        .padding(.bottom, 10)   // same spacing as the Impact page
-                    if comp == .all {
-                        HStack(spacing: 8) {
-                            Text(period == .day ? "Power" : "Energy per \(period == .year || period == .lifetime ? "month" : "day")")
-                                .font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-                            if store.loading { ProgressView().tint(.white).scaleEffect(0.6) }
+                    header(t)
+                        .padding(.horizontal, 20)
+                    EnergyChartView(store: store, period: period, comp: comp, focus: $focus)
+                        .frame(height: comp == .all ? 250 : 270)
+                        .padding(.top, 18)
+                        .padding(.leading, 6)
+                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
+                    Group {
+                        if comp == .all {
+                            allLegend.padding(.top, 14)
+                            allTiles(t).padding(.top, 12)
+                            ChartKey(day: period == .day).padding(.top, 16)
+                        } else {
+                            if comp == .grid {
+                                Text(netLine(t)).font(.app(size: 14, weight: .semibold)).padding(.top, 16)
+                            }
+                            Text("Energy Flow").font(.app(size: 14, weight: .semibold)).padding(.top, 22)
+                            flowTables(t)
                         }
-                        allChart(r)
-                            .frame(height: 210)
-                            .padding(.top, 16)
-                        allLegend
-                            .padding(.top, 8)
-                        allTiles(total)
-                            .padding(.top, 12)
-                        ChartKey(day: period == .day)
-                            .padding(.top, 16)
-                    } else {
-                        Text(comp.title).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(totalText(total)).font(.app(size: 32, weight: .semibold))
-                            if store.loading { ProgressView().tint(.white).scaleEffect(0.7) }
+                        if let msg = store.message {
+                            Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
                         }
-                        .padding(.bottom, 10)
-                        chart(r)
-                            .frame(height: 230)
-                        flowRows(total)
-                            .padding(.top, 14)
                     }
-                    if let msg = store.message {
-                        Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
-                    }
+                    .padding(.horizontal, 20)
+                    Color.clear.frame(height: 96)   // clear of the floating bar
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
             }
             .scrollIndicators(.hidden)
-            componentBar
+            EnergyTabBar(selected: Binding(get: { comp }, set: { compRaw = $0.rawValue }))
+                .padding(.bottom, 6)
         }
-        .teslaPage("Energy")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { PeriodMenu(periodRaw: $periodRaw, offset: $offset) }
-        }
-        .onChange(of: periodRaw) { _, _ in selection = nil }
-        .onChange(of: compRaw) { _, _ in selection = nil }
-        .onChange(of: offset) { _, _ in selection = nil }
-        .task(id: "\(periodRaw)|\(offset)") {
+        .teslaPage(comp.pageTitle)
+        .task(id: "\(periodRaw)|\(Int(focusInterval.start.timeIntervalSince1970))") {
             // Saved days show at once; this only tops up today / missing days (at most once a minute).
             await store.refresh()
         }
     }
 
-    // MARK: Totals and parts
+    // MARK: Header
 
-    private func periodTotal(_ r: PeriodRange) -> EnergyFlow {
-        if period == .day { return curve?.total ?? EnergyFlow() }
-        return store.flowTotal(from: r.start, to: r.end)
+    private func header(_ t: EnergyFlow) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center) {
+                Text(focusLabel).font(.app(size: 17, weight: .semibold))
+                if store.loading { ProgressView().tint(.white).scaleEffect(0.6) }
+                Spacer()
+                PeriodMenu(periodRaw: $periodRaw, offset: .constant(0), boxed: true)
+            }
+            .padding(.top, 4)
+            switch comp {
+            case .all:
+                EmptyView()
+            case .grid:
+                HStack(alignment: .top, spacing: 0) {
+                    figure("Imported", arrow: "arrow.up", t.imp)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    figure("Exported", arrow: "arrow.down", t.exp)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.top, 14)
+            case .home:
+                figure("Total Used", arrow: nil, t.house).padding(.top, 14)
+            case .solar:
+                figure("Total Generated", arrow: nil, t.solar).padding(.top, 14)
+            case .vehicle:
+                figure("Charged", arrow: "arrow.down", t.car).padding(.top, 14)
+            }
+        }
     }
 
-    private func parts(_ f: EnergyFlow) -> [EnergyPart] {
+    private func figure(_ title: String, arrow: String?, _ v: Double) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                if let arrow { Image(systemName: arrow).font(.system(size: 11, weight: .medium)) }
+                Text(title).font(.app(size: 13))
+            }
+            .foregroundStyle(TeslaDark.rowLabel)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(Num.kwh(v)).font(.app(size: 24, weight: .semibold))
+                Text("kWh").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+            }
+        }
+    }
+
+    private func netLine(_ t: EnergyFlow) -> String {
+        let net = t.imp - t.exp
+        return "Net Grid Usage: \(Num.kwh(abs(net))) kWh \(net >= 0 ? "Imported" : "Exported")"
+    }
+
+    // MARK: Energy Flow tables
+
+    @ViewBuilder private func flowTables(_ t: EnergyFlow) -> some View {
         switch comp {
-        case .all, .home:
-            return [EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: f.homeSolar),
-                    EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: f.homeGrid)]
-        case .solar:
-            return [EnergyPart(name: "Home", color: EnergyColor.home, kwh: f.homeSolar),
-                    EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: f.carSolar),
-                    EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: f.exp)]
+        case .home:
+            table("Used From", arrow: nil, [
+                EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.homeSolar, glyph: .solar),
+                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.homeGrid, glyph: .grid)])
         case .vehicle:
-            return [EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: f.carSolar),
-                    EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: f.carGrid)]
+            table("Charged From", arrow: nil, [
+                EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.carSolar, glyph: .solar),
+                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.carGrid, glyph: .grid)])
+        case .solar:
+            table("Used By", arrow: nil, [
+                EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.homeSolar, glyph: .home),
+                EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.carSolar, glyph: .car),
+                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.exp, glyph: .grid)])
         case .grid:
-            return [EnergyPart(name: "Imported", color: EnergyColor.grid, kwh: f.imp),
-                    EnergyPart(name: "Exported", color: EnergyColor.gridOut, kwh: f.exp)]
+            table("Used By", arrow: "arrow.up", [
+                EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.homeGrid, glyph: .home),
+                EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.carGrid, glyph: .car)])
+            table("Exported From", arrow: "arrow.down", [
+                EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.exp, glyph: .solar)])
+        case .all:
+            EmptyView()
         }
     }
 
-    private func totalText(_ f: EnergyFlow) -> String {
-        switch comp {
-        case .all, .home: return kwh(f.house)
-        case .solar: return kwh(f.solar)
-        case .vehicle: return kwh(f.car)
-        case .grid:
-            let net = f.imp - f.exp
-            return (net >= 0 ? "+" : "−") + kwh(abs(net))
-        }
-    }
-
-    private func kwh(_ v: Double) -> String {
-        Num.kwh(v) + " kWh"
-    }
-
-    // MARK: Chart
-
-    @ViewBuilder private func chart(_ r: PeriodRange) -> some View {
-        let template = parts(EnergyFlow())
-        let names = template.map(\.name)
-        let colors = template.map(\.color)
-        if period == .day {
-            dayChart(r, names: names, colors: colors)
-        } else {
-            barChart(r, names: names, colors: colors)
-        }
-    }
-
-    private func dayPoints(_ r: PeriodRange) -> (points: [ChartPoint], step: TimeInterval) {
-        guard let c = chartCurve else { return ([], 900) }
-        let step = TimeInterval(c.minutes * 60)
-        let perHour = 60.0 / Double(c.minutes)
-        var lastSlot = c.count
-        if cal.isDateInToday(r.start) {
-            lastSlot = min(c.count, max(0, Int(Date().timeIntervalSince(r.start) / step)))
-        }
-        var out: [ChartPoint] = []
-        out.reserveCapacity(lastSlot * 3)
-        for i in 0..<lastSlot {
-            let t = r.start.addingTimeInterval(Double(i) * step + step / 2)
-            let f = c.flow(i)
-            if comp == .grid {
-                out.append(ChartPoint(date: t, part: "Imported", value: (f.imp - f.exp) * perHour))
-            } else {
-                for p in parts(f) { out.append(ChartPoint(date: t, part: p.name, value: p.kwh * perHour)) }
+    /// Bordered table: icon, percentage, name, kWh (Tesla app).
+    private func table(_ caption: String, arrow: String?, _ parts: [EnergyPart]) -> some View {
+        let sum = parts.reduce(0) { $0 + $1.kwh }
+        let border = Color(white: 0.24)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                if let arrow { Image(systemName: arrow).font(.system(size: 11, weight: .medium)) }
+                Text(caption).font(.app(size: 13))
             }
-        }
-        return (out, step)
-    }
-
-    private func dayChart(_ r: PeriodRange, names: [String], colors: [Color]) -> some View {
-        let (points, step) = dayPoints(r)
-        let scale = FittedScale(stacked: points.map { ($0.date, $0.value) })
-        return Chart {
-            ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), y: .value("kW", p.value), stacking: .standard)
-                    .foregroundStyle(by: .value("Part", p.part))
-                    .interpolationMethod(.monotone)
-                    .opacity(comp == .grid ? 0.7 : 0.9)
-            }
-            if let sel = selection {
-                RuleMark(x: .value("Selected", sel))
-                    .foregroundStyle(Color.white.opacity(0.6))
-                    .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: side(sel, r), alignment: .top, spacing: 8,
-                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                        dayScrub(sel, r, step: step)
+            .foregroundStyle(TeslaDark.rowLabel)
+            VStack(spacing: 0) {
+                ForEach(Array(parts.enumerated()), id: \.offset) { i, p in
+                    if i > 0 { Rectangle().fill(border).frame(height: 1) }
+                    HStack(spacing: 0) {
+                        FlowGlyph(kind: p.glyph, color: p.color, height: 15, maxWidth: 18)
+                            .frame(width: 34, alignment: .center)
+                        Text(sum > 0 ? "\(Int((p.kwh / sum * 100).rounded()))%" : "0%")
+                            .font(.app(size: 14, weight: .semibold))
+                            .frame(width: 48, alignment: .leading)
+                        Text(p.name).font(.app(size: 13.5)).foregroundStyle(TeslaDark.rowLabel)
+                        Spacer()
+                        Text(Num.kwh(p.kwh) + " kWh").font(.app(size: 13.5))
                     }
-            }
-        }
-        .chartForegroundStyleScale(domain: names, range: colors)
-        .chartLegend(.hidden)
-        .chartXScale(domain: r.start...r.end)
-        .chartXSelection(value: $selection)
-        .chartXAxis {
-            AxisMarks(values: .stride(by: .hour, count: 6)) { _ in
-                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))
-            }
-        }
-        .chartYScale(domain: scale.domain)
-        .chartYAxis {
-            AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
-                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text(scale.label(d, unit: "kW")) } }
-            }
-        }
-        .overlay {
-            if curve == nil && !store.loading {
-                Text("No data for this day").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            }
-        }
-    }
-
-    private func dayScrub(_ sel: Date, _ r: PeriodRange, step: TimeInterval) -> some View {
-        let perHour = 3600 / step
-        let c = chartCurve
-        let i = max(0, min((c?.count ?? 1) - 1, Int(sel.timeIntervalSince(r.start) / step)))
-        let f = c.map { $0.flow(i) } ?? EnergyFlow()
-        let time = r.start.addingTimeInterval(Double(i) * step)
-        let rows: [EnergyPart] = comp == .grid
-            ? [EnergyPart(name: f.imp >= f.exp ? "Importing" : "Exporting", color: EnergyColor.grid, kwh: abs(f.imp - f.exp))]
-            : parts(f)
-        return scrubBox(slotTitle(time, step), rows.map { ($0, String(format: "%.1f kW", $0.kwh * perHour)) })
-    }
-
-    private func scrubBox(_ title: String, _ rows: [(EnergyPart, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.app(size: 11, weight: .semibold))
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
-                ForEach(rows, id: \.0.id) { row in
-                    GridRow {
-                        HStack(spacing: 5) {
-                            Circle().fill(row.0.color).frame(width: 6, height: 6)
-                            Text(row.0.name).font(.app(size: 11)).foregroundStyle(TeslaDark.labelGrey)
-                                .fixedSize()
-                        }
-                        Text(row.1).font(.app(size: 11, weight: .medium).monospacedDigit())
-                            .fixedSize()
-                            .gridColumnAlignment(.trailing)
-                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 44)
                 }
             }
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(border, lineWidth: 1))
         }
-        .lineLimit(1)
-        .fixedSize()
-        .padding(8)
-        .background(Color(white: 0.17))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.top, 14)
     }
 
-    /// Bars: one per day (Week, Month) or per month (Year, Lifetime).
-    private func buckets(_ r: PeriodRange) -> [(date: Date, flow: EnergyFlow)] {
-        let byMonth = period == .year || period == .lifetime
-        var out: [(date: Date, flow: EnergyFlow)] = []
-        var d = r.start
-        while d < r.end {
-            let next = cal.date(byAdding: byMonth ? .month : .day, value: 1, to: d) ?? r.end
-            var f = EnergyFlow()
-            var x = d
-            while x < min(next, r.end) {
-                if let df = store.flow(x) { f = f + df }
-                x = cal.date(byAdding: .day, value: 1, to: x) ?? next
-            }
-            out.append((date: d, flow: f))
-            d = byMonth ? (cal.dateInterval(of: .month, for: next)?.start ?? next) : next
-        }
-        return out
-    }
-
-    private func barChart(_ r: PeriodRange, names: [String], colors: [Color]) -> some View {
-        let byMonth = period == .year || period == .lifetime
-        let unit: Calendar.Component = byMonth ? .month : .day
-        let b = buckets(r)
-        var points: [ChartPoint] = []
-        for (date, f) in b {
-            if comp == .grid {
-                points.append(ChartPoint(date: date, part: "Imported", value: f.imp))
-                points.append(ChartPoint(date: date, part: "Exported", value: -f.exp))
-            } else {
-                for p in parts(f) { points.append(ChartPoint(date: date, part: p.name, value: p.kwh)) }
-            }
-        }
-        let scale = FittedScale(stacked: points.map { ($0.date, $0.value) })
-        return Chart {
-            ForEach(points) { p in
-                BarMark(x: .value("Date", p.date, unit: unit), y: .value("kWh", p.value), width: .ratio(0.6))
-                    .foregroundStyle(by: .value("Part", p.part))
-            }
-            if let sel = selection, let hit = b.first(where: { cal.isDate($0.date, equalTo: sel, toGranularity: unit) }) {
-                RuleMark(x: .value("Selected", hit.date, unit: unit))
-                    .foregroundStyle(Color.white.opacity(0.12))
-                    .lineStyle(StrokeStyle(lineWidth: byMonth ? 18 : 8))
-                    .annotation(position: side(sel, r), alignment: .top, spacing: 8,
-                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                        scrubBox(hit.date.formatted(byMonth ? .dateTime.month(.wide).year() : .dateTime.weekday(.abbreviated).day().month(.abbreviated)),
-                                 parts(hit.flow).map { ($0, String(format: "%.1f kWh", $0.kwh)) })
-                    }
-            }
-        }
-        .chartForegroundStyleScale(domain: names, range: colors)
-        .chartLegend(.hidden)
-        .chartXSelection(value: $selection)
-        .chartXAxis {
-            AxisMarks(values: .stride(by: axisUnit, count: axisCount(b.count))) { _ in
-                AxisValueLabel(format: axisFormat, centered: true)
-            }
-        }
-        .chartYScale(domain: scale.domain)
-        .chartYAxis {
-            AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
-                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text(scale.label(d, unit: nil)) } }
-            }
-        }
-    }
-
-    private var axisUnit: Calendar.Component { period == .year || period == .lifetime ? .month : .day }
-
-    private func axisCount(_ n: Int) -> Int {
-        switch period {
-        case .month: return 7
-        case .lifetime: return n > 12 ? 3 : 1
-        default: return 1
-        }
-    }
-
-    private var axisFormat: Date.FormatStyle {
-        switch period {
-        case .week: return .dateTime.weekday(.narrow)
-        case .month: return .dateTime.day()
-        default: return .dateTime.month(.narrow)
-        }
-    }
-
-    // MARK: All (the four lines together, with the six numbers)
+    // MARK: All: legend and tiles
 
     private static let allNames = ["Solar", "Home", "Model 3", "Grid"]
     private static let allColors = [EnergyColor.solar, EnergyColor.home, EnergyColor.vehicle, EnergyColor.grid]
-    /// One time step on the All graph (kW for a day, kWh per day / month otherwise).
-    private struct StackPoint: Identifiable {
-        let date: Date
-        let home, car, solar, imp, exp: Double
-        var id: Double { date.timeIntervalSince1970 }
-    }
-
-    private func allSeries(_ r: PeriodRange) -> (points: [StackPoint], step: TimeInterval, unit: Calendar.Component?) {
-        func point(_ t: Date, _ f: EnergyFlow, _ k: Double) -> StackPoint {
-            StackPoint(date: t, home: f.house * k, car: f.car * k, solar: f.solar * k, imp: f.imp * k, exp: f.exp * k)
-        }
-        if period == .day {
-            guard let c = chartCurve else { return ([], 900, nil) }
-            let step = TimeInterval(c.minutes * 60)
-            var last = c.count
-            if cal.isDateInToday(r.start) { last = min(c.count, max(0, Int(Date().timeIntervalSince(r.start) / step))) }
-            let k = 60.0 / Double(c.minutes)
-            return ((0..<last).map { point(r.start.addingTimeInterval(Double($0) * step + step / 2), c.flow($0), k) }, step, nil)
-        }
-        return (buckets(r).map { point($0.date, $0.flow, 1) }, 0, axisUnit)
-    }
-
-    /// Stacked so the totals line up: Model 3 sits on Home (red top = everything used), grid import sits on Solar
-    /// (grey top = everything supplied); export is shown below zero.
-    private func allChart(_ r: PeriodRange) -> some View {
-        let (points, step, unit) = allSeries(r)
-        let scale = FittedScale(lo: -(points.map(\.exp).max() ?? 0),
-                                hi: points.map { max($0.home + $0.car, $0.solar + $0.imp) }.max() ?? 0)
-        return Chart {
-            if period == .day {
-                ForEach(points) { p in
-                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.solar), series: .value("F", "solar"))
-                        .foregroundStyle(EnergyColor.solar.opacity(0.22)).interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.solar), yEnd: .value("Hi", p.solar + p.imp), series: .value("F", "import"))
-                        .foregroundStyle(EnergyColor.grid.opacity(0.25)).interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.exp), series: .value("F", "export"))
-                        .foregroundStyle(EnergyColor.grid.opacity(0.3)).interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.home), series: .value("F", "home"))
-                        .foregroundStyle(EnergyColor.home.opacity(0.25)).interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.home), yEnd: .value("Hi", p.home + p.car), series: .value("F", "car"))
-                        .foregroundStyle(EnergyColor.vehicle.opacity(0.28)).interpolationMethod(.monotone)
-                }
-                // Lines on top: grey (supply top, export), yellow, red, then blue over red, so red only shows while charging.
-                ForEach(points) { p in
-                    LineMark(x: .value("Time", p.date), y: .value("V", p.solar + p.imp), series: .value("L", "supply"))
-                        .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    LineMark(x: .value("Time", p.date), y: .value("V", -p.exp), series: .value("L", "export"))
-                        .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    LineMark(x: .value("Time", p.date), y: .value("V", p.solar), series: .value("L", "solar"))
-                        .foregroundStyle(EnergyColor.solar).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    LineMark(x: .value("Time", p.date), y: .value("V", p.home + p.car), series: .value("L", "used"))
-                        .foregroundStyle(EnergyColor.vehicle).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    LineMark(x: .value("Time", p.date), y: .value("V", p.home), series: .value("L", "home"))
-                        .foregroundStyle(EnergyColor.home).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-                }
-            } else {
-                // Per day / month: left bar = used (Home, Model 3 on top), right bar = supplied (Solar, grid on top),
-                // export below zero under the right bar.
-                ForEach(points) { p in
-                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.home))
-                        .foregroundStyle(EnergyColor.home.opacity(0.9)).position(by: .value("Side", "used"))
-                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", p.home), yEnd: .value("Hi", p.home + p.car))
-                        .foregroundStyle(EnergyColor.vehicle.opacity(0.9)).position(by: .value("Side", "used"))
-                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.solar))
-                        .foregroundStyle(EnergyColor.solar.opacity(0.9)).position(by: .value("Side", "supplied"))
-                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", p.solar), yEnd: .value("Hi", p.solar + p.imp))
-                        .foregroundStyle(EnergyColor.grid.opacity(0.9)).position(by: .value("Side", "supplied"))
-                    BarMark(x: .value("Date", p.date, unit: unit ?? .day), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.exp))
-                        .foregroundStyle(EnergyColor.grid.opacity(0.5)).position(by: .value("Side", "supplied"))
-                }
-            }
-            if let sel = selection {
-                RuleMark(x: .value("Selected", sel))
-                    .foregroundStyle(Color.white.opacity(0.6))
-                    .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: side(sel, r), alignment: .top, spacing: 8,
-                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                        allScrub(sel, r, step: step, unit: unit)
-                    }
-            }
-        }
-        .chartLegend(.hidden)
-        .chartXScale(domain: r.start...allXEnd(r, points: points, unit: unit))
-        .chartXSelection(value: $selection)
-        .chartXAxis {
-            AxisMarks(values: .stride(by: period == .day ? .hour : axisUnit,
-                                      count: period == .day ? 6 : axisCount(points.count))) { _ in
-                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel(format: period == .day ? Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .omitted)) : axisFormat)
-            }
-        }
-        .chartYScale(domain: scale.domain)
-        .chartYAxis {
-            AxisMarks(position: .leading, values: .stride(by: scale.step)) { v in
-                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel { if let d = v.as(Double.self) { Text(scale.label(d, unit: period == .day ? "kW" : "kWh")) } }
-            }
-        }
-        .overlay {
-            if points.isEmpty && !store.loading {
-                Text("No data for this period").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            }
-        }
-    }
-
-    private func allScrub(_ sel: Date, _ r: PeriodRange, step: TimeInterval, unit: Calendar.Component?) -> some View {
-        let f: EnergyFlow
-        let title: String
-        let k: Double
-        let fmt: String
-        if period == .day {
-            let c = chartCurve
-            let i = max(0, min((c?.count ?? 1) - 1, Int(sel.timeIntervalSince(r.start) / max(step, 1))))
-            f = c.map { $0.flow(i) } ?? EnergyFlow()
-            title = slotTitle(r.start.addingTimeInterval(Double(i) * step), step)
-            k = 3600 / max(step, 1)
-            fmt = "%.1f kW"
-        } else {
-            let u = unit ?? .day
-            let hit = buckets(r).first { cal.isDate($0.date, equalTo: sel, toGranularity: u) }
-            f = hit?.flow ?? EnergyFlow()
-            title = (hit?.date ?? sel).formatted(u == .month ? .dateTime.month(.wide).year() : .dateTime.weekday(.abbreviated).day().month(.abbreviated))
-            k = 1
-            fmt = "%.1f kWh"
-        }
-        let vals = [f.solar, f.house, f.car, f.imp - f.exp]
-        let rows = (0..<4).map { (EnergyPart(name: Self.allNames[$0], color: Self.allColors[$0], kwh: vals[$0]), String(format: fmt, vals[$0] * k)) }
-        return scrubBox(title, rows)
-    }
 
     private var allLegend: some View {
         HStack(spacing: 14) {
@@ -564,11 +303,13 @@ struct EnergyView: View {
         }
     }
 
+    private func kwh(_ v: Double) -> String { Num.kwh(v) + " kWh" }
+
     private func tile(_ icon: String, _ color: Color, _ title: String, _ value: String, _ caption: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(color)
-                    .frame(width: 22, height: 14)   // same slot for every icon (the car is the widest), so all six tiles match
+                    .frame(width: 22, height: 14)
                 Text(title).font(.app(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
             }
             Text(value).font(.app(size: 19, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
@@ -580,111 +321,454 @@ struct EnergyView: View {
         .background(TeslaDark.card)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
+}
 
-    /// Y range fitted to the data: top = tallest stack rounded up to a neat step, bottom = deepest negative
-    /// (export) rounded down, 0 if nothing goes below zero. Steps give 4–5 gridlines.
-    struct FittedScale {
-        let domain: ClosedRange<Double>
-        let step: Double
+// MARK: - The swipeable graph
 
-        init(lo: Double, hi: Double) {
-            let low = min(lo, 0), high = max(hi, 0)
-            let span = max(high - low, 0.5)
-            let steps: [Double] = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000]
-            let st = steps.first { span / $0 <= 4.5 } ?? 10000
-            let top = max(st, (high / st).rounded(.up) * st)
-            let bottom = low < -0.001 ? (low / st).rounded(.down) * st : 0
-            domain = bottom...top
-            step = st
-        }
+/// Owns the scroll position, so swiping only redraws the graph; reports the middle of the view back up.
+private struct EnergyChartView: View {
+    @ObservedObject var store: EnergyStore
+    let period: ImpactPeriod
+    let comp: EnergyComponent
+    @Binding var focus: Date
 
-        /// Axis text: kW as is; energy switches to MWh once the scale passes 1000 kWh.
-        func label(_ v: Double, unit: String?) -> String {
-            let big = unit != "kW" && max(abs(domain.lowerBound), abs(domain.upperBound)) > 1000
-            if big {
-                let m = v / 1000
-                if abs(m) < 0.0001 { return "0" }
-                let n = m.rounded() == m ? String(Int(m)) : String(format: "%.1f", m)
-                return "\(n) MWh"
-            }
-            let n = abs(v - v.rounded()) < 0.001 ? String(Int(v.rounded())) : String(format: "%.1f", v)
-            return unit.map { "\(n) \($0)" } ?? n
-        }
+    @State private var scrollX = Date()           // leading edge of what's on screen
+    @State private var points: [FlowPoint] = []
+    @State private var builtFor = ""              // what `points` was built for
+    @State private var selection: Date?
 
-        /// From chart points sharing a time: positive values stacked for the top, negatives for the bottom.
-        init(stacked points: [(Date, Double)]) {
-            var up: [Date: Double] = [:], down: [Date: Double] = [:]
-            for (d, v) in points {
-                if v >= 0 { up[d, default: 0] += v } else { down[d, default: 0] += v }
-            }
-            self.init(lo: down.values.min() ?? 0, hi: up.values.max() ?? 0)
+    private let cal = Calendar.current
+    private var isDay: Bool { period == .day }
+    private var byMonth: Bool { period == .year || period == .lifetime }
+    private var unit: Calendar.Component { byMonth ? .month : .day }
+
+    /// Everything you can swipe through: from the first recorded day to the end of the current period.
+    private var domain: ClosedRange<Date> {
+        let now = Date()
+        let first = store.firstDay ?? cal.startOfDay(for: now)
+        let comp = period.component ?? .month
+        let lo = cal.dateInterval(of: period == .lifetime ? .month : comp, for: first)?.start ?? first
+        let hi = cal.dateInterval(of: period == .lifetime ? .month : comp, for: now)?.end ?? now
+        return lo...max(hi, lo.addingTimeInterval(86400))
+    }
+
+    /// How much is on screen at once.
+    private var visibleLength: TimeInterval {
+        switch period {
+        case .day: return 86400
+        case .week: return 7 * 86400
+        case .month: return 31 * 86400
+        case .year: return 365 * 86400
+        case .lifetime: return domain.upperBound.timeIntervalSince(domain.lowerBound)
         }
     }
 
-    /// Day: end of day. Bars: end of the last bucket, so the current month / day isn't cut off.
-    private func allXEnd(_ r: PeriodRange, points: [StackPoint], unit: Calendar.Component?) -> Date {
-        guard period != .day, let u = unit, let last = points.last?.date,
-              let end = cal.date(byAdding: u, value: 1, to: last) else { return r.end }
-        return max(end, r.start.addingTimeInterval(1))
+    /// Where a period opens: the current day / week / month / year.
+    private var homeX: Date {
+        guard let c = period.component else { return domain.lowerBound }
+        return cal.dateInterval(of: c, for: Date())?.start ?? cal.startOfDay(for: Date())
     }
 
-    /// Scrub box goes beside the line, inside the graph: right of it in the first half, left of it after.
-    private func side(_ sel: Date, _ r: PeriodRange) -> AnnotationPosition {
-        sel.timeIntervalSince(r.start) > r.end.timeIntervalSince(r.start) * 0.55 ? .leading : .trailing
+    private var buildKey: String {
+        let centre = scrollX.addingTimeInterval(visibleLength / 2)
+        let day = isDay ? Int(cal.startOfDay(for: centre).timeIntervalSince1970) : 0
+        return "\(period.rawValue)|\(day)|\(store.loading)|\(store.firstDay?.timeIntervalSince1970 ?? 0)"
     }
 
-    // MARK: Energy flow
-
-    private func flowRows(_ f: EnergyFlow) -> some View {
-        let ps = parts(f)
-        let sum = ps.reduce(0) { $0 + $1.kwh }
-        return VStack(alignment: .leading, spacing: 0) {
-            if !comp.flowCaption.isEmpty {
-                Text(comp.flowCaption).font(.app(size: 11, weight: .semibold)).kerning(0.5)
-                    .foregroundStyle(TeslaDark.dim).padding(.bottom, 4)
+    var body: some View {
+        let visible = points.filter { $0.date >= scrollX.addingTimeInterval(-3600) && $0.date <= scrollX.addingTimeInterval(visibleLength + 3600) }
+        let scale = yScale(visible)
+        chart(scale)
+            .onAppear {
+                scrollX = homeX
+                rebuild()
+                report()
             }
-            ForEach(ps) { p in
-                HStack(spacing: 10) {
-                    Circle().fill(p.color).frame(width: 9, height: 9)
-                    Text(p.name).font(.app(size: 15))
+            .onChange(of: period) { _, _ in
+                selection = nil
+                scrollX = homeX
+                rebuild()
+                report()
+            }
+            .onChange(of: scrollX) { _, _ in
+                report()
+                if buildKey != builtFor { rebuild() }
+            }
+            .onChange(of: store.loading) { _, _ in rebuild() }
+            .onChange(of: comp) { _, _ in selection = nil }
+    }
+
+    private func report() {
+        let centre = min(scrollX.addingTimeInterval(visibleLength / 2), Date())
+        if period == .lifetime { focus = Date(); return }
+        focus = centre
+    }
+
+    /// Day: 15-minute points for the days around what's on screen (built again as you swipe on).
+    /// Week and Month: a bar per day; Year and Lifetime: a bar per month, across the whole history.
+    private func rebuild() {
+        builtFor = buildKey
+        var out: [FlowPoint] = []
+        if isDay {
+            let centre = cal.startOfDay(for: scrollX.addingTimeInterval(visibleLength / 2))
+            for off in -3...3 {
+                guard let day = cal.date(byAdding: .day, value: off, to: centre), day < domain.upperBound,
+                      day >= domain.lowerBound, let raw = store.curve(day) else { continue }
+                let c = raw.minutes < 15 ? raw.coarsened(to: 15) : raw
+                let step = TimeInterval(c.minutes * 60)
+                var last = c.count
+                if cal.isDateInToday(day) { last = min(c.count, max(0, Int(Date().timeIntervalSince(day) / step))) }
+                let k = 60.0 / Double(c.minutes)
+                for i in 0..<last {
+                    out.append(FlowPoint(date: day.addingTimeInterval(Double(i) * step + step / 2), flow: c.flow(i), k: k))
+                }
+            }
+        } else {
+            var d = domain.lowerBound
+            let end = min(domain.upperBound, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date())
+            while d < end {
+                let next = cal.date(byAdding: unit, value: 1, to: d) ?? end
+                out.append(FlowPoint(date: d, flow: store.flowTotal(from: d, to: min(next, end)), k: 1))
+                d = next
+            }
+        }
+        points = out
+    }
+
+    // MARK: What each view stacks
+
+    /// (name, colour, value) per point; negative values go below zero.
+    private func parts(_ p: FlowPoint) -> [(String, Color, Double)] {
+        let f = p.flow, k = p.k
+        switch comp {
+        case .all, .home:
+            return [("Solar", EnergyColor.solar, f.homeSolar * k), ("Grid", EnergyColor.grid, f.homeGrid * k)]
+        case .solar:
+            return [("Home", EnergyColor.home, f.homeSolar * k), ("Vehicle", EnergyColor.vehicle, f.carSolar * k),
+                    ("Grid", EnergyColor.grid, f.exp * k)]
+        case .vehicle:
+            return [("Solar", EnergyColor.solar, f.carSolar * k), ("Grid", EnergyColor.grid, f.carGrid * k)]
+        case .grid:
+            return [("Imported", EnergyColor.grid, f.imp * k), ("Exported", EnergyColor.solar, -f.exp * k)]
+        }
+    }
+
+    private func yScale(_ pts: [FlowPoint]) -> EnergyScale {
+        if comp == .all {
+            return EnergyScale(lo: -(pts.map { $0.flow.exp * $0.k }.max() ?? 0),
+                               hi: pts.map { max($0.flow.house + $0.flow.car, $0.flow.solar + $0.flow.imp) * $0.k }.max() ?? 0)
+        }
+        var hi = 0.0, lo = 0.0
+        for p in pts {
+            let vs = parts(p).map(\.2)
+            hi = max(hi, vs.filter { $0 > 0 }.reduce(0, +))
+            lo = min(lo, vs.filter { $0 < 0 }.reduce(0, +))
+        }
+        return EnergyScale(lo: lo, hi: hi)
+    }
+
+    // MARK: Chart
+
+    private func chart(_ scale: EnergyScale) -> some View {
+        let template = parts(FlowPoint(date: Date(), flow: EnergyFlow(), k: 1))
+        let names = template.map(\.0)
+        let colors = template.map(\.1)
+        return Chart {
+            if comp == .all {
+                allMarks
+            } else {
+                ForEach(points) { p in
+                    ForEach(parts(p), id: \.0) { part in
+                        if isDay {
+                            AreaMark(x: .value("Time", p.date), y: .value("kW", part.2), stacking: .standard)
+                                .foregroundStyle(by: .value("Part", part.0))
+                                .interpolationMethod(.monotone)
+                                .opacity(0.85)
+                        } else {
+                            BarMark(x: .value("Date", p.date, unit: unit), y: .value("kWh", part.2), width: .ratio(0.6))
+                                .foregroundStyle(by: .value("Part", part.0))
+                        }
+                    }
+                }
+            }
+            if let sel = selection {
+                RuleMark(x: .value("Selected", sel))
+                    .foregroundStyle(Color.white.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    .annotation(position: .top, alignment: .center, spacing: 4,
+                                overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        scrub(sel)
+                    }
+            }
+        }
+        .chartForegroundStyleScale(domain: names, range: colors)
+        .chartLegend(.hidden)
+        .chartXScale(domain: domain)
+        .chartScrollableAxes(period == .lifetime ? [] : .horizontal)
+        .chartXVisibleDomain(length: visibleLength)
+        .chartScrollPosition(x: $scrollX)
+        .modifier(SnapToPeriod(period: period))
+        .chartXSelection(value: $selection)
+        .chartXAxis { xAxis }
+        .chartYScale(domain: scale.domain)
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: .stride(by: scale.step)) { v in
+                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                AxisValueLabel {
+                    if let d = v.as(Double.self) {
+                        Text(scale.label(d, top: abs(d - scale.domain.upperBound) < 0.001, unit: isDay ? "kW" : "kWh"))
+                    }
+                }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if comp == .grid {
+                VStack {
+                    Text("Import")
                     Spacer()
-                    Text(kwh(p.kwh)).font(.app(size: 15))
-                    if comp != .grid {
-                        Text(sum > 0 ? "\(Int((p.kwh / sum * 100).rounded()))%" : "—")
-                            .font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-                            .frame(width: 42, alignment: .trailing)
-                    }
+                    Text("Export")
                 }
-                .padding(.vertical, 11)
-                Divider().overlay(Color.white.opacity(0.08))
+                .font(.app(size: 10)).foregroundStyle(TeslaDark.dim)
+                .padding(.vertical, 4).padding(.leading, 6)
+                .padding(.bottom, 22)
+                .allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            if points.isEmpty && !store.loading {
+                Text("No data yet").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
     }
 
-    // MARK: Component bar
-
-    private var componentBar: some View {
-        HStack(spacing: 0) {
-            ForEach(EnergyComponent.allCases) { c in
-                Button { compRaw = c.rawValue } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: c.icon).font(.system(size: 19)).frame(height: 24)
-                        Text(c.name).font(.app(size: 10, weight: comp == c ? .semibold : .regular))
-                    }
-                    .foregroundStyle(comp == c ? Color.white : TeslaDark.dim)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
+    @AxisContentBuilder private var xAxis: some AxisContent {
+        if isDay {
+            AxisMarks(values: .stride(by: .hour, count: 6)) { v in
+                let d = v.as(Date.self) ?? Date()
+                let midnight = cal.component(.hour, from: d) == 0
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 4]))
+                    .foregroundStyle(Color.white.opacity(midnight ? 0.25 : 0.1))
+                AxisValueLabel {
+                    Text(Self.hourLabel(d))
+                        .font(.app(size: 11, weight: midnight ? .semibold : .regular))
+                        .foregroundStyle(midnight ? Color.white : TeslaDark.rowLabel)
                 }
-                .buttonStyle(.plain)
+            }
+        } else {
+            AxisMarks(values: .stride(by: unit, count: axisCount)) { _ in
+                AxisValueLabel(format: axisFormat, centered: true)
             }
         }
-        .padding(.top, 8)
-        .padding(.bottom, 2)
-        .background(TeslaDark.bg)
-        .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5) }
+    }
+
+    /// "12 AM", "6 AM", "12 PM", "6 PM" whatever the phone's region.
+    static func hourLabel(_ d: Date) -> String {
+        let h = Calendar.current.component(.hour, from: d)
+        let h12 = h % 12 == 0 ? 12 : h % 12
+        return "\(h12) \(h < 12 ? "AM" : "PM")"
+    }
+
+    private var axisCount: Int {
+        switch period {
+        case .month: return 7
+        case .lifetime: return points.count > 12 ? 3 : 1
+        default: return 1
+        }
+    }
+
+    private var axisFormat: Date.FormatStyle {
+        switch period {
+        case .week: return .dateTime.weekday(.narrow)
+        case .month: return .dateTime.day()
+        default: return .dateTime.month(.narrow)
+        }
+    }
+
+    /// All: Model 3 sits on Home (red top = everything used), grid sits on Solar (grey top = everything supplied),
+    /// export below zero.
+    @ChartContentBuilder private var allMarks: some ChartContent {
+        if isDay {
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.solar * p.k), series: .value("F", "solar"))
+                    .foregroundStyle(EnergyColor.solar.opacity(0.22)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.flow.solar * p.k), yEnd: .value("Hi", (p.flow.solar + p.flow.imp) * p.k), series: .value("F", "import"))
+                    .foregroundStyle(EnergyColor.grid.opacity(0.25)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.flow.exp * p.k), series: .value("F", "export"))
+                    .foregroundStyle(EnergyColor.grid.opacity(0.3)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.house * p.k), series: .value("F", "home"))
+                    .foregroundStyle(EnergyColor.home.opacity(0.25)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.flow.house * p.k), yEnd: .value("Hi", (p.flow.house + p.flow.car) * p.k), series: .value("F", "car"))
+                    .foregroundStyle(EnergyColor.vehicle.opacity(0.28)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", (p.flow.solar + p.flow.imp) * p.k), series: .value("L", "supply"))
+                    .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", -p.flow.exp * p.k), series: .value("L", "export"))
+                    .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", p.flow.solar * p.k), series: .value("L", "solar"))
+                    .foregroundStyle(EnergyColor.solar).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", (p.flow.house + p.flow.car) * p.k), series: .value("L", "used"))
+                    .foregroundStyle(EnergyColor.vehicle).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Time", p.date), y: .value("V", p.flow.house * p.k), series: .value("L", "home"))
+                    .foregroundStyle(EnergyColor.home).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            }
+        } else {
+            ForEach(points) { p in
+                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.house))
+                    .foregroundStyle(EnergyColor.home.opacity(0.9)).position(by: .value("Side", "used"))
+                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", p.flow.house), yEnd: .value("Hi", p.flow.house + p.flow.car))
+                    .foregroundStyle(EnergyColor.vehicle.opacity(0.9)).position(by: .value("Side", "used"))
+                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.solar))
+                    .foregroundStyle(EnergyColor.solar.opacity(0.9)).position(by: .value("Side", "supplied"))
+                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", p.flow.solar), yEnd: .value("Hi", p.flow.solar + p.flow.imp))
+                    .foregroundStyle(EnergyColor.grid.opacity(0.9)).position(by: .value("Side", "supplied"))
+                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.flow.exp))
+                    .foregroundStyle(EnergyColor.grid.opacity(0.5)).position(by: .value("Side", "supplied"))
+            }
+        }
+    }
+
+    // MARK: Scrub box (tap and hold)
+
+    private func scrub(_ sel: Date) -> some View {
+        let hit: FlowPoint? = isDay
+            ? points.min { abs($0.date.timeIntervalSince(sel)) < abs($1.date.timeIntervalSince(sel)) }
+            : points.first { cal.isDate($0.date, equalTo: sel, toGranularity: unit) }
+        let title: String
+        if let h = hit {
+            if isDay {
+                let a = h.date.addingTimeInterval(-450)
+                title = a.formatted(date: .omitted, time: .shortened)
+            } else {
+                title = h.date.formatted(byMonth ? .dateTime.month(.wide).year() : .dateTime.weekday(.abbreviated).day().month(.abbreviated))
+            }
+        } else { title = "" }
+        let fmt = isDay ? "%.1f kW" : "%.1f kWh"
+        let rows: [(String, Color, Double)]
+        if let h = hit {
+            if comp == .all {
+                let f = h.flow, k = h.k
+                rows = [("Solar", EnergyColor.solar, f.solar * k), ("Home", EnergyColor.home, f.house * k),
+                        ("Model 3", EnergyColor.vehicle, f.car * k), ("Grid", EnergyColor.grid, (f.imp - f.exp) * k)]
+            } else {
+                rows = parts(h).map { ($0.0, $0.1, abs($0.2)) }
+            }
+        } else { rows = [] }
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.app(size: 11, weight: .semibold))
+            ForEach(rows, id: \.0) { r in
+                HStack(spacing: 5) {
+                    Circle().fill(r.1).frame(width: 6, height: 6)
+                    Text(r.0).font(.app(size: 11)).foregroundStyle(TeslaDark.labelGrey)
+                    Spacer(minLength: 10)
+                    Text(String(format: fmt, r.2)).font(.app(size: 11, weight: .medium).monospacedDigit())
+                }
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .padding(8)
+        .background(Color(white: 0.17))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
+/// Week, Month and Year settle on a whole period when you let go; Day runs on freely.
+private struct SnapToPeriod: ViewModifier {
+    let period: ImpactPeriod
+    @ViewBuilder func body(content: Content) -> some View {
+        let first = Calendar.current.firstWeekday
+        switch period {
+        case .week:
+            content.chartScrollTargetBehavior(.valueAligned(matching: DateComponents(hour: 0),
+                                                            majorAlignment: .matching(DateComponents(weekday: first))))
+        case .month:
+            content.chartScrollTargetBehavior(.valueAligned(matching: DateComponents(hour: 0),
+                                                            majorAlignment: .matching(DateComponents(day: 1))))
+        case .year:
+            content.chartScrollTargetBehavior(.valueAligned(matching: DateComponents(day: 1),
+                                                            majorAlignment: .matching(DateComponents(month: 1, day: 1))))
+        default:
+            content
+        }
+    }
+}
+
+/// Y range fitted to what's on screen: neat steps, 4–5 gridlines; negatives (export) below zero.
+struct EnergyScale {
+    let domain: ClosedRange<Double>
+    let step: Double
+
+    init(lo: Double, hi: Double) {
+        let low = min(lo, 0), high = max(hi, 0)
+        let span = max(high - low, 0.5)
+        let steps: [Double] = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000]
+        let st = steps.first { span / $0 <= 4.5 } ?? 10000
+        let top = max(st, (high / st).rounded(.up) * st)
+        let bottom = low < -0.001 ? (low / st).rounded(.down) * st : 0
+        domain = bottom...top
+        step = st
+    }
+
+    /// Tesla app: the unit only on the top line ("8 kW"), negatives shown without the minus ("4" below zero).
+    func label(_ v: Double, top: Bool, unit: String) -> String {
+        let big = unit == "kWh" && max(abs(domain.lowerBound), abs(domain.upperBound)) > 1000
+        let x = abs(big ? v / 1000 : v)
+        let n = abs(x - x.rounded()) < 0.001 ? String(Int(x.rounded())) : String(format: "%.1f", x)
+        return top ? "\(n) \(big ? "MWh" : unit)" : n
+    }
+}
+
+// MARK: - Floating component bar (Tesla app)
+
+struct EnergyTabBar: View {
+    @Binding var selected: EnergyComponent
+    private static let width: CGFloat = 255
+    private static let height: CGFloat = 46
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Capsule()
+                .fill(Color(red: 66 / 255, green: 66 / 255, blue: 69 / 255))
+                .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
+            ForEach(Array(EnergyComponent.barOrder.enumerated()), id: \.offset) { i, c in
+                let x = Self.width * (0.127 + CGFloat(i) * 0.1865)
+                let on = c == selected
+                Button { selected = c } label: {
+                    FlowGlyph(kind: c.glyph, color: on ? Color(white: 0.96) : Color(white: 0.59), height: 13.5, maxWidth: 16.5)
+                        .frame(width: 46, height: Self.height)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .position(x: x, y: Self.height / 2)
+                .accessibilityLabel(c.pageTitle)
+                if on {
+                    Circle().fill(c.color).frame(width: 4, height: 4)
+                        .position(x: x, y: Self.height - 8)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .frame(width: Self.width, height: Self.height)
+        .animation(.easeOut(duration: 0.15), value: selected)
+    }
+}
 
 /// Small key under the All chart: mini drawings in the chart's own colours.
 private struct ChartKey: View {

@@ -67,6 +67,8 @@ struct PeriodBar: View {
 struct PeriodMenu: View {
     @Binding var periodRaw: String
     @Binding var offset: Int
+    /// Energy page (Tesla app): a small rounded box with a grey border, not a capsule in the top bar.
+    var boxed = false
 
     var body: some View {
         let period = ImpactPeriod(rawValue: periodRaw) ?? .month
@@ -75,11 +77,19 @@ struct PeriodMenu: View {
                 ForEach(ImpactPeriod.allCases) { Text($0.rawValue).tag($0) }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(period.rawValue).font(.app(size: 15))
-                Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
+            HStack(spacing: 5) {
+                Text(period.rawValue).font(.app(size: boxed ? 13.5 : 15, weight: boxed ? .medium : .regular))
+                Image(systemName: "chevron.down").font(.system(size: boxed ? 10 : 11, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
             }
             .foregroundStyle(.white)
+            .padding(.horizontal, boxed ? 10 : 0)
+            .padding(.vertical, boxed ? 6 : 0)
+            .background {
+                if boxed {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color(white: 0.11))
+                    RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color(white: 0.3), lineWidth: 1)
+                }
+            }
         }
     }
 }

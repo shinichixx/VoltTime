@@ -415,8 +415,8 @@ struct MyHomeView: View {
         return ZStack(alignment: .topLeading) {
             Color.clear
             anchored(x: w * 0.2901, y: labelY, bottom: true) {
-                // Tap the Model 3 figure for quick amps and start / stop.
-                Button { path.append(.charge) } label: {
+                // Each figure opens its own graph on the Energy page (Tesla app).
+                Button { path.append(.energyView(.vehicle)) } label: {
                     carLabel
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
@@ -426,13 +426,28 @@ struct MyHomeView: View {
                 .padding(.bottom, -8)
             }
             anchored(x: w * 0.5064 + 12, y: labelY, bottom: true) {
-                FlowLabel(title: "SOLAR", value: Text("\(MyHomeModel.kw(model.solarW)) kW"))
+                Button { path.append(.energyView(.solar)) } label: {
+                    FlowLabel(title: "SOLAR", value: Text("\(MyHomeModel.kw(model.solarW)) kW"))
+                        .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, -8)
             }
             anchored(x: w * 0.7863, y: labelY, bottom: true) {
-                FlowLabel(title: "HOME", value: Text("\(MyHomeModel.kw(model.homeW)) kW"))
+                Button { path.append(.energyView(.home)) } label: {
+                    FlowLabel(title: "HOME", value: Text("\(MyHomeModel.kw(model.homeW)) kW"))
+                        .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, -8)
             }
             anchored(x: w * 0.7947, y: 30 + w * 1.20, bottom: false) {
-                FlowLabel(title: "GRID", value: Text("\(MyHomeModel.kw(model.gridW)) kW"))
+                Button { path.append(.energyView(.grid)) } label: {
+                    FlowLabel(title: "GRID", value: Text("\(MyHomeModel.kw(model.gridW)) kW"))
+                        .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, -8)
             }
         }
         .frame(width: w, height: w * 2400 / 1792 + 20, alignment: .topLeading)

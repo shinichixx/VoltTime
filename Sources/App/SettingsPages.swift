@@ -3,7 +3,7 @@ import SwiftUI
 /// Pages pushed from My Home.
 enum Route: Hashable {
     case energy, settings, chargeDetails, homeAssistant, charge, impact
-    case menu, carDetail(CarDetail)
+    case menu, carDetail(CarDetail), energyView(EnergyComponent)
 }
 
 // MARK: - Shared dark building blocks

@@ -121,6 +121,7 @@ struct ContentView: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .energy: EnergyView(store: energy)
+                case .energyView(let c): EnergyView(store: energy, start: c)
                 case .settings: SettingsPage(home: home, myHome: myHome, energy: energy, car: car, path: $path)
                 case .chargeDetails: ChargeDetailsPage(model: home)
                 case .homeAssistant: HomeAssistantPage()
