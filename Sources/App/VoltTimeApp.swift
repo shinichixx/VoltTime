@@ -148,6 +148,7 @@ struct ContentView: View {
         .banner(car.toast ?? home.toast) {
             if car.toast != nil { car.dismissBanner() } else { home.toast = nil }
         }
+        .overlay { TimescaleOverlay() }   // the Timescale picker panel, over every page
         .animation(.easeInOut(duration: 0.25), value: home.shouldAsk)
         .sheet(isPresented: $home.showLimitSheet) {
             LimitSheet(model: home)

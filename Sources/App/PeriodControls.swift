@@ -74,16 +74,14 @@ struct PeriodMenu: View {
     /// Earliest date Choose Date allows.
     var firstDay: Date? = nil
 
-    @State private var open = false
     @State private var frame: CGRect = .zero
 
     private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .month }
 
     var body: some View {
         Button {
-            var t = Transaction()
-            t.disablesAnimations = true   // the panel appears in place, not sliding up
-            withTransaction(t) { open = true }
+            // Shown by the app's root (over every page) so it appears and goes in place, once.
+            TimescalePresenter.shared.request = .init(anchor: frame, period: $periodRaw, offset: $offset, firstDay: firstDay)
         } label: {
             HStack(spacing: 5) {
                 Text(period.rawValue).font(.app(size: boxed ? 13.5 : 15, weight: boxed ? .medium : .regular))
@@ -106,13 +104,30 @@ struct PeriodMenu: View {
                 .onAppear { frame = g.frame(in: .global) }
                 .onChange(of: g.frame(in: .global)) { _, f in frame = f }
         })
-        .fullScreenCover(isPresented: $open) {
-            TimescalePanel(periodRaw: $periodRaw, offset: $offset, anchor: frame, firstDay: firstDay) {
-                var t = Transaction()
-                t.disablesAnimations = true
-                withTransaction(t) { open = false }
+    }
+}
+
+/// The one Timescale panel, drawn over the whole app by the root view.
+@MainActor
+final class TimescalePresenter: ObservableObject {
+    static let shared = TimescalePresenter()
+    struct Request {
+        let anchor: CGRect
+        let period: Binding<String>
+        let offset: Binding<Int>
+        let firstDay: Date?
+    }
+    @Published var request: Request?
+}
+
+struct TimescaleOverlay: View {
+    @ObservedObject private var presenter = TimescalePresenter.shared
+
+    var body: some View {
+        if let r = presenter.request {
+            TimescalePanel(periodRaw: r.period, offset: r.offset, anchor: r.anchor, firstDay: r.firstDay) {
+                presenter.request = nil
             }
-            .presentationBackground(.clear)
         }
     }
 }
