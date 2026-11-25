@@ -125,18 +125,14 @@ struct EnergyView: View {
                             .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
                                                     removal: .move(edge: forward ? .leading : .trailing)))
                     }
-                    .frame(height: comp == .all ? 250 : 270)
+                    .frame(height: 270)
                     .clipShape(OpenTopClip())   // the slide stays inside the graph; the reading box may rise above it
                     .padding(.top, 18)
                     Group {
                     Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
                     Group {
-                        if comp == .all {
-                            allLegend.padding(.top, 14)
-                            allTiles(t).padding(.top, 12)
-                            ChartKey(day: period == .day).padding(.top, 16)
-                        } else {
-                            if comp == .grid {
+                        Group {
+                            if comp == .grid || comp == .all {
                                 Text(netLine(t)).font(.app(size: 14, weight: .semibold)).padding(.top, 16)
                             }
                             Text("Energy Flow").font(.app(size: 14, weight: .semibold)).padding(.top, 22)
@@ -180,7 +176,16 @@ struct EnergyView: View {
             Group {
             switch comp {
             case .all:
-                EmptyView()
+                HStack(alignment: .top, spacing: 0) {
+                    figure("Total Used", arrow: nil, t.house + t.car)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Self-Powered").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                        Text(selfPowered(t)).font(.app(size: 24, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.top, 14)
             case .grid:
                 HStack(alignment: .top, spacing: 0) {
                     figure("Imported", arrow: "arrow.up", t.imp)
@@ -257,8 +262,21 @@ struct EnergyView: View {
             table("Exported From", arrow: "arrow.down", [
                 EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.exp, glyph: .solar)])
         case .all:
-            EmptyView()
+            table("Supplied By", arrow: nil, [
+                EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.solar, glyph: .solar),
+                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.imp, glyph: .grid)])
+            table("Used By", arrow: nil, [
+                EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.house, glyph: .home),
+                EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.car, glyph: .car),
+                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.exp, glyph: .grid)])
         }
+    }
+
+    /// Share of home + car covered without the grid.
+    private func selfPowered(_ f: EnergyFlow) -> String {
+        let used = f.house + f.car
+        guard used > 0 else { return "—" }
+        return "\(Int((max(0, min(1, 1 - f.imp / used)) * 100).rounded()))%"
     }
 
     /// Bordered table: icon, percentage, name, kWh (Tesla app).
@@ -411,6 +429,23 @@ private struct EnergyChartView: View {
         }
     }
 
+    /// Stretches where a layer has power, each with one step either side (so the edge eases down to the layer
+    /// beneath); a layer with no power draws no edge line at all.
+    struct Run: Identifiable { let id: Int; let points: [(Date, Double)] }
+    static func runs(_ pts: [FlowPoint], has: (FlowPoint) -> Bool, edge: (FlowPoint) -> Double) -> [Run] {
+        var out: [Run] = []
+        var i = 0
+        while i < pts.count {
+            guard has(pts[i]) else { i += 1; continue }
+            var j = i
+            while j + 1 < pts.count && has(pts[j + 1]) { j += 1 }
+            let lo = max(0, i - 1), hi = min(pts.count - 1, j + 1)
+            out.append(Run(id: out.count, points: (lo...hi).map { (pts[$0].date, edge(pts[$0])) }))
+            i = j + 1
+        }
+        return out
+    }
+
     /// Grid's export is the one part drawn below zero.
     private func negative(_ i: Int) -> Bool { comp == .grid && i == 1 }
 
@@ -423,10 +458,10 @@ private struct EnergyChartView: View {
     }
 
     /// Strong (62%) at the far edge of the graph, 10% at the 0 line; the gradient spans the plot area.
-    private func fade(_ c: Color, below: Bool, _ scale: EnergyScale) -> LinearGradient {
+    private func fade(_ c: Color, below: Bool, _ scale: EnergyScale, strong: Double = 0.62, weak: Double = 0.10) -> LinearGradient {
         let span = scale.domain.upperBound - scale.domain.lowerBound
         let zero = span > 0 ? scale.domain.upperBound / span : 1   // 0 = top of the plot, 1 = bottom
-        let stops = [Gradient.Stop(color: c.opacity(0.62), location: 0), Gradient.Stop(color: c.opacity(0.10), location: 1)]
+        let stops = [Gradient.Stop(color: c.opacity(strong), location: 0), Gradient.Stop(color: c.opacity(weak), location: 1)]
         return below
             ? LinearGradient(stops: stops, startPoint: .bottom, endPoint: UnitPoint(x: 0.5, y: zero))
             : LinearGradient(stops: stops, startPoint: .top, endPoint: UnitPoint(x: 0.5, y: zero))
@@ -452,7 +487,7 @@ private struct EnergyChartView: View {
         let template = parts(FlowPoint(date: Date(), flow: EnergyFlow(), k: 1))
         return Chart {
             if comp == .all {
-                allMarks(pts)
+                allMarks(pts, scale)
             } else if isDay {
                 // Tesla app: each colour fades from strong at its line to 10% at the 0 line, with a solid edge on top.
                 ForEach(Array(template.enumerated()), id: \.offset) { i, t in
@@ -466,12 +501,14 @@ private struct EnergyChartView: View {
                 // Edge lines from the top layer down, so a lower layer's line wins where they meet
                 // (a 0 kW layer never paints over the one beneath it).
                 ForEach(Array(template.enumerated()).reversed(), id: \.offset) { i, t in
-                    ForEach(pts) { p in
-                        let b = bounds(p, i)
-                        LineMark(x: .value("Time", p.date), y: .value("Edge", negative(i) ? b.lo : b.hi), series: .value("Line", t.0))
-                            .foregroundStyle(t.1)
-                            .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
-                            .interpolationMethod(.monotone)
+                    ForEach(Self.runs(pts, has: { abs(parts($0)[i].2) > 0.001 },
+                                      edge: { let b = bounds($0, i); return negative(i) ? b.lo : b.hi })) { run in
+                        ForEach(run.points, id: \.0) { q in
+                            LineMark(x: .value("Time", q.0), y: .value("Edge", q.1), series: .value("Line", "\(t.0)\(run.id)"))
+                                .foregroundStyle(t.1)
+                                .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                                .interpolationMethod(.monotone)
+                        }
                     }
                 }
             } else {
@@ -487,7 +524,7 @@ private struct EnergyChartView: View {
                     .foregroundStyle(Color.white.opacity(0.85))
                     .lineStyle(StrokeStyle(lineWidth: 1))
                     .annotation(position: .top, alignment: .center, spacing: 6,
-                                overflowResolution: .init(x: .fit(to: .chart), y: comp == .all ? .fit(to: .chart) : .disabled)) {
+                                overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
                         readingBox(hit)
                     }
                 if isDay {
@@ -690,47 +727,33 @@ private struct EnergyChartView: View {
 
     /// All: Model 3 sits on Home (red top = everything used), grid sits on Solar (grey top = everything supplied),
     /// export below zero.
-    @ChartContentBuilder private func allMarks(_ points: [FlowPoint]) -> some ChartContent {
+    /// All: Home (blue) with Model 3 (red) stacked on it = everything used; solar as a yellow line with a light
+    /// fill; export below zero in grey. Each fades toward the 0 line, edges only where there's power.
+    @ChartContentBuilder private func allMarks(_ points: [FlowPoint], _ scale: EnergyScale) -> some ChartContent {
         if isDay {
             ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.solar * p.k), series: .value("F", "solar"))
-                    .foregroundStyle(EnergyColor.solar.opacity(0.22)).interpolationMethod(.monotone)
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.house * p.k), series: .value("A", "home"))
+                    .foregroundStyle(fade(EnergyColor.home, below: false, scale)).interpolationMethod(.monotone)
             }
             ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.flow.solar * p.k), yEnd: .value("Hi", (p.flow.solar + p.flow.imp) * p.k), series: .value("F", "import"))
-                    .foregroundStyle(EnergyColor.grid.opacity(0.25)).interpolationMethod(.monotone)
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.flow.house * p.k), yEnd: .value("Hi", (p.flow.house + p.flow.car) * p.k), series: .value("A", "car"))
+                    .foregroundStyle(fade(EnergyColor.vehicle, below: false, scale)).interpolationMethod(.monotone)
             }
             ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.flow.exp * p.k), series: .value("F", "export"))
-                    .foregroundStyle(EnergyColor.grid.opacity(0.3)).interpolationMethod(.monotone)
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.solar * p.k), series: .value("A", "solar"))
+                    .foregroundStyle(fade(EnergyColor.solar, below: false, scale, strong: 0.45, weak: 0.08)).interpolationMethod(.monotone)
             }
             ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.house * p.k), series: .value("F", "home"))
-                    .foregroundStyle(EnergyColor.home.opacity(0.25)).interpolationMethod(.monotone)
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.flow.exp * p.k), series: .value("A", "export"))
+                    .foregroundStyle(fade(EnergyColor.grid, below: true, scale)).interpolationMethod(.monotone)
             }
-            ForEach(points) { p in
-                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.flow.house * p.k), yEnd: .value("Hi", (p.flow.house + p.flow.car) * p.k), series: .value("F", "car"))
-                    .foregroundStyle(EnergyColor.vehicle.opacity(0.28)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", (p.flow.solar + p.flow.imp) * p.k), series: .value("L", "supply"))
-                    .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", -p.flow.exp * p.k), series: .value("L", "export"))
-                    .foregroundStyle(EnergyColor.grid).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", p.flow.solar * p.k), series: .value("L", "solar"))
-                    .foregroundStyle(EnergyColor.solar).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", (p.flow.house + p.flow.car) * p.k), series: .value("L", "used"))
-                    .foregroundStyle(EnergyColor.vehicle).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
-            }
-            ForEach(points) { p in
-                LineMark(x: .value("Time", p.date), y: .value("V", p.flow.house * p.k), series: .value("L", "home"))
-                    .foregroundStyle(EnergyColor.home).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round)).interpolationMethod(.monotone)
+            ForEach(allLines(points)) { line in
+                ForEach(line.points, id: \.0) { q in
+                    LineMark(x: .value("Time", q.0), y: .value("Edge", q.1), series: .value("L", line.key))
+                        .foregroundStyle(line.color)
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                        .interpolationMethod(.monotone)
+                }
             }
         } else {
             ForEach(points) { p in
@@ -748,6 +771,21 @@ private struct EnergyChartView: View {
         }
     }
 
+    struct EdgeLine: Identifiable { let key: String; let color: Color; let points: [(Date, Double)]; var id: String { key } }
+
+    /// All view edge lines (drawn top layer first): car, solar, export, then home on top.
+    private func allLines(_ pts: [FlowPoint]) -> [EdgeLine] {
+        var out: [EdgeLine] = []
+        func add(_ name: String, _ c: Color, has: @escaping (FlowPoint) -> Bool, edge: @escaping (FlowPoint) -> Double) {
+            for r in Self.runs(pts, has: has, edge: edge) { out.append(EdgeLine(key: "\(name)\(r.id)", color: c, points: r.points)) }
+        }
+        add("car", EnergyColor.vehicle, has: { $0.flow.car > 0.001 }, edge: { ($0.flow.house + $0.flow.car) * $0.k })
+        add("solar", EnergyColor.solar, has: { $0.flow.solar > 0.001 }, edge: { $0.flow.solar * $0.k })
+        add("export", EnergyColor.grid, has: { $0.flow.exp > 0.001 }, edge: { -$0.flow.exp * $0.k })
+        add("home", EnergyColor.home, has: { $0.flow.house > 0.001 }, edge: { $0.flow.house * $0.k })
+        return out
+    }
+
     // MARK: Reading the graph (tap and hold)
 
     private func hitPoint(_ d: Date, _ pts: [FlowPoint]) -> FlowPoint? {
@@ -759,7 +797,9 @@ private struct EnergyChartView: View {
     private func dots(_ p: FlowPoint) -> [(String, Double, Color)] {
         if comp == .all {
             let f = p.flow, k = p.k
-            var out: [(String, Double, Color)] = [("solar", f.solar * k, EnergyColor.solar), ("home", f.house * k, EnergyColor.home)]
+            var out: [(String, Double, Color)] = []
+            if f.solar > 0.001 { out.append(("solar", f.solar * k, EnergyColor.solar)) }
+            if f.house > 0.001 { out.append(("home", f.house * k, EnergyColor.home)) }
             if f.car > 0 { out.append(("used", (f.house + f.car) * k, EnergyColor.vehicle)) }
             if f.exp > 0 { out.append(("export", -f.exp * k, EnergyColor.grid)) }
             return out
