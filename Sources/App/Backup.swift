@@ -359,10 +359,6 @@ final class BackupManager: ObservableObject {
                     self.defaults.set(Int(bytes), forKey: "backup.savedBytes")
                     self.status = "Backup saved."
                     Self.removeOldCSVBackups()
-                    Task {
-                        let n = await BackupCleanup.shared.afterSave(saved)
-                        if n > 0 { self.status = "Backup saved · \(n) old \(n == 1 ? "backup" : "backups") deleted" }
-                    }
                 }
             }
         }
@@ -427,14 +423,6 @@ final class SystemSheets: NSObject, UIDocumentPickerDelegate {
         present(vc, done)
     }
 
-    /// Picks one folder (kept as a bookmark so the app can tidy it later). Opens at `start` when given.
-    func pickFolder(start: URL?, done: @escaping (URL?) -> Void) {
-        let vc = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
-        vc.allowsMultipleSelection = false
-        if let start { vc.directoryURL = start }
-        present(vc, done)
-    }
-
     private func present(_ vc: UIDocumentPickerViewController, _ done: @escaping (URL?) -> Void) {
         guard let top = Self.top() else { done(nil); return }
         vc.delegate = self
@@ -471,11 +459,6 @@ struct BackupPage: View {
     @ObservedObject var energy: EnergyStore
     @ObservedObject var home: HomeModel
     @ObservedObject private var backup = BackupManager.shared
-    @ObservedObject private var cleanup = BackupCleanup.shared
-    @AppStorage(BackupCleanup.onKey) private var cleanOn = true
-    @AppStorage(BackupCleanup.keepKey) private var cleanKeep = 3
-    @AppStorage(BackupCleanup.oldKey) private var cleanOld = true
-    @State private var confirmClean = false
     @AppStorage(BackupReminder.enabledKey) private var remindOn = true
     @AppStorage(BackupReminder.weekdayKey) private var remindDay = 1
     @AppStorage(BackupReminder.minutesKey) private var remindMinutes = 21 * 60
@@ -503,52 +486,6 @@ struct BackupPage: View {
                 }
                 .buttonStyle(.plain)
                 TFootnote(text: "One small file with every energy day and your settings. In the save screen pick your backup folder in iCloud Drive. Restore also reads older VoltTime backups.")
-
-                TCaption(text: "Auto-cleanup")
-                TRow("Delete old backups", icon: "trash", subtitle: cleanOn ? "After each backup, newest \(cleanKeep) stay" : "Off",
-                     last: !cleanOn) {
-                    Toggle("", isOn: $cleanOn).labelsHidden().tint(TSurface.green)
-                }
-                if cleanOn {
-                    TRow("Keep latest", icon: "square.stack") {
-                        HStack(spacing: 14) {
-                            Button { cleanKeep = max(1, cleanKeep - 1) } label: { Image(systemName: "minus").frame(width: 28, height: 28) }
-                            Text("\(cleanKeep)").font(.app(size: 17, weight: .medium)).frame(minWidth: 20)
-                            Button { cleanKeep = min(10, cleanKeep + 1) } label: { Image(systemName: "plus").frame(width: 28, height: 28) }
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(TSurface.icon)
-                    }
-                    TRow("Include old VoltTime backups", icon: "clock.arrow.circlepath") {
-                        Toggle("", isOn: $cleanOld).labelsHidden().tint(TSurface.green)
-                    }
-                    Button { cleanup.chooseFolder(start: nil) } label: {
-                        TRow("Backup folder", icon: "folder",
-                             subtitle: cleanup.problem ?? cleanup.folderName ?? "Choose your VoltTime folder in iCloud Drive",
-                             dot: cleanup.hasFolder && cleanup.problem == nil ? TSurface.green : Theme.orange,
-                             last: !cleanup.hasFolder) { chevron }
-                    }
-                    .buttonStyle(.plain)
-                    if cleanup.hasFolder {
-                        Button { confirmClean = true } label: {
-                            TRow(toDelete == 0 ? "Clean up now" : "Clean up now · delete \(toDelete)", icon: "sparkles",
-                                 subtitle: toDelete == 0 ? "Nothing to delete" : "Deleted files stay in Recently Deleted for 30 days",
-                                 last: true) { chevron }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(toDelete == 0)
-                    }
-                    ForEach(Array(cleanup.files.prefix(8).enumerated()), id: \.element.id) { i, f in
-                        TRow(f.shortName, icon: i == 0 ? "doc.zipper" : nil,
-                             subtitle: i < cleanKeep ? "Keep" : "Will be deleted",
-                             dot: i < cleanKeep ? TSurface.green : Theme.orange,
-                             last: i == min(7, cleanup.files.count - 1)) { EmptyView() }
-                    }
-                    if cleanup.files.count > 8 {
-                        TFootnote(text: "+ \(cleanup.files.count - 8) more")
-                    }
-                }
-                TFootnote(text: "Choose the folder you save backups in, once. After every saved backup, older files in it are deleted so only the newest \(cleanKeep) stay.")
 
                 TCaption(text: "On this iPhone", trailing: snapshotTotal)
                 if snapshots.isEmpty {
@@ -598,19 +535,7 @@ struct BackupPage: View {
             }
         }
         .teslaPage("Backup & restore", black: true)
-        .onAppear { snapshots = Snapshots.list(); Task { await cleanup.refresh() } }
-        .onChange(of: cleanOld) { _, _ in Task { await cleanup.refresh() } }
-        .confirmationDialog("Delete \(toDelete) old \(toDelete == 1 ? "backup" : "backups")?", isPresented: $confirmClean, titleVisibility: .visible) {
-            Button("Delete \(toDelete)", role: .destructive) {
-                Task {
-                    let n = await cleanup.cleanUp()
-                    note = n > 0 ? "\(n) old \(n == 1 ? "backup" : "backups") deleted" : "Nothing deleted"
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The newest \(cleanKeep) stay. Deleted files go to Recently Deleted in Files for 30 days.")
-        }
+        .onAppear { snapshots = Snapshots.list() }
         .onChange(of: remindOn) { _, _ in Task { await BackupReminder.apply() } }
         .onChange(of: remindDay) { _, _ in Task { await BackupReminder.apply() } }
         .onChange(of: remindMinutes) { _, _ in Task { await BackupReminder.apply() } }
@@ -684,8 +609,6 @@ struct BackupPage: View {
         if !c.carPhotos.isEmpty { m += ", plus your car photo" }
         return m + ". A copy of what's on the iPhone now is kept first. Days already here keep whichever copy has more detail."
     }
-
-    private var toDelete: Int { max(0, cleanup.files.count - cleanKeep) }
 
     private var saveLine: String {
         if let s = backup.status, s != "Backup saved." { return s }
