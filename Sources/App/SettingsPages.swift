@@ -50,7 +50,7 @@ extension View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {   // the title in Albert Sans (the system bar would draw it in SF Pro)
                 ToolbarItem(placement: .principal) {
-                    Text(title).font(.app(size: 17, weight: .semibold)).foregroundStyle(.white)
+                    Text(title).font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
                 }
             }
             .toolbarBackground(black ? TSurface.page : TeslaDark.bg, for: .navigationBar)

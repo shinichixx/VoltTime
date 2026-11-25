@@ -125,7 +125,6 @@ struct EnergyView: View {
                     .frame(height: comp == .all ? 250 : 270)
                     .clipped()
                     .padding(.top, 18)
-                    .padding(.leading, 6)
                     Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
                     Group {
                         if comp == .all {
@@ -439,20 +438,20 @@ private struct EnergyChartView: View {
         .chartXScale(domain: range.start...xEnd(pts))
         .chartXAxis { xAxis(pts) }
         .chartYScale(domain: scale.domain)
-        .chartYAxis {
-            AxisMarks(position: .trailing, values: .stride(by: scale.step)) { v in
-                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel {
-                    if let d = v.as(Double.self) {
-                        Text(scale.label(d, top: abs(d - scale.domain.upperBound) < 0.001, unit: isDay ? "kW" : "kWh"))
-                    }
-                }
+        .chartYAxis(.hidden)   // the scale is drawn inside the graph instead (Tesla app), so the graph runs edge to edge
+        .chartBackground { proxy in
+            GeometryReader { g in
+                Canvas { ctx, size in drawScale(proxy, g, scale, &ctx, size, lines: true) }
             }
         }
         .chartOverlay { proxy in
             GeometryReader { g in
-                Rectangle().fill(Color.clear).contentShape(Rectangle())
-                    .simultaneousGesture(gestures(proxy, g))
+                ZStack {
+                    Canvas { ctx, size in drawScale(proxy, g, scale, &ctx, size, lines: false) }
+                        .allowsHitTesting(false)
+                    Rectangle().fill(Color.clear).contentShape(Rectangle())
+                        .simultaneousGesture(gestures(proxy, g))
+                }
             }
         }
         .overlay(alignment: .topLeading) {
@@ -471,6 +470,40 @@ private struct EnergyChartView: View {
         .overlay {
             if pts.isEmpty && !store.loading {
                 Text(isDay ? "No data for this day" : "No data for this period").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            }
+        }
+    }
+
+    /// The kW / kWh scale inside the graph, at the right edge (Tesla app): each number sits at the end of its
+    /// line (the line stops just short of it); the top one just under the top line, the bottom one just above
+    /// the bottom line. Lines behind the graph, numbers over it.
+    private func drawScale(_ proxy: ChartProxy, _ g: GeometryProxy, _ scale: EnergyScale,
+                           _ ctx: inout GraphicsContext, _ size: CGSize, lines: Bool) {
+        guard let anchor = proxy.plotFrame else { return }
+        let plot = g[anchor]
+        let unitName = isDay ? "kW" : "kWh"
+        var v = scale.domain.lowerBound
+        while v <= scale.domain.upperBound + 0.0001 {
+            defer { v += scale.step }
+            guard let py = proxy.position(forY: v) else { continue }
+            let y = plot.minY + py
+            let isTop = abs(v - scale.domain.upperBound) < 0.0001
+            let isBottom = abs(v - scale.domain.lowerBound) < 0.0001
+            let text = ctx.resolve(Text(scale.label(v, top: isTop, unit: unitName))
+                .font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
+            let w = text.measure(in: size).width
+            let right = plot.maxX - 4
+            if lines {
+                var p = Path()
+                p.move(to: CGPoint(x: plot.minX, y: y))
+                p.addLine(to: CGPoint(x: isTop || isBottom ? plot.maxX : right - w - 6, y: y))
+                ctx.stroke(p, with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
+            } else if isTop {
+                ctx.draw(text, at: CGPoint(x: right, y: y + 2), anchor: .topTrailing)
+            } else if isBottom {
+                ctx.draw(text, at: CGPoint(x: right, y: y - 2), anchor: .bottomTrailing)
+            } else {
+                ctx.draw(text, at: CGPoint(x: right, y: y), anchor: .trailing)
             }
         }
     }
@@ -501,11 +534,11 @@ private struct EnergyChartView: View {
 
     @AxisContentBuilder private func xAxis(_ pts: [FlowPoint]) -> some AxisContent {
         if isDay {
-            AxisMarks(values: [0, 6, 12, 18].map { range.start.addingTimeInterval(Double($0) * 3600) }) { v in
+            AxisMarks(values: [6, 12, 18].map { range.start.addingTimeInterval(Double($0) * 3600) }) { v in
                 let d = v.as(Date.self) ?? Date()
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 4]))
                     .foregroundStyle(Color.white.opacity(0.1))
-                AxisValueLabel(anchor: cal.component(.hour, from: d) == 0 ? .topLeading : .top) {
+                AxisValueLabel {
                     Text(Self.hourLabel(d)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
                 }
             }
