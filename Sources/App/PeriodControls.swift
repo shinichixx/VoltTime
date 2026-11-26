@@ -280,3 +280,20 @@ final class PagerFX: ObservableObject {
     }
     static func scrolled(_ y: CGFloat) -> Double { max(0.08, 1 - Double(max(y, 0)) / 150) }
 }
+
+
+extension View {
+    /// A row ("Today" + the Timescale box) that stays put under the top bar while this scroll view moves
+    /// beneath it; the content fades out just under the row instead of ending in a hard line.
+    func pinnedTop<H: View>(@ViewBuilder _ row: () -> H) -> some View {
+        VStack(spacing: 0) {
+            row()
+            self.mask(
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 12)
+                    Color.black
+                }
+            )
+        }
+    }
+}

@@ -150,6 +150,7 @@ struct EnergyView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .pinnedTop { titleRow.padding(.horizontal, 20) }
             // Tesla app: content fades to black from just above the floating bar, solid from two-thirds down it.
             VStack(spacing: 0) {
                 LinearGradient(stops: [.init(color: TeslaDark.bg.opacity(0), location: 0),
@@ -173,17 +174,21 @@ struct EnergyView: View {
 
     // MARK: Header
 
+    /// "Today" and the Day box: pinned under the top bar, the page scrolls beneath.
+    private var titleRow: some View {
+        HStack(alignment: .center) {
+            Text(headerLabel).font(.app(size: 17, weight: .semibold))
+            if store.loading && selection == nil { ProgressView().tint(.white).scaleEffect(0.6) }
+            Spacer()
+            PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: store.firstDay)
+                .opacity(selection == nil ? 1 : 0)
+                .allowsHitTesting(selection == nil)
+        }
+        .padding(.top, 6)
+    }
+
     private func header(_ t: EnergyFlow) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center) {
-                Text(headerLabel).font(.app(size: 17, weight: .semibold))
-                if store.loading && selection == nil { ProgressView().tint(.white).scaleEffect(0.6) }
-                Spacer()
-                PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: store.firstDay)
-                    .opacity(selection == nil ? 1 : 0)
-                    .allowsHitTesting(selection == nil)
-            }
-            .padding(.top, 6)
             Group {
             switch comp {
             case .all:

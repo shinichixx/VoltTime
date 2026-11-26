@@ -206,6 +206,7 @@ struct ForecastVsActualView: View {
             .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
+        .pinnedTop { titleRow(r).padding(.horizontal, 20) }
         .teslaPage("Forecast vs actual")
         .onChange(of: periodRaw) { _, _ in picked = nil }
         .onChange(of: offset) { _, _ in picked = nil }
@@ -227,14 +228,6 @@ struct ForecastVsActualView: View {
         let a = bs.compactMap(\.actual).reduce(0, +)
         let m = bs.compactMap(\.matchedActual).reduce(0, +)
         return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(headerLabel(r)).font(.app(size: 17, weight: .semibold))
-                Spacer()
-                PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: log.firstDay)
-                    .opacity(picked == nil ? 1 : 0)
-                    .allowsHitTesting(picked == nil)
-            }
-            .padding(.top, 6)
             if period != .day {
                 HStack(alignment: .top, spacing: 0) {
                     figure("Generated", a)
@@ -245,6 +238,18 @@ struct ForecastVsActualView: View {
                 .opacity(picked == nil ? 1 : 0)
             }
         }
+    }
+
+    /// Pinned under the top bar; the page scrolls beneath it.
+    private func titleRow(_ r: PeriodRange) -> some View {
+        HStack {
+            Text(headerLabel(r)).font(.app(size: 17, weight: .semibold))
+            Spacer()
+            PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: log.firstDay)
+                .opacity(picked == nil ? 1 : 0)
+                .allowsHitTesting(picked == nil)
+        }
+        .padding(.top, 6)
     }
 
     private func headerLabel(_ r: PeriodRange) -> String {

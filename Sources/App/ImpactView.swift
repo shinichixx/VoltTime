@@ -34,15 +34,6 @@ struct ImpactView: View {
         let t = model.total(from: r.start, to: r.end)
         ScrollView {
             VStack(spacing: 10) {
-                // "Today" on the left, the Timescale box on the same line (Energy page style).
-                HStack {
-                    Text(r.label).font(.app(size: 17, weight: .semibold))
-                    Spacer()
-                    PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: model.firstDay)
-                }
-                .padding(.horizontal, 4)
-                .padding(.top, 6)
-                .padding(.bottom, 4)
                 if model.curves.isEmpty && model.loading {
                     VStack(spacing: 10) {
                         ProgressView().tint(.white)
@@ -77,10 +68,20 @@ struct ImpactView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 4)
+            .padding(.top, 14)
             .padding(.bottom, 8)
         }
         .scrollIndicators(.hidden)
+        .pinnedTop {
+            // "Today" on the left, the Timescale box on the same line; stays put while the cards scroll.
+            HStack {
+                Text(r.label).font(.app(size: 17, weight: .semibold))
+                Spacer()
+                PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: model.firstDay)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 6)
+        }
         .teslaPage("Impact")
         .task { await model.refresh() }
     }
