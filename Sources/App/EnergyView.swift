@@ -102,7 +102,6 @@ struct EnergyView: View {
     /// Table-row filter and the eye (reset each time Energy opens).
     @State private var look = EnergyLook()
     @State private var folded = false
-    @State private var scrollY: CGFloat = 0
 
     init(store: EnergyStore, start: EnergyComponent = .all) {
         _store = ObservedObject(wrappedValue: store)
@@ -136,13 +135,14 @@ struct EnergyView: View {
     var body: some View {
         let t = total
         ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    header(t)
-                        .padding(.horizontal, 20)
+            VStack(alignment: .leading, spacing: 0) {
+                // Pinned: the title row, the totals and the graph down to the line under it; only what's below scrolls.
+                titleRow.padding(.horizontal, 20)
+                header(t)
+                    .padding(.horizontal, 20)
                     ZStack {
                         EnergyChartView(store: store, period: period, comp: comp, range: range, swipe: step, selection: $selection,
-                                        look: look, canHold: scrollY < 2)
+                                        look: look, canHold: true)
                             .id("\(periodRaw)|\(offset)")
                             .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
                                                     removal: .move(edge: forward ? .leading : .trailing)))
@@ -150,52 +150,56 @@ struct EnergyView: View {
                     .frame(height: 270)
                     .clipShape(OpenTopClip())   // the slide stays inside the graph; the reading box may rise above it
                     .padding(.top, 18)
-                    Group {
-                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
-                    Group {
+                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
+                    .opacity(selection == nil ? 1 : 0.25)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
                         Group {
-                            if comp == .grid || comp == .all {
-                                Text(netLine(t)).font(.app(size: 14, weight: .semibold)).padding(.top, 16)
-                            }
-                            HStack(spacing: 18) {
-                                Text("Energy Flow").font(.app(size: 14, weight: .semibold))
-                                Spacer()
-                                Button { look.outline.toggle(); if !look.outline { look.focus = nil } } label: {
-                                    Image(systemName: look.outline ? "eye.slash" : "eye").font(.system(size: 15, weight: .medium))
-                                        .frame(width: 26, height: 26)
+                            Group {
+                                if comp == .grid || comp == .all {
+                                    Text(netLine(t)).font(.app(size: 14, weight: .semibold)).padding(.top, 16)
                                 }
-                                Button { withAnimation(.easeInOut(duration: 0.3)) { folded.toggle() } } label: {
-                                    Image(systemName: "chevron.up").font(.system(size: 14, weight: .medium))
-                                        .rotationEffect(.degrees(folded ? 180 : 0))
-                                        .frame(width: 26, height: 26)
+                                HStack(spacing: 18) {
+                                    Text("Energy Flow").font(.app(size: 14, weight: .semibold))
+                                    Spacer()
+                                    Button { look.outline.toggle(); if !look.outline { look.focus = nil } } label: {
+                                        Image(systemName: look.outline ? "eye.slash" : "eye").font(.system(size: 15, weight: .medium))
+                                            .frame(width: 26, height: 26)
+                                    }
+                                    Button { withAnimation(.easeInOut(duration: 0.3)) { folded.toggle() } } label: {
+                                        Image(systemName: "chevron.up").font(.system(size: 14, weight: .medium))
+                                            .rotationEffect(.degrees(folded ? 180 : 0))
+                                            .frame(width: 26, height: 26)
+                                    }
                                 }
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.white)
-                            .padding(.top, 22)
-                            VStack(alignment: .leading, spacing: 0) {
-                                if !folded {
-                                    flowTables(t)
-                                        .transition(.move(edge: .top).combined(with: .opacity))
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.white)
+                                .padding(.top, 22)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    if !folded {
+                                        flowTables(t)
+                                            .transition(.move(edge: .top).combined(with: .opacity))
+                                    }
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .clipped()
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .clipped()
+                            if let msg = store.message {
+                                Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
+                            }
                         }
-                        if let msg = store.message {
-                            Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
-                        }
+                        .padding(.horizontal, 20)
+                        .opacity(selection == nil ? 1 : 0.25)   // dims while reading the graph (Tesla app)
+                        .animation(.easeOut(duration: 0.15), value: selection == nil)
+                        Color.clear.frame(height: 96)   // clear of the floating bar
                     }
-                    .padding(.horizontal, 20)
-                    }
-                    .opacity(selection == nil ? 1 : 0.25)   // dims while reading the graph (Tesla app)
-                    .animation(.easeOut(duration: 0.15), value: selection == nil)
-                    Color.clear.frame(height: 96)   // clear of the floating bar
                 }
+                .scrollIndicators(.hidden)
+                .mask(VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 12)
+                    Color.black
+                })
             }
-            .scrollIndicators(.hidden)
-            .modifier(TrackScroll(y: $scrollY))
-            .pinnedTop(fade: selection == nil) { titleRow.padding(.horizontal, 20) }
             // Tesla app: content fades to black from just above the floating bar, solid from two-thirds down it.
             VStack(spacing: 0) {
                 LinearGradient(stops: [.init(color: TeslaDark.bg.opacity(0), location: 0),
@@ -914,6 +918,11 @@ private struct EnergyChartView: View {
                 add("solar", EnergyColor.solar, (0, f.solar), 0.51, 0.86, 0.9)
                 add("imp", EnergyColor.grid, (f.solar, f.solar + f.imp), 0.51, 0.86, 0.9)
                 add("export", EnergyColor.grid, (-f.exp, 0), 0.51, 0.86, 0.5)
+            } else if comp == .home || comp == .vehicle {
+                // Grid at the bottom, solar on top.
+                let ps = parts(p), s = max(ps[0].2, 0), g = max(ps[1].2, 0)
+                add(ps[1].0, ps[1].1, (0, g), 0.2, 0.8)
+                add(ps[0].0, ps[0].1, (g, g + s), 0.2, 0.8)
             } else {
                 for (i, part) in parts(p).enumerated() { add(part.0, part.1, bounds(p, i), 0.2, 0.8) }
             }

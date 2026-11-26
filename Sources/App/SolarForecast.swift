@@ -698,7 +698,7 @@ struct ForecastVsActualView: View {
                 Rectangle().fill(Color(white: 0.22)).frame(height: 0.7).padding(.top, 14)
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Solcast latest forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                        Text("Latest forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
                         Text(latestLine).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
                     }
                     Spacer()
@@ -716,7 +716,7 @@ struct ForecastVsActualView: View {
 
     private func sourceLine(_ day: Date) -> String {
         guard log.isSolcast(day) else { return "Forecast.Solar" }
-        return log.readTime(day).map { "Set \(hm($0)) by Solcast" } ?? "Solcast"
+        return log.readTime(day).map { "Set \(hm($0))" } ?? "Solcast"
     }
 
     private var latestLine: String {

@@ -87,6 +87,11 @@ struct PowerFlowOverlay: View {
             s.lineWidth = w * k
             ctx.stroke(p, with: .color(Self.pipe), style: s)
         }
+        // The photo's own green glow where the inverter wire enters the box: painted over in the box's colour.
+        var patch = ctx
+        patch.addFilter(.blur(radius: 1.2 * k))
+        patch.fill(Path(CGRect(x: 783 * k, y: 1049 * k, width: 11 * k, height: 20 * k)),
+                   with: .color(Color(red: 42 / 255, green: 41 / 255, blue: 47 / 255)))
         pipe(Self.solarWire, 8)
         pipe(Self.inverterToBox, 8)
         pipe(Self.gridToBox, 8)
