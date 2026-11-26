@@ -22,6 +22,7 @@ struct ImpactView: View {
     @AppStorage("impact.period") private var periodRaw = ImpactPeriod.month.rawValue
     @State private var offset = 0
     @State private var showInfo = false
+    @State private var forward = false
 
     private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .month }
 
@@ -33,7 +34,15 @@ struct ImpactView: View {
         let t = model.total(from: r.start, to: r.end)
         ScrollView {
             VStack(spacing: 10) {
-                PeriodBar(range: r, period: period, firstDay: model.firstDay, offset: $offset)
+                // "Today" on the left, the Timescale box on the same line (Energy page style).
+                HStack {
+                    Text(r.label).font(.app(size: 17, weight: .semibold))
+                    Spacer()
+                    PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: model.firstDay)
+                }
+                .padding(.horizontal, 4)
+                .padding(.top, 6)
+                .padding(.bottom, 4)
                 if model.curves.isEmpty && model.loading {
                     VStack(spacing: 10) {
                         ProgressView().tint(.white)
@@ -41,9 +50,24 @@ struct ImpactView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 200)
                 } else {
-                    selfPoweredCard(t)
-                    carCard(t)
-                    carbonCard(t)
+                    // Swipe the cards for the previous / next period; they slide in from that side.
+                    ZStack {
+                        VStack(spacing: 10) {
+                            selfPoweredCard(t)
+                            carCard(t)
+                            carbonCard(t)
+                        }
+                        .id("\(periodRaw)|\(offset)")
+                        .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
+                                                removal: .move(edge: forward ? .leading : .trailing)))
+                    }
+                    .clipped()
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { d in
+                        let w = d.translation.width
+                        guard abs(w) > 50, abs(w) > abs(d.translation.height) * 1.4 else { return }
+                        step(w < 0 ? 1 : -1, r)
+                    })
                 }
                 NavigationLink { ForecastVsActualView(model: model) } label: { forecastCard }
                     .buttonStyle(.plain)
@@ -57,8 +81,17 @@ struct ImpactView: View {
             .padding(.bottom, 8)
         }
         .scrollIndicators(.hidden)
-        .teslaPage("Impact", trailing: AnyView(PeriodMenu(periodRaw: $periodRaw, offset: $offset)))
+        .teslaPage("Impact")
         .task { await model.refresh() }
+    }
+
+    /// One swipe, one period; can't go past today or before the first recorded day.
+    private func step(_ by: Int, _ r: PeriodRange) {
+        guard period != .lifetime else { return }
+        if by < 0 { guard model.firstDay.map({ r.start > $0 }) ?? false else { return } }
+        else { guard offset < 0 else { return } }
+        forward = by > 0
+        DispatchQueue.main.async { withAnimation(.easeInOut(duration: 0.28)) { offset += by } }
     }
 
     // MARK: Cards

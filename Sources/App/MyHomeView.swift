@@ -356,6 +356,9 @@ struct MyHomeView: View {
         return ZStack(alignment: .topLeading) {
             bg
             photo(width: w)
+                // The photo's own bottom fades into the page, so it never ends in a hard line.
+                .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.80),
+                                             .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
                 .offset(y: Self.photoY)
             PowerFlowOverlay(model: model, width: w)   // moving pulses along the wires
                 .offset(y: Self.photoY)
