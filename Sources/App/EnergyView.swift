@@ -51,6 +51,20 @@ enum EnergyColor {
     static let vehicle = Color(red: 0.9, green: 0.22, blue: 0.23)
     static let grid = Color(red: 142 / 255, green: 142 / 255, blue: 147 / 255)
     static let gridOut = Color(white: 0.42)
+    /// Row border and the eye filter's lines (Tesla app).
+    static let focus = Color(red: 58 / 255, green: 86 / 255, blue: 226 / 255)
+    static let muted = Color(white: 0.45)
+}
+
+/// How the graph is filtered: a tapped table row (its layer keeps colour and fill, the rest go grey lines)
+/// and the eye (every line blue, no fill).
+struct EnergyLook: Equatable {
+    var focus: String? = nil
+    var outline = false
+    func style(_ key: String, _ c: Color) -> (line: Color, fill: Bool) {
+        if let f = focus { return f == key ? (c, true) : (outline ? EnergyColor.focus : EnergyColor.muted, false) }
+        return outline ? (EnergyColor.focus, false) : (c, true)
+    }
 }
 
 struct EnergyPart: Identifiable {
@@ -58,6 +72,9 @@ struct EnergyPart: Identifiable {
     let color: Color
     let kwh: Double
     var glyph: FlowGlyph.Kind = .grid
+    /// Which graph layer this row is (defaults to the name).
+    var key: String? = nil
+    var layer: String { key ?? name }
     var id: String { name }
 }
 
@@ -82,6 +99,10 @@ struct EnergyView: View {
     @State private var forward = false
     /// Tap and hold on the graph: the time (or bar) being read.
     @State private var selection: Date?
+    /// Table-row filter and the eye (reset each time Energy opens).
+    @State private var look = EnergyLook()
+    @State private var folded = false
+    @State private var scrollY: CGFloat = 0
 
     init(store: EnergyStore, start: EnergyComponent = .all) {
         _store = ObservedObject(wrappedValue: store)
@@ -120,7 +141,8 @@ struct EnergyView: View {
                     header(t)
                         .padding(.horizontal, 20)
                     ZStack {
-                        EnergyChartView(store: store, period: period, comp: comp, range: range, swipe: step, selection: $selection)
+                        EnergyChartView(store: store, period: period, comp: comp, range: range, swipe: step, selection: $selection,
+                                        look: look, canHold: period != .day || scrollY < 2)
                             .id("\(periodRaw)|\(offset)")
                             .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
                                                     removal: .move(edge: forward ? .leading : .trailing)))
@@ -135,8 +157,30 @@ struct EnergyView: View {
                             if comp == .grid || comp == .all {
                                 Text(netLine(t)).font(.app(size: 14, weight: .semibold)).padding(.top, 16)
                             }
-                            Text("Energy Flow").font(.app(size: 14, weight: .semibold)).padding(.top, 22)
-                            flowTables(t)
+                            HStack(spacing: 18) {
+                                Text("Energy Flow").font(.app(size: 14, weight: .semibold))
+                                Spacer()
+                                Button { look.outline.toggle() } label: {
+                                    Image(systemName: look.outline ? "eye.slash" : "eye").font(.system(size: 15, weight: .medium))
+                                        .frame(width: 26, height: 26)
+                                }
+                                Button { withAnimation(.easeInOut(duration: 0.3)) { folded.toggle() } } label: {
+                                    Image(systemName: "chevron.up").font(.system(size: 14, weight: .medium))
+                                        .rotationEffect(.degrees(folded ? 180 : 0))
+                                        .frame(width: 26, height: 26)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.white)
+                            .padding(.top, 22)
+                            VStack(alignment: .leading, spacing: 0) {
+                                if !folded {
+                                    flowTables(t)
+                                        .transition(.move(edge: .top).combined(with: .opacity))
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .clipped()
                         }
                         if let msg = store.message {
                             Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
@@ -150,7 +194,8 @@ struct EnergyView: View {
                 }
             }
             .scrollIndicators(.hidden)
-            .pinnedTop { titleRow.padding(.horizontal, 20) }
+            .modifier(TrackScroll(y: $scrollY))
+            .pinnedTop(fade: selection == nil) { titleRow.padding(.horizontal, 20) }
             // Tesla app: content fades to black from just above the floating bar, solid from two-thirds down it.
             VStack(spacing: 0) {
                 LinearGradient(stops: [.init(color: TeslaDark.bg.opacity(0), location: 0),
@@ -166,6 +211,9 @@ struct EnergyView: View {
                 .padding(.bottom, 6)
         }
         .teslaPage(comp.pageTitle)
+        .onChange(of: compRaw) { _, _ in look.focus = nil }
+        .onChange(of: periodRaw) { _, _ in look.focus = nil }
+        .onChange(of: offset) { _, _ in look.focus = nil }
         .task(id: "\(periodRaw)|\(offset)") {
             // Saved days show at once; this only tops up today / missing days (at most once a minute).
             await store.refresh()
@@ -299,15 +347,15 @@ struct EnergyView: View {
                 EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.homeGrid, glyph: .home),
                 EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.carGrid, glyph: .car)])
             table("Exported From", arrow: "arrow.down", [
-                EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.exp, glyph: .solar)])
+                EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.exp, glyph: .solar, key: "Exported")])
         case .all:
             table("Supplied By", arrow: nil, [
-                EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.solar, glyph: .solar),
-                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.imp, glyph: .grid)])
+                EnergyPart(name: "Solar", color: EnergyColor.solar, kwh: t.solar, glyph: .solar, key: "solar"),
+                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.imp, glyph: .grid, key: "imp")])
             table("Used By", arrow: nil, [
-                EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.house, glyph: .home),
-                EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.car, glyph: .car),
-                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.exp, glyph: .grid)])
+                EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.house, glyph: .home, key: "home"),
+                EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.car, glyph: .car, key: "car"),
+                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.exp, glyph: .grid, key: "export")])
         }
     }
 
@@ -343,6 +391,14 @@ struct EnergyView: View {
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 44)
+                    .contentShape(Rectangle())
+                    .overlay {
+                        if look.focus == p.layer {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(EnergyColor.focus, lineWidth: 2)
+                        }
+                    }
+                    // Tap: only this layer keeps its colour on the graph; tap again to cancel.
+                    .onTapGesture { look.focus = look.focus == p.layer ? nil : p.layer }
                 }
             }
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(border, lineWidth: 1))
@@ -412,6 +468,9 @@ private struct EnergyChartView: View {
     let range: PeriodRange
     let swipe: (Int) -> Void
     @Binding var selection: Date?
+    var look = EnergyLook()
+    /// Day view: holding only works with the page at the top (the box would hide under the pinned row).
+    var canHold = true
 
     private let cal = Calendar.current
     private var isDay: Bool { period == .day }
@@ -543,7 +602,7 @@ private struct EnergyChartView: View {
                     ForEach(pts) { p in
                         let b = bounds(p, i)
                         AreaMark(x: .value("Time", p.date), yStart: .value("Lo", b.lo), yEnd: .value("Hi", b.hi), series: .value("Area", t.0))
-                            .foregroundStyle(fade(t.1, below: negative(i), scale))
+                            .foregroundStyle(fade(look.style(t.0, t.1).fill ? t.1 : .clear, below: negative(i), scale))
                             .interpolationMethod(.monotone)
                     }
                 }
@@ -554,23 +613,14 @@ private struct EnergyChartView: View {
                                       edge: { let b = bounds($0, i); return negative(i) ? b.lo : b.hi })) { run in
                         ForEach(run.points, id: \.0) { q in
                             LineMark(x: .value("Time", q.0), y: .value("Edge", q.1), series: .value("Line", "\(t.0)\(run.id)"))
-                                .foregroundStyle(t.1)
+                                .foregroundStyle(look.style(t.0, t.1).line)
                                 .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
                                 .interpolationMethod(.monotone)
                         }
                     }
                 }
             } else {
-                ForEach(pts) { p in
-                    ForEach(Array(parts(p).enumerated()), id: \.offset) { i, part in
-                        if let s = gapped(bounds(p, i), scale) {
-                            BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi), width: .ratio(0.6))
-                                .cornerRadius(1.5)
-                                .foregroundStyle(by: .value("Part", part.0))
-                                .opacity(dim(p))
-                        }
-                    }
-                }
+                barMarks(barSegments(pts, scale))
             }
             if let sel = selection, let hit = hitPoint(sel, pts) {
                 if isDay {
@@ -724,7 +774,7 @@ private struct EnergyChartView: View {
         let flick = DragGesture(minimumDistance: 18)
         return hold.exclusively(before: flick)
             .onChanged { v in
-                if case .first(let s) = v, case .second(true, let d?) = s {
+                if canHold, case .first(let s) = v, case .second(true, let d?) = s {
                     let x = d.location.x - (proxy.plotFrame.map { g[$0].minX } ?? 0)
                     if let raw = proxy.value(atX: x, as: Date.self), let hit = hitPoint(raw, points) {
                         if selection != hit.date { selection = hit.date }
@@ -793,19 +843,19 @@ private struct EnergyChartView: View {
         if isDay {
             ForEach(points) { p in
                 AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.house * p.k), series: .value("A", "home"))
-                    .foregroundStyle(fade(EnergyColor.home, below: false, scale)).interpolationMethod(.monotone)
+                    .foregroundStyle(fade(look.style("home", EnergyColor.home).fill ? EnergyColor.home : .clear, below: false, scale)).interpolationMethod(.monotone)
             }
             ForEach(points) { p in
                 AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.flow.house * p.k), yEnd: .value("Hi", (p.flow.house + p.flow.car) * p.k), series: .value("A", "car"))
-                    .foregroundStyle(fade(EnergyColor.vehicle, below: false, scale)).interpolationMethod(.monotone)
+                    .foregroundStyle(fade(look.style("car", EnergyColor.vehicle).fill ? EnergyColor.vehicle : .clear, below: false, scale)).interpolationMethod(.monotone)
             }
             ForEach(points) { p in
                 AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.solar * p.k), series: .value("A", "solar"))
-                    .foregroundStyle(fade(EnergyColor.solar, below: false, scale, strong: 0.45, weak: 0.08)).interpolationMethod(.monotone)
+                    .foregroundStyle(fade(look.style("solar", EnergyColor.solar).fill ? EnergyColor.solar : .clear, below: false, scale, strong: 0.45, weak: 0.08)).interpolationMethod(.monotone)
             }
             ForEach(points) { p in
                 AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.flow.exp * p.k), series: .value("A", "export"))
-                    .foregroundStyle(fade(EnergyColor.grid, below: true, scale)).interpolationMethod(.monotone)
+                    .foregroundStyle(fade(look.style("export", EnergyColor.grid).fill ? EnergyColor.grid : .clear, below: true, scale)).interpolationMethod(.monotone)
             }
             ForEach(allLines(points)) { line in
                 ForEach(line.points, id: \.0) { q in
@@ -816,26 +866,67 @@ private struct EnergyChartView: View {
                 }
             }
         } else {
-            ForEach(points) { p in
-                ForEach(allSegments(p.flow)) { seg in
-                    if let s = gapped((seg.lo, seg.hi), scale) {
-                        BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
-                            .cornerRadius(1.5).foregroundStyle(seg.color).position(by: .value("Side", seg.side)).opacity(dim(p))
-                    }
-                }
-            }
+            barMarks(barSegments(points, scale))
         }
     }
 
-    struct AllSegment: Identifiable { let id: Int; let lo: Double; let hi: Double; let color: Color; let side: String }
+    /// One coloured piece of a bar, placed by hand (so it can also be drawn as an outline).
+    struct BarSeg: Identifiable {
+        let id: String
+        let x0: Date, x1: Date
+        let lo: Double, hi: Double
+        let color: Color
+        let fill: Bool
+        let alpha: Double
+    }
 
-    /// All view bars: home + car (used) beside solar + grid (supplied), export below zero.
-    private func allSegments(_ f: EnergyFlow) -> [AllSegment] {
-        [AllSegment(id: 0, lo: 0, hi: f.house, color: EnergyColor.home.opacity(0.9), side: "used"),
-         AllSegment(id: 1, lo: f.house, hi: f.house + f.car, color: EnergyColor.vehicle.opacity(0.9), side: "used"),
-         AllSegment(id: 2, lo: 0, hi: f.solar, color: EnergyColor.solar.opacity(0.9), side: "supplied"),
-         AllSegment(id: 3, lo: f.solar, hi: f.solar + f.imp, color: EnergyColor.grid.opacity(0.9), side: "supplied"),
-         AllSegment(id: 4, lo: -f.exp, hi: 0, color: EnergyColor.grid.opacity(0.5), side: "supplied")]
+    /// Bars for Week / Month / Year: each view's parts stacked; All puts used (home + car) beside supplied
+    /// (solar + grid), export below zero.
+    private func barSegments(_ pts: [FlowPoint], _ scale: EnergyScale) -> [BarSeg] {
+        var out: [BarSeg] = []
+        for p in pts {
+            let next = cal.date(byAdding: unit, value: 1, to: p.date) ?? p.date.addingTimeInterval(86400)
+            let len = next.timeIntervalSince(p.date)
+            func at(_ r: Double) -> Date { p.date.addingTimeInterval(len * r) }
+            let a = dim(p)
+            func add(_ key: String, _ c: Color, _ b: (lo: Double, hi: Double), _ from: Double, _ to: Double, _ shade: Double = 1) {
+                guard let g = gapped(b, scale) else { return }
+                let st = look.style(key, c)
+                out.append(BarSeg(id: "\(p.id)\(key)", x0: at(from), x1: at(to), lo: g.lo, hi: g.hi,
+                                  color: st.fill ? c.opacity(shade) : st.line, fill: st.fill, alpha: a))
+            }
+            if comp == .all {
+                let f = p.flow
+                add("home", EnergyColor.home, (0, f.house), 0.14, 0.49, 0.9)
+                add("car", EnergyColor.vehicle, (f.house, f.house + f.car), 0.14, 0.49, 0.9)
+                add("solar", EnergyColor.solar, (0, f.solar), 0.51, 0.86, 0.9)
+                add("imp", EnergyColor.grid, (f.solar, f.solar + f.imp), 0.51, 0.86, 0.9)
+                add("export", EnergyColor.grid, (-f.exp, 0), 0.51, 0.86, 0.5)
+            } else {
+                for (i, part) in parts(p).enumerated() { add(part.0, part.1, bounds(p, i), 0.2, 0.8) }
+            }
+        }
+        return out
+    }
+
+    /// Filled bars, or a 1 pt outline when the layer is filtered out.
+    @ChartContentBuilder private func barMarks(_ segs: [BarSeg]) -> some ChartContent {
+        ForEach(segs.filter(\.fill)) { s in
+            BarMark(xStart: .value("A", s.x0), xEnd: .value("B", s.x1), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
+                .cornerRadius(1.5)
+                .foregroundStyle(s.color)
+                .opacity(s.alpha)
+        }
+        ForEach(segs.filter { !$0.fill }) { s in
+            RuleMark(xStart: .value("A", s.x0), xEnd: .value("B", s.x1), y: .value("Hi", s.hi))
+                .foregroundStyle(s.color).lineStyle(StrokeStyle(lineWidth: 1)).opacity(s.alpha)
+            RuleMark(xStart: .value("A", s.x0), xEnd: .value("B", s.x1), y: .value("Lo", s.lo))
+                .foregroundStyle(s.color).lineStyle(StrokeStyle(lineWidth: 1)).opacity(s.alpha)
+            RuleMark(x: .value("A", s.x0), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
+                .foregroundStyle(s.color).lineStyle(StrokeStyle(lineWidth: 1)).opacity(s.alpha)
+            RuleMark(x: .value("B", s.x1), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
+                .foregroundStyle(s.color).lineStyle(StrokeStyle(lineWidth: 1)).opacity(s.alpha)
+        }
     }
 
     struct EdgeLine: Identifiable { let key: String; let color: Color; let points: [(Date, Double)]; var id: String { key } }
@@ -846,10 +937,10 @@ private struct EnergyChartView: View {
         func add(_ name: String, _ c: Color, has: @escaping (FlowPoint) -> Bool, edge: @escaping (FlowPoint) -> Double) {
             for r in Self.runs(pts, has: has, edge: edge) { out.append(EdgeLine(key: "\(name)\(r.id)", color: c, points: r.points)) }
         }
-        add("car", EnergyColor.vehicle, has: { $0.flow.car > 0.001 }, edge: { ($0.flow.house + $0.flow.car) * $0.k })
-        add("solar", EnergyColor.solar, has: { $0.flow.solar > 0.001 }, edge: { $0.flow.solar * $0.k })
-        add("export", EnergyColor.grid, has: { $0.flow.exp > 0.001 }, edge: { -$0.flow.exp * $0.k })
-        add("home", EnergyColor.home, has: { $0.flow.house > 0.001 }, edge: { $0.flow.house * $0.k })
+        add("car", look.style("car", EnergyColor.vehicle).line, has: { $0.flow.car > 0.001 }, edge: { ($0.flow.house + $0.flow.car) * $0.k })
+        add("solar", look.style("solar", EnergyColor.solar).line, has: { $0.flow.solar > 0.001 }, edge: { $0.flow.solar * $0.k })
+        add("export", look.style("export", EnergyColor.grid).line, has: { $0.flow.exp > 0.001 }, edge: { -$0.flow.exp * $0.k })
+        add("home", look.style("home", EnergyColor.home).line, has: { $0.flow.house > 0.001 }, edge: { $0.flow.house * $0.k })
         return out
     }
 
