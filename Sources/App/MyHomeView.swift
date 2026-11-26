@@ -348,14 +348,17 @@ struct MyHomeView: View {
 
     // MARK: Picture with live labels
 
+    /// Where the house photo (with its figures and flow streaks) sits under the title; the rows don't move.
+    static let photoY: CGFloat = -5
+
     private func backdrop(width w: CGFloat, height: CGFloat) -> some View {
         let bg = TeslaDark.bg
         return ZStack(alignment: .topLeading) {
             bg
             photo(width: w)
-                .offset(y: 30)
+                .offset(y: Self.photoY)
             PowerFlowOverlay(model: model, width: w)   // moving pulses along the wires
-                .offset(y: 30)
+                .offset(y: Self.photoY)
             // Fade under the title (0–250 pt), then fade the bottom into the rows.
             LinearGradient(stops: [
                 .init(color: bg, location: 0),
@@ -411,7 +414,7 @@ struct MyHomeView: View {
     }
 
     private func labels(width w: CGFloat) -> some View {
-        let labelY = 30 + w * 0.2812
+        let labelY = Self.photoY + w * 0.2812
         return ZStack(alignment: .topLeading) {
             Color.clear
             anchored(x: w * 0.2901, y: labelY, bottom: true) {
@@ -441,7 +444,7 @@ struct MyHomeView: View {
                 .buttonStyle(.plain)
                 .padding(.vertical, -8)
             }
-            anchored(x: w * 0.7947, y: 30 + w * 1.20, bottom: false) {
+            anchored(x: w * 0.7947, y: Self.photoY + w * 1.20, bottom: false) {
                 Button { path.append(.energyView(.grid)) } label: {
                     FlowLabel(title: "GRID", value: Text("\(MyHomeModel.kw(model.gridW)) kW"))
                         .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())

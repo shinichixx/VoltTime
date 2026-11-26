@@ -872,7 +872,7 @@ private struct EnergyChartView: View {
 }
 
 /// Clips left, right and bottom only: the reading box can rise above the graph into the header.
-private struct OpenTopClip: Shape {
+struct OpenTopClip: Shape {
     func path(in r: CGRect) -> Path { Path(CGRect(x: r.minX, y: r.minY - 200, width: r.width, height: r.height + 200)) }
 }
 
