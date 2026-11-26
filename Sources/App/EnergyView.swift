@@ -609,7 +609,7 @@ private struct EnergyChartView: View {
                 // Edge lines from the top layer down, so a lower layer's line wins where they meet
                 // (a 0 kW layer never paints over the one beneath it).
                 ForEach(Array(template.enumerated()).reversed(), id: \.offset) { i, t in
-                    ForEach(Self.runs(pts, has: { abs(parts($0)[i].2) > 0.001 },
+                    ForEach(Self.runs(pts, has: { (!look.outline || t.0 == look.focus) && abs(parts($0)[i].2) > 0.001 },
                                       edge: { let b = bounds($0, i); return negative(i) ? b.lo : b.hi })) { run in
                         ForEach(run.points, id: \.0) { q in
                             LineMark(x: .value("Time", q.0), y: .value("Edge", q.1), series: .value("Line", "\(t.0)\(run.id)"))
@@ -621,6 +621,17 @@ private struct EnergyChartView: View {
                 }
             } else {
                 barMarks(barSegments(pts, scale))
+            }
+            if isDay && look.outline {
+                // Eye: one blue line along the top of what's used (and one along the bottom of export).
+                ForEach(totalLines(pts)) { line in
+                    ForEach(line.points, id: \.0) { q in
+                        LineMark(x: .value("Time", q.0), y: .value("Edge", q.1), series: .value("T", line.key))
+                            .foregroundStyle(EnergyColor.focus)
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                            .interpolationMethod(.monotone)
+                    }
+                }
             }
             if let sel = selection, let hit = hitPoint(sel, pts) {
                 if isDay {
@@ -890,6 +901,7 @@ private struct EnergyChartView: View {
             func at(_ r: Double) -> Date { p.date.addingTimeInterval(len * r) }
             let a = dim(p)
             func add(_ key: String, _ c: Color, _ b: (lo: Double, hi: Double), _ from: Double, _ to: Double, _ shade: Double = 1) {
+                if look.outline && look.focus != key { return }   // eye: the total outline stands in for the rest
                 guard let g = gapped(b, scale) else { return }
                 let st = look.style(key, c)
                 out.append(BarSeg(id: "\(p.id)\(key)", x0: at(from), x1: at(to), lo: g.lo, hi: g.hi,
@@ -904,6 +916,17 @@ private struct EnergyChartView: View {
                 add("export", EnergyColor.grid, (-f.exp, 0), 0.51, 0.86, 0.5)
             } else {
                 for (i, part) in parts(p).enumerated() { add(part.0, part.1, bounds(p, i), 0.2, 0.8) }
+            }
+            if look.outline {
+                // Eye: one outline per bar for what's used, and one for export below 0.
+                let (u0, u1) = comp == .all ? (0.14, 0.49) : (0.2, 0.8)
+                let (e0, e1) = comp == .all ? (0.51, 0.86) : (0.2, 0.8)
+                if let g = gapped((0, usedTop(p)), scale) {
+                    out.append(BarSeg(id: "\(p.id)top", x0: at(u0), x1: at(u1), lo: g.lo, hi: g.hi, color: EnergyColor.focus, fill: false, alpha: a))
+                }
+                if let g = gapped((belowZero(p), 0), scale) {
+                    out.append(BarSeg(id: "\(p.id)bottom", x0: at(e0), x1: at(e1), lo: g.lo, hi: g.hi, color: EnergyColor.focus, fill: false, alpha: a))
+                }
             }
         }
         return out
@@ -929,12 +952,31 @@ private struct EnergyChartView: View {
         }
     }
 
+    /// Eye: what's used at each moment (All: home + car; other views: their parts stacked above 0), and export below 0.
+    private func usedTop(_ p: FlowPoint) -> Double {
+        if comp == .all { return (p.flow.house + p.flow.car) * p.k }
+        return parts(p).map(\.2).filter { $0 > 0 }.reduce(0, +)
+    }
+    private func belowZero(_ p: FlowPoint) -> Double {
+        if comp == .all { return -p.flow.exp * p.k }
+        return parts(p).map(\.2).filter { $0 < 0 }.reduce(0, +)
+    }
+
+    private func totalLines(_ pts: [FlowPoint]) -> [EdgeLine] {
+        Self.runs(pts, has: { usedTop($0) > 0.001 }, edge: { usedTop($0) }).map {
+            EdgeLine(key: "top\($0.id)", color: EnergyColor.focus, points: $0.points)
+        } + Self.runs(pts, has: { belowZero($0) < -0.001 }, edge: { belowZero($0) }).map {
+            EdgeLine(key: "bottom\($0.id)", color: EnergyColor.focus, points: $0.points)
+        }
+    }
+
     struct EdgeLine: Identifiable { let key: String; let color: Color; let points: [(Date, Double)]; var id: String { key } }
 
     /// All view edge lines (drawn top layer first): car, solar, export, then home on top.
     private func allLines(_ pts: [FlowPoint]) -> [EdgeLine] {
         var out: [EdgeLine] = []
         func add(_ name: String, _ c: Color, has: @escaping (FlowPoint) -> Bool, edge: @escaping (FlowPoint) -> Double) {
+            if look.outline && look.focus != name { return }   // eye: only the total lines (and a tapped row's own line)
             for r in Self.runs(pts, has: has, edge: edge) { out.append(EdgeLine(key: "\(name)\(r.id)", color: c, points: r.points)) }
         }
         add("car", look.style("car", EnergyColor.vehicle).line, has: { $0.flow.car > 0.001 }, edge: { ($0.flow.house + $0.flow.car) * $0.k })
