@@ -521,6 +521,12 @@ private struct EnergyChartView: View {
     private func chart(_ pts: [FlowPoint], _ scale: EnergyScale) -> some View {
         let template = parts(FlowPoint(date: Date(), flow: EnergyFlow(), k: 1))
         return Chart {
+            // Longer periods: the held bar's line sits behind the bars (Tesla app).
+            if !isDay, let sel = selection, let hit = hitPoint(sel, pts) {
+                RuleMark(x: .value("Selected", hit.date, unit: unit))
+                    .foregroundStyle(Color.white.opacity(0.85))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+            }
             if comp == .all {
                 allMarks(pts, scale)
             } else if isDay {
@@ -548,10 +554,12 @@ private struct EnergyChartView: View {
                 }
             } else {
                 ForEach(pts) { p in
-                    ForEach(parts(p), id: \.0) { part in
-                        BarMark(x: .value("Date", p.date, unit: unit), y: .value("kWh", part.2), width: .ratio(0.6))
-                            .foregroundStyle(by: .value("Part", part.0))
-                            .opacity(dim(p))
+                    ForEach(Array(parts(p).enumerated()), id: \.offset) { i, part in
+                        if let s = gapped(bounds(p, i), scale) {
+                            BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi), width: .ratio(0.6))
+                                .foregroundStyle(by: .value("Part", part.0))
+                                .opacity(dim(p))
+                        }
                     }
                 }
             }
@@ -564,11 +572,6 @@ private struct EnergyChartView: View {
                                     overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
                             readingBox(hit)
                         }
-                } else {
-                    // Longer periods: no box, the reading shows in the header (Tesla app); a line through the bar.
-                    RuleMark(x: .value("Selected", hit.date, unit: unit))
-                        .foregroundStyle(Color.white.opacity(0.85))
-                        .lineStyle(StrokeStyle(lineWidth: 1))
                 }
                 if isDay {
                     ForEach(dots(hit), id: \.0) { d in
@@ -661,7 +664,12 @@ private struct EnergyChartView: View {
                 var p = Path()
                 p.move(to: CGPoint(x: plot.minX, y: y))
                 p.addLine(to: CGPoint(x: plot.maxX, y: y))
-                ctx.stroke(p, with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
+                if abs(v) < 0.0001 && scale.domain.lowerBound < 0 {
+                    // The 0 line between import and export: dotted, in the gap between the bars (Tesla app).
+                    ctx.stroke(p, with: .color(Color.white.opacity(0.25)), style: StrokeStyle(lineWidth: 0.7, dash: [5, 4]))
+                } else {
+                    ctx.stroke(p, with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
+                }
             } else if !isBottom {
                 let text = ctx.resolve(Text(scale.label(v, top: isTop, unit: unitName))
                     .font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
@@ -800,16 +808,17 @@ private struct EnergyChartView: View {
             }
         } else {
             ForEach(points) { p in
-                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.house))
-                    .foregroundStyle(EnergyColor.home.opacity(0.9)).position(by: .value("Side", "used")).opacity(dim(p))
-                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", p.flow.house), yEnd: .value("Hi", p.flow.house + p.flow.car))
-                    .foregroundStyle(EnergyColor.vehicle.opacity(0.9)).position(by: .value("Side", "used")).opacity(dim(p))
-                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.solar))
-                    .foregroundStyle(EnergyColor.solar.opacity(0.9)).position(by: .value("Side", "supplied")).opacity(dim(p))
-                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", p.flow.solar), yEnd: .value("Hi", p.flow.solar + p.flow.imp))
-                    .foregroundStyle(EnergyColor.grid.opacity(0.9)).position(by: .value("Side", "supplied")).opacity(dim(p))
-                BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.flow.exp))
-                    .foregroundStyle(EnergyColor.grid.opacity(0.5)).position(by: .value("Side", "supplied")).opacity(dim(p))
+                let f = p.flow
+                ForEach(Array([(f.house > 0 ? (0.0, f.house) : (0.0, 0.0), EnergyColor.home.opacity(0.9), "used"),
+                               ((f.house, f.house + f.car), EnergyColor.vehicle.opacity(0.9), "used"),
+                               ((0.0, f.solar), EnergyColor.solar.opacity(0.9), "supplied"),
+                               ((f.solar, f.solar + f.imp), EnergyColor.grid.opacity(0.9), "supplied"),
+                               ((-f.exp, 0.0), EnergyColor.grid.opacity(0.5), "supplied")].enumerated()), id: \.offset) { _, seg in
+                    if let s = gapped((seg.0.0, seg.0.1), scale) {
+                        BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
+                            .foregroundStyle(seg.1).position(by: .value("Side", seg.2)).opacity(dim(p))
+                    }
+                }
             }
         }
     }
@@ -830,6 +839,18 @@ private struct EnergyChartView: View {
     }
 
     // MARK: Reading the graph (tap and hold)
+
+    /// A bar segment pulled in (Tesla app): a thin gap under each colour stacked on another, and a gap either side
+    /// of the 0 line. A tiny segment still shows as a sliver.
+    private func gapped(_ b: (lo: Double, hi: Double), _ scale: EnergyScale) -> (lo: Double, hi: Double)? {
+        guard b.hi - b.lo > 0.0001 else { return nil }
+        let pt = (scale.domain.upperBound - scale.domain.lowerBound) / 248   // one point in kWh
+        var lo = b.lo, hi = b.hi
+        if hi <= 0 { hi -= 2 * pt }                       // below zero: gap at the top
+        else { lo += (lo <= 0.0001 ? 2 : 1.5) * pt }      // above zero: gap at 0, or under a colour beneath
+        if hi - lo < pt { if b.hi <= 0 { lo = hi - pt } else { hi = lo + pt } }
+        return (lo, hi)
+    }
 
     /// While a bar is read, the others dim.
     private func dim(_ p: FlowPoint) -> Double {
@@ -929,8 +950,8 @@ struct EnergyReadingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: large ? 6 : 7) {
             HStack(spacing: 4) {
-                if let a = group.arrow { Image(systemName: a).font(.system(size: large ? 11 : 10, weight: .medium)) }
-                Text(group.summary).font(.app(size: large ? 13 : 12))
+                if let a = group.arrow { Image(systemName: a).font(.system(size: 10, weight: .medium)) }
+                Text(group.summary).font(.app(size: large ? 11.5 : 12))
             }
             .foregroundStyle(TeslaDark.rowLabel)
             HStack(alignment: .bottom, spacing: 14) {
