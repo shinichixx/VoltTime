@@ -195,10 +195,10 @@ struct MenuPage: View {
     private var versionPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("App Version").font(.app(size: 15.5, weight: .semibold)).foregroundStyle(.white)
+                Text("App Version").font(.app(size: 12.5, weight: .semibold)).foregroundStyle(.white)
                 Spacer()
                 Text(CarModel.versionLine.replacingOccurrences(of: "Version ", with: ""))
-                    .font(.app(size: 15.5, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                    .font(.app(size: 12.5, weight: .semibold)).foregroundStyle(TeslaDark.dim)
             }
             if !CarModel.releaseLine.isEmpty {
                 Text(CarModel.releaseLine).font(.app(size: 12.5)).foregroundStyle(TeslaDark.rowLabel)

@@ -142,7 +142,7 @@ struct EnergyView: View {
                         .padding(.horizontal, 20)
                     ZStack {
                         EnergyChartView(store: store, period: period, comp: comp, range: range, swipe: step, selection: $selection,
-                                        look: look, canHold: period != .day || scrollY < 2)
+                                        look: look, canHold: scrollY < 2)
                             .id("\(periodRaw)|\(offset)")
                             .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
                                                     removal: .move(edge: forward ? .leading : .trailing)))
@@ -160,7 +160,7 @@ struct EnergyView: View {
                             HStack(spacing: 18) {
                                 Text("Energy Flow").font(.app(size: 14, weight: .semibold))
                                 Spacer()
-                                Button { look.outline.toggle() } label: {
+                                Button { look.outline.toggle(); if !look.outline { look.focus = nil } } label: {
                                     Image(systemName: look.outline ? "eye.slash" : "eye").font(.system(size: 15, weight: .medium))
                                         .frame(width: 26, height: 26)
                                 }

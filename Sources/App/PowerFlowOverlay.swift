@@ -31,7 +31,7 @@ struct PowerFlowOverlay: View {
     static let yellow = Color(red: 1.0, green: 0.84, blue: 0.16)
     private static let pipe = Color(red: 36 / 255, green: 37 / 255, blue: 40 / 255)
     private static let pipeEdge = Color(red: 52 / 255, green: 53 / 255, blue: 57 / 255)
-    private static let cable = Color(white: 0.74)
+    private static let cable = Color(white: 0.05)   // plain black cable; the flow is drawn green on top
 
     /// One streak route: wire pieces joined end to end; the hop between pieces (inside the box) isn't drawn.
     private struct Route {
@@ -128,12 +128,11 @@ struct PowerFlowOverlay: View {
             out.append(Route(pieces: solarIn, watts: s, color: Self.green))
         }
         if g > th {
-            out.append(Route(pieces: houseGrid > th ? [screen(Self.gridToBox), screen(Self.gridLane)] : [screen(Self.gridToBox)],
+            out.append(Route(pieces: [screen(Self.gridToBox), screen(Self.gridLane)],   // always on through the box into the house
                              watts: houseGrid > th ? houseGrid : g, color: Self.yellow))
         }
         if c > th {
-            let carSolar = min(c, max(s - houseSolar, 0))
-            out.append(Route(pieces: [screen(Self.carCable)], watts: c, color: carSolar >= c / 2 ? Self.green : Self.yellow))
+            out.append(Route(pieces: [screen(Self.carCable)], watts: c, color: Self.green))
         }
         return out
     }

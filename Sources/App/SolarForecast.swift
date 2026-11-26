@@ -198,10 +198,6 @@ struct ForecastVsActualView: View {
                     .opacity(picked == nil ? 1 : 0.25)
                     .animation(.easeOut(duration: 0.15), value: picked == nil)
                 }
-                Text(footnote)
-                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
-                    .lineSpacing(3)
-                    .padding(.top, 18).padding(.horizontal, 20)
             }
             .padding(.bottom, 24)
         }
@@ -293,16 +289,6 @@ struct ForecastVsActualView: View {
                 Text("No forecast saved for these days yet").font(.app(size: 14, weight: .semibold))
             }
         }
-    }
-
-    private var footnote: String {
-        guard let since = log.solcastSince else {
-            return "Forecast: the solar forecast for the day, saved each morning.\nActual: what the inverter produced."
-        }
-        let day = since.formatted(.dateTime.day().month(.abbreviated))
-        let older = (log.firstDay.map { $0 < since } ?? false) ? " Forecast.Solar before \(day)." : ""
-        return "Forecast: Solcast (2 roof planes), first read after sunrise each day." + older
-            + "\nLatest: Solcast updates 5 times a day.\nActual: what the inverter produced."
     }
 
     // MARK: Data
@@ -668,7 +654,14 @@ struct ForecastVsActualView: View {
                 .font(.app(size: 10, weight: .medium)).kerning(0.6).foregroundStyle(TeslaDark.rowLabel)
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    HStack(spacing: 8) {
+                        Text("Forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                        if log.forecast(day) != nil, log.isSolcast(day) {
+                            Text("Solcast").font(.app(size: 10, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(Capsule().fill(Color(white: 0.22)))
+                        }
+                    }
                     Text(f.map { "\(k($0)) kWh" } ?? "—").font(.app(size: 28, weight: .semibold))
                     if log.forecast(day) != nil {
                         Text(sourceLine(day)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
@@ -704,11 +697,14 @@ struct ForecastVsActualView: View {
             if cal.isDateInToday(day), SolarSensors.current.isSolcast, let latest = model.forecastToday {
                 Rectangle().fill(Color(white: 0.22)).frame(height: 0.7).padding(.top, 14)
                 HStack(alignment: .center) {
-                    Text("Latest from Solcast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Solcast latest forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                        Text(latestLine).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+                    }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(k(latest)) kWh").font(.app(size: 13, weight: .semibold))
-                        Text(latestLine).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+                        Text("\(k(latest)) kWh").font(.app(size: 15, weight: .semibold))
+                        Text("for today").font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
                     }
                 }
                 .padding(.top, 10)
@@ -720,14 +716,14 @@ struct ForecastVsActualView: View {
 
     private func sourceLine(_ day: Date) -> String {
         guard log.isSolcast(day) else { return "Forecast.Solar" }
-        return log.readTime(day).map { "Solcast · first read \(hm($0))" } ?? "Solcast"
+        return log.readTime(day).map { "Set \(hm($0)) by Solcast" } ?? "Solcast"
     }
 
     private var latestLine: String {
         var parts: [String] = []
-        if let r = model.forecastReadAt { parts.append("read \(hm(r))") }
+        if let r = model.forecastReadAt { parts.append("Read \(hm(r))") }
         if let n = model.forecastNextRead {
-            parts.append(cal.isDateInToday(n) ? "next ~\(hm(n))" : "next tomorrow ~\(hm(n))")
+            parts.append("next \(hm(n))")
         }
         return parts.joined(separator: " · ")
     }
