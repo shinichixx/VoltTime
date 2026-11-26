@@ -44,14 +44,14 @@ struct SystemTile: View {
 extension View {
     /// Dark page with our own slim top bar (Tesla app): thin grey back arrow, small centred title, optional
     /// item on the right. Replaces the system bar, which is much taller on iOS 26.
-    func teslaPage(_ title: String, black: Bool = false, trailing: AnyView? = nil) -> some View {
+    func teslaPage(_ title: String, black: Bool = false, lowered: Bool = false, trailing: AnyView? = nil) -> some View {
         let bg = black ? TSurface.page : TeslaDark.bg
         return self
             .background(bg.ignoresSafeArea())
             .navigationTitle(title)
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                TeslaTopBar(title: title, trailing: trailing, background: bg)
+                TeslaTopBar(title: title, trailing: trailing, background: bg, lowered: lowered)
             }
     }
 
@@ -72,6 +72,7 @@ struct TeslaTopBar: View {
     let title: String
     let trailing: AnyView?
     let background: Color
+    var lowered = false   // Menu and My Products: title 22 pt lower, back arrow 11 pt further in (Tesla app)
 
     var body: some View {
         ZStack {
@@ -79,12 +80,13 @@ struct TeslaTopBar: View {
                 .lineLimit(1)
                 .padding(.horizontal, 80)
             HStack(spacing: 0) {
-                PlainBackButton().padding(.leading, 14)
+                PlainBackButton().padding(.leading, lowered ? 25 : 14)
                 Spacer()
                 if let trailing { trailing.padding(.trailing, 18) }
             }
         }
         .frame(height: 32)
+        .padding(.top, lowered ? 22 : 0)
         .frame(maxWidth: .infinity)
         .background(background.ignoresSafeArea(edges: .top))
     }

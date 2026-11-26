@@ -78,19 +78,21 @@ struct MenuRow<Icon: View>: View {
     let title: String
     var subtitle: String? = nil
     var dot: Color? = nil
+    var compact = false   // the Menu page: Tesla app sizes (15.5 pt title, 12 pt line, 64 pt row, smaller icon)
     @ViewBuilder let icon: () -> Icon
 
     var body: some View {
         HStack(spacing: 0) {
             icon()
                 .frame(width: 26, height: 26)
+                .scaleEffect(compact ? 0.77 : 1, anchor: .leading)
                 .frame(width: 49, alignment: .leading)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.app(size: 17, weight: .semibold)).foregroundStyle(.white)
+                Text(title).font(.app(size: compact ? 15.5 : 17, weight: .semibold)).foregroundStyle(.white)
                 if let subtitle {
                     HStack(spacing: 6) {
                         if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
-                        Text(subtitle).font(.app(size: 12.5, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
+                        Text(subtitle).font(.app(size: compact ? 12 : 12.5, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
                             .lineLimit(1)
                     }
                 }
@@ -100,7 +102,7 @@ struct MenuRow<Icon: View>: View {
         }
         .padding(.leading, 37)
         .padding(.trailing, 33)
-        .frame(height: 70)
+        .frame(height: compact ? 64 : 70)
         .contentShape(Rectangle())
     }
 }
@@ -132,32 +134,32 @@ struct MenuPage: View {
             VStack(spacing: 0) {
                 NavigationLink { ProfilePage() } label: { profileHeader }
                     .buttonStyle(.plain)
-                    .padding(.top, 14)
+                    .padding(.top, 32)
                     .padding(.bottom, 16)
 
                 NavigationLink { MyProductsPage(car: car, select: select) } label: {
-                    MenuRow(title: "My Products") { MenuSymbol(name: "car.fill") }
+                    MenuRow(title: "My Products", compact: true) { MenuSymbol(name: "car.fill") }
                 }.buttonStyle(.plain)
                 NavigationLink { ConnectionPage(car: car, home: home) } label: {
-                    MenuRow(title: "Connection", subtitle: connectionLine) { ConnectionGlyph(size: 26, color: TeslaDark.rowIcon) }
+                    MenuRow(title: "Connection", subtitle: connectionLine, compact: true) { ConnectionGlyph(size: 26, color: TeslaDark.rowIcon) }
                 }.buttonStyle(.plain)
                 NavigationLink { QuickControlsPage(car: car) } label: {
                     MenuRow(title: "Quick Controls",
-                            subtitle: car.controls.prefix(QuickControlsPage.slots).map(\.short).joined(separator: " · ")) {
+                            subtitle: car.controls.prefix(QuickControlsPage.slots).map(\.short).joined(separator: " · "), compact: true) {
                         MenuSymbol(name: "square.grid.3x2.fill", size: 18)
                     }
                 }.buttonStyle(.plain)
                 NavigationLink { AutogatePage(car: car) } label: {
-                    MenuRow(title: "Autogate", subtitle: gateAsk ? "Asks before sending" : "Sends straight away · asks when away") {
+                    MenuRow(title: "Autogate", subtitle: gateAsk ? "Asks before sending" : "Sends straight away · asks when away", compact: true) {
                         GateGlyph(size: 22, color: TeslaDark.rowIcon)
                     }
                 }.buttonStyle(.plain)
                 NavigationLink { NotificationsPage() } label: {
-                    MenuRow(title: "Notifications", subtitle: alertsLine) { MenuSymbol(name: "bell.fill") }
+                    MenuRow(title: "Notifications", subtitle: alertsLine, compact: true) { MenuSymbol(name: "bell.fill") }
                 }.buttonStyle(.plain)
                 NavigationLink { BackupPage(energy: energy, home: home) } label: {
                     MenuRow(title: "Backup", subtitle: (backup.lastDate == nil ? "Not saved yet" : backup.lastText) + " · iCloud Drive",
-                            dot: backup.summaryColor) {
+                            dot: backup.summaryColor, compact: true) {
                         MenuSymbol(name: "arrow.triangle.2.circlepath", size: 19)
                     }
                 }.buttonStyle(.plain)
@@ -165,7 +167,7 @@ struct MenuPage: View {
                 versionPanel.padding(.top, 34)
             }
         }
-        .teslaPage("Menu", black: true)
+        .teslaPage("Menu", black: true, lowered: true)
         .onAppear { profile.reload() }
     }
 
@@ -175,12 +177,12 @@ struct MenuPage: View {
                 .padding(.trailing, 20)
             VStack(alignment: .leading, spacing: 5) {
                 Text(profile.name.isEmpty ? "Add your name" : profile.name)
-                    .font(.app(size: 17, weight: .semibold))
+                    .font(.app(size: 16, weight: .semibold))
                     .foregroundStyle(profile.name.isEmpty ? TeslaDark.rowLabel : .white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 if !profile.email.isEmpty {
-                    Text(profile.email).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+                    Text(profile.email).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
@@ -312,9 +314,9 @@ struct MyProductsPage: View {
                     product(image: "product_home.png", title: "IM2 Kuantan", subtitle: "Home")
                 }.buttonStyle(.plain)
             }
-            .padding(.top, 8)
+            .padding(.top, 1)
         }
-        .teslaPage("My Products", black: true)
+        .teslaPage("My Products", black: true, lowered: true)
     }
 
     private func product(image: String, title: String, subtitle: String) -> some View {
@@ -322,21 +324,20 @@ struct MyProductsPage: View {
             Group {
                 if let img = UIImage(named: image) { Image(uiImage: img).resizable().scaledToFit() }
             }
-            .frame(width: 118, height: 62)
-            .frame(width: 140, alignment: .center)
+            .frame(width: 106, height: 56)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.app(size: 16, weight: .semibold)).foregroundStyle(.white)
+                Text(title).font(.app(size: 12.5, weight: .semibold)).foregroundStyle(.white)
                 if !subtitle.isEmpty {
-                    Text(subtitle).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+                    Text(subtitle).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
                 }
             }
-            .padding(.leading, 26)
+            .padding(.leading, 30)
             Spacer(minLength: 8)
             Image(systemName: "chevron.right").font(.system(size: 14, weight: .regular)).foregroundStyle(TeslaDark.dim)
         }
-        .padding(.leading, 26)
+        .padding(.leading, 34)
         .padding(.trailing, 33)
-        .frame(height: 92)
+        .frame(height: 91)
         .contentShape(Rectangle())
     }
 }

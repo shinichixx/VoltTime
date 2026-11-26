@@ -135,6 +135,12 @@ struct ContentView: View {
                     withTransaction(instant) {
                         pageID = i
                         page = i
+                        // The pages report their place only when they move, and a jump behind the menu
+                        // never does, so set the two photos by hand (car or house fully shown).
+                        fx.carX = i == 0 ? 0 : 10_000
+                        fx.homeX = i == 1 ? 0 : nil
+                        fx.carScroll = 0
+                        fx.homeScroll = 0
                     }
                     DispatchQueue.main.async { path.removeAll() }
                 }
