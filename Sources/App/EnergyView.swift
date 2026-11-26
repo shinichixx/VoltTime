@@ -912,7 +912,7 @@ private struct EnergyChartView: View {
     /// Filled bars, or a 1 pt outline when the layer is filtered out.
     @ChartContentBuilder private func barMarks(_ segs: [BarSeg]) -> some ChartContent {
         ForEach(segs.filter(\.fill)) { s in
-            BarMark(xStart: .value("A", s.x0), xEnd: .value("B", s.x1), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
+            RectangleMark(xStart: .value("A", s.x0), xEnd: .value("B", s.x1), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
                 .cornerRadius(1.5)
                 .foregroundStyle(s.color)
                 .opacity(s.alpha)
