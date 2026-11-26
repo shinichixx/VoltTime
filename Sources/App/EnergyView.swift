@@ -808,19 +808,25 @@ private struct EnergyChartView: View {
             }
         } else {
             ForEach(points) { p in
-                let f = p.flow
-                ForEach(Array([(f.house > 0 ? (0.0, f.house) : (0.0, 0.0), EnergyColor.home.opacity(0.9), "used"),
-                               ((f.house, f.house + f.car), EnergyColor.vehicle.opacity(0.9), "used"),
-                               ((0.0, f.solar), EnergyColor.solar.opacity(0.9), "supplied"),
-                               ((f.solar, f.solar + f.imp), EnergyColor.grid.opacity(0.9), "supplied"),
-                               ((-f.exp, 0.0), EnergyColor.grid.opacity(0.5), "supplied")].enumerated()), id: \.offset) { _, seg in
-                    if let s = gapped((seg.0.0, seg.0.1), scale) {
+                ForEach(allSegments(p.flow)) { seg in
+                    if let s = gapped((seg.lo, seg.hi), scale) {
                         BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
-                            .foregroundStyle(seg.1).position(by: .value("Side", seg.2)).opacity(dim(p))
+                            .foregroundStyle(seg.color).position(by: .value("Side", seg.side)).opacity(dim(p))
                     }
                 }
             }
         }
+    }
+
+    struct AllSegment: Identifiable { let id: Int; let lo: Double; let hi: Double; let color: Color; let side: String }
+
+    /// All view bars: home + car (used) beside solar + grid (supplied), export below zero.
+    private func allSegments(_ f: EnergyFlow) -> [AllSegment] {
+        [AllSegment(id: 0, lo: 0, hi: f.house, color: EnergyColor.home.opacity(0.9), side: "used"),
+         AllSegment(id: 1, lo: f.house, hi: f.house + f.car, color: EnergyColor.vehicle.opacity(0.9), side: "used"),
+         AllSegment(id: 2, lo: 0, hi: f.solar, color: EnergyColor.solar.opacity(0.9), side: "supplied"),
+         AllSegment(id: 3, lo: f.solar, hi: f.solar + f.imp, color: EnergyColor.grid.opacity(0.9), side: "supplied"),
+         AllSegment(id: 4, lo: -f.exp, hi: 0, color: EnergyColor.grid.opacity(0.5), side: "supplied")]
     }
 
     struct EdgeLine: Identifiable { let key: String; let color: Color; let points: [(Date, Double)]; var id: String { key } }
