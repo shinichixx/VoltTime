@@ -181,8 +181,9 @@ private struct TimescalePanel: View {
                 }
             }
             Rectangle().fill(Color(white: 0.32)).frame(height: 1).padding(.vertical, 6)
-            if offset != 0 && period.steps {
-                row("Go to Today", check: false) { offset = 0; close() }
+            if (offset != 0 && period.steps) || period == .custom {
+                // A custom range goes back to today as a Day.
+                row("Go to Today", check: false) { if period == .custom { periodRaw = ImpactPeriod.day.rawValue }; offset = 0; close() }
             }
             if period != .lifetime {
                 row("Choose Date…", check: false) {

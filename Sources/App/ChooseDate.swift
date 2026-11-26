@@ -286,6 +286,14 @@ struct ChooseDateSheet: View {
     }
 }
 
+/// A label with room on its left, so a column can start a set gap in from its edge.
+final class InsetLabel: UILabel {
+    var inset: CGFloat = 0 { didSet { setNeedsDisplay() } }
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: UIEdgeInsets(top: 0, left: inset, bottom: 0, right: 0)))
+    }
+}
+
 /// The iPhone wheel with the app's font: day and month roll round, unavailable values are grey and
 /// the wheel returns to the nearest allowed date.
 struct DateWheel: UIViewRepresentable {
@@ -395,18 +403,27 @@ struct DateWheel: UIViewRepresentable {
             }
         }
 
+        private static let font = UIFont(name: AppFont.name(.regular), size: 21) ?? .systemFont(ofSize: 21)
+        private static func textWidth(_ s: String) -> CGFloat {
+            ceil((s as NSString).size(withAttributes: [.font: font]).width)
+        }
+        /// Space either side of the longest month (the same gap to the day and to the year).
+        private static let gap: CGFloat = 34
+        private static let monthWidth: CGFloat = months.map(textWidth).max() ?? 110
+
         func pickerView(_ pickerView: UIPickerView, widthForComponent component: Int) -> CGFloat {
+            let slack: CGFloat = 8   // the selected row is drawn a little larger
             switch parent.columns[component] {
-            case .day: return 58
-            case .month: return 150
-            case .year: return parent.columns.count == 1 ? 160 : 88
+            case .day: return Self.textWidth("28") + slack
+            case .month: return Self.gap + Self.monthWidth + slack + Self.gap
+            case .year: return parent.columns.count == 1 ? 160 : Self.textWidth("2026") + slack
             }
         }
 
         func pickerView(_ pickerView: UIPickerView, rowHeightForComponent component: Int) -> CGFloat { 36 }
 
         func pickerView(_ pickerView: UIPickerView, viewForRow row: Int, forComponent component: Int, reusing view: UIView?) -> UIView {
-            let label = (view as? UILabel) ?? UILabel()
+            let label = (view as? InsetLabel) ?? InsetLabel()
             let col = parent.columns[component]
             let value: Int
             switch col {
@@ -417,7 +434,10 @@ struct DateWheel: UIViewRepresentable {
             label.text = col == .month ? Self.months[value - 1] : String(value)
             label.font = UIFont(name: AppFont.name(.regular), size: 21) ?? .systemFont(ofSize: 21)
             label.textColor = allowed(col, value) ? .white : UIColor(white: 1, alpha: 0.2)
-            label.textAlignment = parent.columns.count == 1 ? .center : (col == .month ? .left : .right)
+            // Day: right edge; Month: left edge, a gap in from the day; Year: left edge (the month column's
+            // spare room on its right is the same gap again).
+            label.textAlignment = parent.columns.count == 1 ? .center : (col == .day ? .right : .left)
+            label.inset = col == .month ? Self.gap : 0
             return label
         }
 
