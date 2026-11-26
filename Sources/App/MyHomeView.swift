@@ -350,6 +350,8 @@ struct MyHomeView: View {
 
     /// Where the house photo (with its figures and flow streaks) sits under the title; the rows don't move.
     static let photoY: CGFloat = -5
+    /// GRID sits this far under the end of the photo's line, so its gap to Energy matches Exporting → Wall Connector.
+    static let gridDrop: CGFloat = 35
 
     private func backdrop(width w: CGFloat, height: CGFloat) -> some View {
         let bg = TeslaDark.bg
@@ -447,7 +449,12 @@ struct MyHomeView: View {
                 .buttonStyle(.plain)
                 .padding(.vertical, -8)
             }
-            anchored(x: w * 0.7947, y: Self.photoY + w * 1.20, bottom: false) {
+            // The photo's own line stops where GRID used to be; carry it on, just as faint, down to the label.
+            LinearGradient(colors: [.white.opacity(0.045), .white.opacity(0.015)], startPoint: .top, endPoint: .bottom)
+                .frame(width: 0.67, height: Self.gridDrop + 2)
+                .position(x: w * 0.7947, y: Self.photoY + w * 1.20 - 2 + (Self.gridDrop + 2) / 2)
+                .allowsHitTesting(false)
+            anchored(x: w * 0.7947, y: Self.photoY + w * 1.20 + Self.gridDrop, bottom: false) {
                 Button { path.append(.energyView(.grid)) } label: {
                     FlowLabel(title: "GRID", value: Text("\(MyHomeModel.kw(model.gridW)) kW"))
                         .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
