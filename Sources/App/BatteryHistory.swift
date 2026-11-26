@@ -169,7 +169,10 @@ final class S3XYLink: ObservableObject {
     @Published private(set) var link = "not started"      // NWConnection state
     @Published private(set) var sent = 0
     @Published private(set) var lastError: String?
+    /// Plain-words reason it isn't connected (nil while frames are arriving).
+    @Published private(set) var problem: String?
     private var monitor: NWPathMonitor?
+    private var joinedCommander = false
 
     /// Supplied by the app: SoC and whether the car is parked, from Tessie (used when the car's own gear isn't on the feed).
     var context: () -> (soc: Double?, parked: Bool) = { (nil, true) }
@@ -190,9 +193,12 @@ final class S3XYLink: ObservableObject {
         guard enabled else { return }
         watchWifi()
         guard conn == nil else { return }
-        // No interface restriction: 192.168.4.1 routes over the Commander's Wi-Fi when the iPhone is on it.
-        // (Build 47 required Wi-Fi up front, so a link made on 4G never retried and iOS never asked for local network access.)
-        let c = NWConnection(host: "192.168.4.1", port: 1338, using: .udp)
+        // Pinned to Wi-Fi: the Commander has no router / internet, so without this iOS can send the packets over 5G
+        // (Connectivity Assist). Retried every few seconds, so a link made before joining never stays stuck.
+        let params = NWParameters.udp
+        params.requiredInterfaceType = .wifi
+        params.prohibitedInterfaceTypes = [.cellular]
+        let c = NWConnection(host: "192.168.4.1", port: 1338, using: params)
         conn = c
         state = .waiting
         started = Date()
@@ -202,7 +208,11 @@ final class S3XYLink: ObservableObject {
                 guard let self else { return }
                 switch st {
                 case .ready: self.link = "ready"; self.hello()
-                case .waiting(let e): self.link = "waiting"; self.lastError = e.localizedDescription
+                case .waiting(let e):
+                    self.link = "waiting"; self.lastError = e.localizedDescription
+                    if "\(e)".contains("PolicyDenied") || "\(e)".lowercased().contains("local network") {
+                        self.problem = "Local Network access is off for TesLah (iPhone Settings › TesLah)."
+                    }
                 case .failed(let e): self.link = "failed"; self.lastError = e.localizedDescription; self.restart()
                 case .preparing: self.link = "preparing"
                 case .cancelled: self.link = "cancelled"
@@ -214,7 +224,7 @@ final class S3XYLink: ObservableObject {
         receive(on: c)
         hello()
         if heartbeat == nil {
-            heartbeat = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            heartbeat = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.tick() }
             }
         }
@@ -241,12 +251,14 @@ final class S3XYLink: ObservableObject {
     /// Start again whenever the iPhone joins or leaves a Wi-Fi network.
     private func watchWifi() {
         guard monitor == nil else { return }
-        let m = NWPathMonitor(requiredInterfaceType: .wifi)
+        // Any network change (the Commander's Wi-Fi has no internet, so iOS may report it as "unsatisfied").
+        let m = NWPathMonitor()
         m.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
                 guard let self else { return }
-                let now = path.status == .satisfied
-                if now != self.onWifi { self.onWifi = now; self.restart() }
+                let wifi = path.availableInterfaces.contains { $0.type == .wifi }
+                let sig = wifi ? "wifi" : "none"
+                if sig != (self.onWifi ? "wifi" : "none") { self.onWifi = wifi; self.restart() }
             }
         }
         m.start(queue: .global(qos: .utility))
@@ -269,9 +281,13 @@ final class S3XYLink: ObservableObject {
         if let l = lastFrame, Date().timeIntervalSince(l) < 6 { state = .receiving } else {
             state = .waiting
             firstGood = nil
-            if let s = started, Date().timeIntervalSince(s) > 10, Date().timeIntervalSince(lastFrame ?? .distantPast) > 10 {
+            if !onWifi { problem = "Not on Wi-Fi. Join \(UserDefaults.standard.string(forKey: Self.ssidKey) ?? "S3XY_OBD") in iPhone Settings." }
+            else if problem == nil || !(problem?.hasPrefix("Local") ?? false) {
+                problem = "Joined Wi-Fi, no reply from the Commander. Check ScanMyTesla support is on (and Always ON)."
+            }
+            if let s = started, Date().timeIntervalSince(s) > 4, Date().timeIntervalSince(lastFrame ?? .distantPast) > 4 {
                 if frames == 0 { useAllMode.toggle() }
-                restart()   // nothing for 10 s: a fresh link (restart sets started again)
+                restart()   // nothing for 4 s: a fresh link (restart sets started again)
             }
         }
         evaluate()
@@ -297,7 +313,7 @@ final class S3XYLink: ObservableObject {
             frame(id, p, now)
             i += 16
         }
-        if i > 0 { frames += i / 16; lastFrame = now; state = .receiving }
+        if i > 0 { frames += i / 16; lastFrame = now; state = .receiving; problem = nil }
     }
 
     private func frame(_ id: Int, _ p: [UInt8], _ now: Date) {

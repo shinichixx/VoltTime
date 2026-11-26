@@ -419,6 +419,11 @@ struct S3XYConnectHelp: View {
                     "In the car, join \(ssid) in iPhone Settings › Wi-Fi (password 12345678 unless you changed it).",
                     "Open TesLah. Cell balance updates by itself while it's open.",
                 ])
+                TCaption(text: "If it's unreliable")
+                s3xySteps([
+                    "In the S3XY app › Commander, also turn on ScanMyTesla Always ON, or the Commander's Wi-Fi switches off when the car sleeps.",
+                    "In iPhone Settings › Wi-Fi › (i) next to \(ssid), turn off Use Connectivity Assist.",
+                ])
                 TFootnote(text: "The first time, iOS asks to let TesLah find devices on your local network. Tap Allow.")
             }
         }
@@ -462,7 +467,10 @@ struct S3XYDetailsPage: View {
                 TRow("Wi-Fi", icon: "wifi") { value(link.onWifi ? "On" : "Off") }
                 TRow("Connection", icon: "point.3.connected.trianglepath.dotted") { value(link.link.capitalized) }
                 TRow("Requests sent", icon: "arrow.up") { value("\(link.sent)") }
-                TRow("Messages received", icon: "arrow.down", last: link.lastError == nil) { value("\(link.frames)") }
+                TRow("Messages received", icon: "arrow.down", last: link.lastError == nil && link.problem == nil) { value("\(link.frames)") }
+                if let pr = link.problem {
+                    TRow("Why not connected", icon: "questionmark.circle", subtitle: pr, last: link.lastError == nil) { EmptyView() }
+                }
                 if let e = link.lastError {
                     TRow("Last error", icon: "exclamationmark.triangle", subtitle: e, last: true) { EmptyView() }
                 }
