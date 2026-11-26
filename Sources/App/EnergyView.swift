@@ -150,6 +150,17 @@ struct EnergyView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            // Tesla app: content fades to black from just above the floating bar, solid from two-thirds down it.
+            VStack(spacing: 0) {
+                LinearGradient(stops: [.init(color: TeslaDark.bg.opacity(0), location: 0),
+                                       .init(color: TeslaDark.bg.opacity(0.55), location: 0.5),
+                                       .init(color: TeslaDark.bg, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: 44)
+                Color.clear.frame(height: 21)
+                    .background(TeslaDark.bg.ignoresSafeArea(edges: .bottom))
+            }
+            .allowsHitTesting(false)
             EnergyTabBar(selected: Binding(get: { comp }, set: { compRaw = $0.rawValue; selection = nil }))
                 .padding(.bottom, 6)
         }
@@ -202,8 +213,30 @@ struct EnergyView: View {
                 figure("Charged", arrow: "arrow.down", t.car).padding(.top, 14)
             }
             }
-            .opacity(selection == nil ? 1 : 0)   // the reading box takes this space while you hold the graph
+            .opacity(selection == nil ? 1 : 0)   // the reading takes this space while you hold the graph
+            .overlay(alignment: .topLeading) {
+                // Week / Month / Year: the held bar's reading sits here instead of a box (Tesla app).
+                if let sel = selection, period != .day {
+                    let gs = EnergyReading.groups(comp, selectedFlow(sel), 1, unit: "kWh", gridBoth: true)
+                    HStack(alignment: .top, spacing: 0) {
+                        ForEach(gs.indices, id: \.self) { i in
+                            EnergyReadingView(group: gs[i], unit: "kWh", large: true)
+                                .frame(maxWidth: gs.count > 1 ? .infinity : nil, alignment: .leading)
+                        }
+                    }
+                    .padding(.top, 14)
+                }
+            }
         }
+    }
+
+    /// The held bar's day or month (as the chart sums it: up to today).
+    private func selectedFlow(_ sel: Date) -> EnergyFlow {
+        let byMonth = period == .year || period == .lifetime
+        let start = byMonth ? (cal.dateInterval(of: .month, for: sel)?.start ?? sel) : cal.startOfDay(for: sel)
+        let next = cal.date(byAdding: byMonth ? .month : .day, value: 1, to: start) ?? start
+        let end = min(next, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? next)
+        return store.flowTotal(from: max(start, range.start), to: end)
     }
 
     /// "Today", or while reading the graph "Today · 2:35 PM" (Day) / the bar's day or month.
@@ -425,7 +458,9 @@ private struct EnergyChartView: View {
         case .vehicle:
             return [("Solar", EnergyColor.solar, f.carSolar * k), ("Grid", EnergyColor.grid, f.carGrid * k)]
         case .grid:
-            return [("Imported", EnergyColor.grid, f.imp * k), ("Exported", EnergyColor.solar, -f.exp * k)]
+            // Import split by who used it (Tesla app): home in blue, the car in red on top; export below zero.
+            return [("Home", EnergyColor.home, f.homeGrid * k), ("Vehicle", EnergyColor.vehicle, f.carGrid * k),
+                    ("Exported", EnergyColor.solar, -f.exp * k)]
         }
     }
 
@@ -447,7 +482,7 @@ private struct EnergyChartView: View {
     }
 
     /// Grid's export is the one part drawn below zero.
-    private func negative(_ i: Int) -> Bool { comp == .grid && i == 1 }
+    private func negative(_ i: Int) -> Bool { comp == .grid && i == 2 }
 
     /// Where part `i` sits at this point: stacked on the parts before it (above zero), or hanging below zero.
     private func bounds(_ p: FlowPoint, _ i: Int) -> (lo: Double, hi: Double) {
@@ -516,17 +551,25 @@ private struct EnergyChartView: View {
                     ForEach(parts(p), id: \.0) { part in
                         BarMark(x: .value("Date", p.date, unit: unit), y: .value("kWh", part.2), width: .ratio(0.6))
                             .foregroundStyle(by: .value("Part", part.0))
+                            .opacity(dim(p))
                     }
                 }
             }
             if let sel = selection, let hit = hitPoint(sel, pts) {
-                RuleMark(x: isDay ? .value("Selected", hit.date) : .value("Selected", hit.date, unit: unit))
-                    .foregroundStyle(Color.white.opacity(0.85))
-                    .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: .top, alignment: .center, spacing: 6,
-                                overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                        readingBox(hit)
-                    }
+                if isDay {
+                    RuleMark(x: .value("Selected", hit.date))
+                        .foregroundStyle(Color.white.opacity(0.85))
+                        .lineStyle(StrokeStyle(lineWidth: 1))
+                        .annotation(position: .top, alignment: .center, spacing: 6,
+                                    overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                            readingBox(hit)
+                        }
+                } else {
+                    // Longer periods: no box, the reading shows in the header (Tesla app); a line through the bar.
+                    RuleMark(x: .value("Selected", hit.date, unit: unit))
+                        .foregroundStyle(Color.white.opacity(0.85))
+                        .lineStyle(StrokeStyle(lineWidth: 1))
+                }
                 if isDay {
                     ForEach(dots(hit), id: \.0) { d in
                         PointMark(x: .value("Time", hit.date), y: .value("V", d.1))
@@ -758,15 +801,15 @@ private struct EnergyChartView: View {
         } else {
             ForEach(points) { p in
                 BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.house))
-                    .foregroundStyle(EnergyColor.home.opacity(0.9)).position(by: .value("Side", "used"))
+                    .foregroundStyle(EnergyColor.home.opacity(0.9)).position(by: .value("Side", "used")).opacity(dim(p))
                 BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", p.flow.house), yEnd: .value("Hi", p.flow.house + p.flow.car))
-                    .foregroundStyle(EnergyColor.vehicle.opacity(0.9)).position(by: .value("Side", "used"))
+                    .foregroundStyle(EnergyColor.vehicle.opacity(0.9)).position(by: .value("Side", "used")).opacity(dim(p))
                 BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.solar))
-                    .foregroundStyle(EnergyColor.solar.opacity(0.9)).position(by: .value("Side", "supplied"))
+                    .foregroundStyle(EnergyColor.solar.opacity(0.9)).position(by: .value("Side", "supplied")).opacity(dim(p))
                 BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", p.flow.solar), yEnd: .value("Hi", p.flow.solar + p.flow.imp))
-                    .foregroundStyle(EnergyColor.grid.opacity(0.9)).position(by: .value("Side", "supplied"))
+                    .foregroundStyle(EnergyColor.grid.opacity(0.9)).position(by: .value("Side", "supplied")).opacity(dim(p))
                 BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", 0.0), yEnd: .value("Hi", -p.flow.exp))
-                    .foregroundStyle(EnergyColor.grid.opacity(0.5)).position(by: .value("Side", "supplied"))
+                    .foregroundStyle(EnergyColor.grid.opacity(0.5)).position(by: .value("Side", "supplied")).opacity(dim(p))
             }
         }
     }
@@ -787,6 +830,12 @@ private struct EnergyChartView: View {
     }
 
     // MARK: Reading the graph (tap and hold)
+
+    /// While a bar is read, the others dim.
+    private func dim(_ p: FlowPoint) -> Double {
+        guard let sel = selection else { return 1 }
+        return cal.isDate(p.date, equalTo: sel, toGranularity: unit) ? 1 : 0.35
+    }
 
     private func hitPoint(_ d: Date, _ pts: [FlowPoint]) -> FlowPoint? {
         if isDay { return pts.min { abs($0.date.timeIntervalSince(d)) < abs($1.date.timeIntervalSince(d)) } }
@@ -813,61 +862,93 @@ private struct EnergyChartView: View {
         }
     }
 
-    /// Tesla app: a summary line, then each source / destination as icon over value, then the unit.
+    /// Day view's box (Tesla app): a summary line, then each source / destination as icon over value, then the unit.
     private func readingBox(_ p: FlowPoint) -> some View {
-        let f = p.flow, k = p.k
         let u = isDay ? "kW" : "kWh"
-        func n(_ v: Double) -> String { String(format: "%.1f", v).replacingOccurrences(of: "-", with: "−") }
-        var arrow: String? = nil
-        var summary = ""
-        var items: [(FlowGlyph.Kind, Color, Double)] = []
-        switch comp {
-        case .grid:
-            if f.exp > f.imp {
-                arrow = "arrow.down"; summary = "\(n(f.exp * k)) \(u) Exported"
-                items = [(.solar, EnergyColor.solar, f.exp * k)]
-            } else {
-                arrow = "arrow.up"; summary = "\(n(f.imp * k)) \(u) Imported"
-                items = [(.home, EnergyColor.home, f.homeGrid * k), (.car, EnergyColor.vehicle, f.carGrid * k)]
-            }
-        case .home:
-            summary = "\(n(f.house * k)) \(u) Used"
-            items = [(.solar, EnergyColor.solar, f.homeSolar * k), (.grid, EnergyColor.grid, f.homeGrid * k)]
-        case .vehicle:
-            summary = "\(n(f.car * k)) \(u) Charging"
-            items = [(.solar, EnergyColor.solar, f.carSolar * k), (.grid, EnergyColor.grid, f.carGrid * k)]
-        case .solar:
-            summary = "\(n(f.solar * k)) \(u) Generated"
-            items = [(.home, EnergyColor.home, f.homeSolar * k), (.car, EnergyColor.vehicle, f.carSolar * k), (.grid, EnergyColor.grid, f.exp * k)]
-        case .all:
-            summary = "\(n((f.house + f.car) * k)) \(u) Used"
-            items = [(.solar, EnergyColor.solar, f.solar * k), (.home, EnergyColor.home, f.house * k),
-                     (.car, EnergyColor.vehicle, f.car * k), (.grid, EnergyColor.grid, (f.imp - f.exp) * k)]
+        let gs = EnergyReading.groups(comp, p.flow, p.k, unit: u, gridBoth: false)
+        return VStack(alignment: .leading, spacing: 8) {
+            ForEach(gs.indices, id: \.self) { EnergyReadingView(group: gs[$0], unit: u) }
         }
-        return VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 4) {
-                if let arrow { Image(systemName: arrow).font(.system(size: 10, weight: .medium)) }
-                Text(summary).font(.app(size: 12))
-            }
-            .foregroundStyle(TeslaDark.rowLabel)
-            HStack(alignment: .bottom, spacing: 14) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, it in
-                    VStack(spacing: 4) {
-                        FlowGlyph(kind: it.0, color: it.1, height: 14, maxWidth: 18)
-                            .frame(height: 15)
-                        Text(n(it.2)).font(.app(size: 12.5, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
-                            .fixedSize()
-                    }
-                    .frame(minWidth: 28)
-                }
-                Text(u).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            }
-        }
-        .lineLimit(1)
         .fixedSize(horizontal: true, vertical: true)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(white: 0.21)))
+    }
+}
+
+/// What a reading shows: per group an arrow + summary line and the icons with their values.
+enum EnergyReading {
+    struct Item { let kind: FlowGlyph.Kind; let color: Color; let value: Double }
+    struct Group { let arrow: String?; let summary: String; let items: [Item] }
+
+    static func n(_ v: Double) -> String {
+        let s = String(format: "%.1f", v)
+        return s == "-0.0" ? "0.0" : s.replacingOccurrences(of: "-", with: "−")
+    }
+
+    /// gridBoth: Grid shows Imported and Exported side by side (longer periods); otherwise whichever is bigger.
+    static func groups(_ comp: EnergyComponent, _ f: EnergyFlow, _ k: Double, unit u: String, gridBoth: Bool) -> [Group] {
+        let imp = Group(arrow: "arrow.up", summary: "\(n(f.imp * k)) \(u) Imported",
+                        items: [Item(kind: .home, color: EnergyColor.home, value: f.homeGrid * k),
+                                Item(kind: .car, color: EnergyColor.vehicle, value: f.carGrid * k)])
+        let exp = Group(arrow: "arrow.down", summary: "\(n(f.exp * k)) \(u) Exported",
+                        items: [Item(kind: .solar, color: EnergyColor.solar, value: f.exp * k)])
+        switch comp {
+        case .grid:
+            if gridBoth { return [imp, exp] }
+            return [f.exp > f.imp ? exp : imp]
+        case .home:
+            return [Group(arrow: nil, summary: "\(n(f.house * k)) \(u) Used",
+                          items: [Item(kind: .solar, color: EnergyColor.solar, value: f.homeSolar * k),
+                                  Item(kind: .grid, color: EnergyColor.grid, value: f.homeGrid * k)])]
+        case .vehicle:
+            return [Group(arrow: nil, summary: "\(n(f.car * k)) \(u) Charging",
+                          items: [Item(kind: .solar, color: EnergyColor.solar, value: f.carSolar * k),
+                                  Item(kind: .grid, color: EnergyColor.grid, value: f.carGrid * k)])]
+        case .solar:
+            return [Group(arrow: nil, summary: "\(n(f.solar * k)) \(u) Generated",
+                          items: [Item(kind: .home, color: EnergyColor.home, value: f.homeSolar * k),
+                                  Item(kind: .car, color: EnergyColor.vehicle, value: f.carSolar * k),
+                                  Item(kind: .grid, color: EnergyColor.grid, value: f.exp * k)])]
+        case .all:
+            return [Group(arrow: nil, summary: "\(n((f.house + f.car) * k)) \(u) Used",
+                          items: [Item(kind: .solar, color: EnergyColor.solar, value: f.solar * k),
+                                  Item(kind: .home, color: EnergyColor.home, value: f.house * k),
+                                  Item(kind: .car, color: EnergyColor.vehicle, value: f.car * k),
+                                  Item(kind: .grid, color: EnergyColor.grid, value: (f.imp - f.exp) * k)])]
+        }
+    }
+}
+
+/// Summary line over icons with values; a 0.0 value is grey, the rest white (Tesla app).
+struct EnergyReadingView: View {
+    let group: EnergyReading.Group
+    let unit: String
+    var large = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: large ? 6 : 7) {
+            HStack(spacing: 4) {
+                if let a = group.arrow { Image(systemName: a).font(.system(size: large ? 11 : 10, weight: .medium)) }
+                Text(group.summary).font(.app(size: large ? 13 : 12))
+            }
+            .foregroundStyle(TeslaDark.rowLabel)
+            HStack(alignment: .bottom, spacing: 14) {
+                ForEach(Array(group.items.enumerated()), id: \.offset) { _, it in
+                    let v = EnergyReading.n(it.value)
+                    VStack(spacing: 4) {
+                        FlowGlyph(kind: it.kind, color: it.color, height: large ? 15 : 14, maxWidth: 18)
+                            .frame(height: 15)
+                        Text(v).font(.app(size: large ? 14 : 12.5, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(v == "0.0" ? TeslaDark.rowLabel : Color.white)
+                            .fixedSize()
+                    }
+                    .frame(minWidth: 28)
+                }
+                Text(unit).font(.app(size: large ? 13 : 12)).foregroundStyle(TeslaDark.rowLabel)
+            }
+        }
+        .lineLimit(1)
     }
 }
 
