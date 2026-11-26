@@ -693,7 +693,8 @@ private struct EnergyChartView: View {
                 VStack {
                     Text("Import")
                     Spacer()
-                    Text("Export")
+                    // Only when the graph goes below zero.
+                    if scale.domain.lowerBound < 0 { Text("Export") }
                 }
                 .font(.app(size: 10)).foregroundStyle(TeslaDark.dim)
                 .chartLabelGlow()
