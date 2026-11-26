@@ -184,7 +184,7 @@ final class HomeModel: ObservableObject {
         guard let ha = HAClient.configured() else { return }
         settingLimit = true
         defer { settingLimit = false }
-        let sends = active && result.minutes > 0
+        let sends = active && result.minutes > 0 && !HomeMath.isNoChargeNight(Date(), calendar: .current)
         if sends {
             startSync = .checking
             toast = Banner(title: "Setting the charge start…",

@@ -311,6 +311,9 @@ struct SettingsPage: View {
 
     // MARK: Tonight's charge
 
+    /// Routine on a Thursday or Friday night: nothing is scheduled.
+    private var noNight: Bool { routine && HomeMath.isNoChargeNight(Date(), calendar: .current) }
+
     private var nowSoc: Double { home.liveSoc ?? home.startSoc }
 
     private var tonight: some View {
@@ -358,17 +361,21 @@ struct SettingsPage: View {
                 .padding(.top, 7)
                 .padding(.bottom, 14)
 
-            TRow("Ready by", icon: "clock") {
-                DatePicker("", selection: readyBinding, displayedComponents: .hourAndMinute)
-                    .labelsHidden()
-            }
-            TRow("Starts charging", icon: "powerplug", subtitle: statusText) {
-                startTime(r)
-            } below: {
-                syncTag.padding(.top, -4)
+            if noNight && home.charging != true {
+                TRow("No night charge tonight", icon: "moon", subtitle: "Charges from excess solar by day") { EmptyView() }
+            } else {
+                TRow("Ready by", icon: "clock") {
+                    DatePicker("", selection: readyBinding, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                }
+                TRow("Starts charging", icon: "powerplug", subtitle: statusText) {
+                    startTime(r)
+                } below: {
+                    syncTag.padding(.top, -4)
+                }
             }
             TNavRow(title: "Charge details", icon: "list.bullet.rectangle",
-                    subtitle: r.minutes == 0 ? "Reminders, safety buffer, charger settings"
+                    subtitle: r.minutes == 0 || noNight ? "Reminders, safety buffer, charger settings"
                         : "\(Fmt.longDuration(r.minutes)) · +\(Int(r.deltaPct.rounded()))% · \(String(format: "%.1f kWh", r.packKWh))",
                     last: true) {
                 path.append(.chargeDetails)
@@ -420,7 +427,9 @@ struct SettingsPage: View {
         return "\(dayLabel(home.plannedStart())). Set in the car when you plug in after 7pm"
     }
 
-    private var unsent: Bool { home.startSync == .pending && routine && home.charging != true && home.result.minutes > 0 }
+    private var unsent: Bool {
+        home.startSync == .pending && routine && !noNight && home.charging != true && home.result.minutes > 0
+    }
 
     /// Not sent yet → Checking in car… → Live, under the Starts charging line.
     @ViewBuilder private var syncTag: some View {

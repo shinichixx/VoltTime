@@ -59,5 +59,11 @@ if case let .ok(minutes, cost, _, _) = PublicMath.estimate(start: 20, end: 80, m
 check("public error", "\(PublicMath.estimate(start: 80, end: 20, maxKW: 250, rate: 1, perMinute: false))",
       "\(PublicMath.Outcome.error("Required level must be greater than current level."))")
 
+// Routine has no night charge Thu 7 PM – Fri 7 AM and Fri 7 PM – Sat 7 AM (26 Nov 2026 is a Thursday)
+for (d, h, m, want) in [(26, 18, 59, false), (26, 19, 0, true), (27, 6, 59, true), (27, 7, 0, false), (27, 19, 0, true),
+                        (28, 6, 59, true), (28, 19, 0, false), (26, 2, 0, false), (25, 22, 0, false)] {
+    check("no night charge \(d) \(h):\(m)", "\(HomeMath.isNoChargeNight(date(2026, 11, d, h, m), calendar: cal))", "\(want)")
+}
+
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
 print("All checks passed")

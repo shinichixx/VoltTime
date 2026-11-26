@@ -36,6 +36,14 @@ enum HomeMath {
     /// did not explain the spread. Budget the typical ~31 min: 25 extra minutes per % above 99.
     static let topOffExtraMinutesPerPct = 25.0
 
+    /// Thursday 7 pm – Friday 7 am and Friday 7 pm – Saturday 7 am: Routine has no night charge, only solar by day.
+    static func isNoChargeNight(_ now: Date, calendar: Calendar) -> Bool {
+        let hour = calendar.component(.hour, from: now)
+        guard hour >= 19 || hour < 7 else { return false }
+        let evening = calendar.date(byAdding: .hour, value: -7, to: now)!   // the day the night began
+        return [5, 6].contains(calendar.component(.weekday, from: evening)) // 1 = Sunday … 7 = Saturday
+    }
+
     static func calculate(_ i: HomeInputs) -> HomeResult {
         let amps = max(1, i.amps)
         let volts = max(1, i.volts)
