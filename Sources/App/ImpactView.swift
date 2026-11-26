@@ -22,6 +22,8 @@ struct ImpactView: View {
     @AppStorage("impact.period") private var periodRaw = ImpactPeriod.month.rawValue
     @State private var offset = 0
     @State private var showInfo = false
+    @State private var showValueInfo = false
+    @State private var showCarbonInfo = false
     @State private var forward = false
 
     private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .month }
@@ -45,6 +47,8 @@ struct ImpactView: View {
                     ZStack {
                         VStack(spacing: 10) {
                             selfPoweredCard(t)
+                            valueCard(r)
+                            offsetCard(t)
                             carCard(t)
                             carbonCard(t)
                         }
@@ -95,21 +99,24 @@ struct ImpactView: View {
         DispatchQueue.main.async { withAnimation(.easeInOut(duration: 0.28)) { offset += by } }
     }
 
-    // MARK: Cards
+    // MARK: Cards (Tesla app style: bold white title, big figure, thin dividers)
 
-    private func card<C: View>(_ title: String, _ icon: String, action: (() -> Void)? = nil, @ViewBuilder _ content: () -> C) -> some View {
+    static let green = ValueBarsView.green
+    static let offsetBlue = Color(red: 66 / 255, green: 105 / 255, blue: 1)
+
+    private func card<C: View>(_ title: String, info: (() -> Void)? = nil, trailing: String? = nil,
+                               @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(title).font(.app(size: 14)).foregroundStyle(TeslaDark.labelGrey)
+            HStack(alignment: .center) {
+                Text(title).font(.app(size: 14, weight: .semibold)).foregroundStyle(.white)
                 Spacer()
-                if let action {
-                    Button(action: action) { Image(systemName: icon) }.buttonStyle(.plain)
-                } else {
-                    Image(systemName: icon)
+                if let info {
+                    Button(action: info) { Image(systemName: "info.circle").font(.system(size: 16)) }
+                        .buttonStyle(.plain).foregroundStyle(TeslaDark.labelGrey)
+                } else if let trailing {
+                    Image(systemName: trailing).font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
                 }
             }
-            .font(.system(size: 15))
-            .foregroundStyle(TeslaDark.dim)
             content()
         }
         .padding(16)
@@ -118,34 +125,24 @@ struct ImpactView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func big(_ text: String) -> some View {
-        Text(text).font(.app(size: 38, weight: .semibold)).padding(.top, 4)
+    private func divider() -> some View {
+        Rectangle().fill(Color.white.opacity(0.09)).frame(height: 0.5)
     }
 
-    private func split(_ a: Double, _ b: Double, _ aLabel: String, _ bLabel: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GeometryReader { g in
-                let total = a + b
-                HStack(spacing: 0) {
-                    Rectangle().fill(Self.solarColor).frame(width: total > 0 ? g.size.width * a / total : 0)
-                    Rectangle().fill(Self.gridColor)
-                }
-                .clipShape(Capsule())
-                .background(Capsule().fill(Color(white: 0.23)))
-            }
-            .frame(height: 8)
-            HStack(spacing: 16) {
-                legend(Self.solarColor, "\(aLabel) \(kwh(a))")
-                legend(Self.gridColor, "\(bLabel) \(kwh(b))")
-            }
+    private func bigNumber(_ value: String, _ unit: String, _ color: Color = .white) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(value).font(.app(size: 38, weight: .medium)).foregroundStyle(color)
+            Text(unit).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
         }
-        .padding(.top, 12)
     }
 
-    private func legend(_ c: Color, _ text: String) -> some View {
-        HStack(spacing: 6) {
-            Circle().fill(c).frame(width: 8, height: 8)
-            Text(text).font(.app(size: 12)).foregroundStyle(TeslaDark.labelGrey)
+    private func legendDot(_ c: Color, _ value: String, _ name: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Circle().fill(c).frame(width: 7, height: 7).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value).font(.app(size: 12, weight: .semibold))
+                Text(name).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+            }
         }
     }
 
@@ -153,76 +150,352 @@ struct ImpactView: View {
         Num.kwh(v, whole: period == .year || period == .lifetime) + " kWh"
     }
 
-    private func pct(_ v: Double?) -> String { v.map { "\(Int(($0 * 100).rounded()))%" } ?? "—" }
+    private func pctNum(_ v: Double?) -> String { v.map { "\(Int(($0 * 100).rounded()))" } ?? "—" }
 
+    /// "This Month", "Today"… for the current period; the period's own name otherwise.
+    private func caption(_ r: PeriodRange) -> String {
+        if period == .lifetime { return "Lifetime" }
+        guard offset == 0 else { return r.label }
+        switch period {
+        case .day: return "Today"
+        case .week: return "This Week"
+        case .month: return "This Month"
+        default: return "This Year"
+        }
+    }
+
+    // Self-Powered: legend left, ring right.
     private func selfPoweredCard(_ t: DaySummary) -> some View {
-        card("Self-Powered", "info.circle", action: { withAnimation { showInfo.toggle() } }) {
-            big(pct(t.selfPowered))
-            Text("of the energy your home and Model 3 used came from solar")
-                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            split(t.solarUsed, t.imp, "Solar", "Grid")
+        let sp = t.selfPowered
+        return card("Self-Powered", info: { withAnimation { showInfo.toggle() } }) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 12) {
+                    row(Self.solarColor, sp, "Solar")
+                    row(Color(white: 0.4), sp.map { 1 - $0 }, "Grid")
+                }
+                Spacer()
+                ZStack {
+                    Circle().stroke(Color(white: 0.4), lineWidth: 9)
+                    Circle().trim(from: 0, to: sp ?? 0)
+                        .stroke(Self.solarColor, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(pctNum(sp)).font(.app(size: 32, weight: .medium))
+                        Text("%").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    }
+                }
+                .frame(width: 104, height: 104)
+                .padding(.trailing, 8)
+            }
+            .padding(.top, 14)
             if showInfo {
-                Text("Used = solar generated + bought from TNB − exported. Solar exported to TNB doesn't count here; it shows in CO₂ avoided.")
+                Text("Used = solar generated + bought from TNB − exported. Solar exported to TNB doesn't count here; it shows in Solar Offset and CO₂ Avoided.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
-                    .padding(.top, 10)
+                    .padding(.top, 12)
             }
         }
     }
 
-    private func carCard(_ t: DaySummary) -> some View {
-        card("Model 3 on solar", "car.side") {
-            if t.car < 0.05 {
-                big("—")
-                Text("No home charging in this period").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            } else {
-                big(pct(t.carSolarShare))
-                Text("of home charging came from solar").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-                split(t.carSolar, max(t.car - t.carSolar, 0), "Solar", "Grid")
-                if let perKm = model.kWhPerKm, t.carSolar > 0 {
-                    let km = t.carSolar * ImpactStat.chargeEfficiency / perKm
-                    Text("\(Num.whole(km)) km driven on sunshine")
-                        .font(.app(size: 14)).padding(.top, 12)
+    private func row(_ c: Color, _ v: Double?, _ name: String) -> some View {
+        HStack(spacing: 10) {
+            Circle().fill(c).frame(width: 7, height: 7)
+            Text(v.map { "\(Int(($0 * 100).rounded()))%" } ?? "—").font(.app(size: 12, weight: .semibold))
+                .frame(width: 38, alignment: .leading)
+            Text(name).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+        }
+    }
+
+    // Energy Value: RM saved, bars per hour / day / month.
+    private func valueCard(_ r: PeriodRange) -> some View {
+        let bars = model.valueBars(period, r)
+        let total = bars.values.reduce(0, +)
+        return card("Energy Value", info: { withAnimation { showValueInfo.toggle() } }) {
+            Text("Estimated Value").font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 2)
+            ValueBarsView(values: bars.values, labels: bars.labels).padding(.top, 16)
+            VStack(spacing: 2) {
+                Text(RM.text(total)).font(.app(size: 22, weight: .semibold)).foregroundStyle(Self.green)
+                Text(caption(r)).font(.app(size: 9)).foregroundStyle(TeslaDark.dim)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 14)
+            if showValueInfo {
+                Text("Solar you used is valued at the TNB ToU rate for the time it was used. Exported solar is credited under NEM 3.0: off-peak import first at the off-peak rate, then peak import at the peak rate.")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .padding(.top, 12)
+            }
+            divider().padding(.top, 16)
+            NavigationLink { EnergyValueInfoView() } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Estimate based on")
+                        Text("TNB Domestic ToU · NEM 3.0")
+                    }
+                    .font(.app(size: 10)).foregroundStyle(TeslaDark.labelGrey)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                }
+                .contentShape(Rectangle())
+                .padding(.top, 12)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // Solar Offset: all solar generated vs all used (home + car).
+    private func offsetCard(_ t: DaySummary) -> some View {
+        let solar = t.solar, used = t.used
+        let pct = used > 0 ? solar / used : nil
+        return card("Solar Offset") {
+            GeometryReader { g in
+                let mx = max(solar, used, 0.001)
+                let H = g.size.height
+                let hs = H * CGFloat(solar / mx), hu = H * CGFloat(used / mx)
+                let bw: CGFloat = 54
+                let xs = g.size.width * 0.25, xu = g.size.width * 0.75
+                let low = min(hs, hu)
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Self.solarColor)
+                        .frame(width: bw, height: max(hs, 2)).position(x: xs, y: H - max(hs, 2) / 2)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Self.offsetBlue)
+                        .frame(width: bw, height: max(hu, 2)).position(x: xu, y: H - max(hu, 2) / 2)
+                    Path { p in
+                        p.move(to: CGPoint(x: xs + bw / 2 + 4, y: H - low))
+                        p.addLine(to: CGPoint(x: xu - bw / 2 - 4, y: H - low))
+                    }
+                    .stroke(Color(white: 0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(pct.map { "\(Int(($0 * 100).rounded()))%" } ?? "—").font(.app(size: 11, weight: .semibold))
+                        Text("Energy Offset").font(.app(size: 10)).foregroundStyle(TeslaDark.labelGrey)
+                    }
+                    .offset(x: xs + bw / 2 + 10, y: min(H - low + 6, H - 30))
                 }
             }
+            .frame(height: 190)
+            .padding(.top, 22)
+            HStack(spacing: 0) {
+                label(kwh(solar), "Solar", Self.solarColor).frame(maxWidth: .infinity)
+                label(kwh(used), "Used", Self.offsetBlue).frame(maxWidth: .infinity)
+            }
+            .padding(.top, 10)
         }
     }
 
+    private func label(_ value: String, _ name: String, _ c: Color) -> some View {
+        (Text(value + " ").foregroundStyle(.white) + Text(name).foregroundStyle(c))
+            .font(.app(size: 11, weight: .semibold))
+    }
+
+    // Vehicle on Solar: the Model 3 fills yellow from the front by the solar share.
+    private func carCard(_ t: DaySummary) -> some View {
+        let share = t.carSolarShare
+        return card("Vehicle on Solar") {
+            HStack(alignment: .center, spacing: 8) {
+                SolarCarView(fraction: share ?? 0)
+                    .frame(maxWidth: .infinity)
+                VStack(spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(t.car < 0.05 ? "—" : pctNum(share)).font(.app(size: 36, weight: .medium))
+                        if t.car >= 0.05 { Text("%").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel) }
+                    }
+                    Text(t.car < 0.05 ? "no home charging" : "of home charging")
+                        .font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+                }
+                .frame(width: 110)
+            }
+            .padding(.top, 14)
+            divider().padding(.top, 16)
+            HStack(alignment: .top) {
+                legendDot(Self.solarColor, kwh(t.carSolar), "Solar").frame(maxWidth: .infinity, alignment: .leading)
+                legendDot(Color(white: 0.4), kwh(max(t.car - t.carSolar, 0)), "Grid").frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.top, 14)
+            if let perKm = model.kWhPerKm, t.carSolar > 0 {
+                let km = t.carSolar * ImpactStat.chargeEfficiency / perKm
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("\(Num.whole(km)) km").font(.app(size: 14, weight: .semibold)).foregroundStyle(Self.solarColor)
+                    Text("driven on sunshine").font(.app(size: 12)).foregroundStyle(TeslaDark.labelGrey)
+                }
+                .padding(.top, 18)
+            }
+        }
+    }
+
+    // CO₂ Avoided: tonnes, and the trees that would take it up.
     private func carbonCard(_ t: DaySummary) -> some View {
         let kg = t.solar * ImpactStat.gridKgPerKWh
         let trees = kg / ImpactStat.kgPerTree
-        return card("CO₂ avoided", "leaf") {
-            big(kg >= 1000 ? String(format: "%.2f t", kg / 1000) : String(format: "%.0f kg", kg))
-            Text("\(kwh(t.solar)) solar × \(String(format: "%.3f", ImpactStat.gridKgPerKWh)) kg/kWh (Peninsular grid)")
-                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            HStack(spacing: 8) {
-                Image(systemName: "tree.fill").foregroundStyle(TeslaDark.exporting).font(.system(size: 18))
-                Text("Like planting \(trees < 10 ? String(format: "%.1f", trees) : String(format: "%.0f", trees)) trees")
-                    .font(.app(size: 14))
+        let n = Int(trees.rounded())
+        let per = max(1, Int((Double(n) / 39).rounded(.up)))
+        let icons = trees < 1 ? 1 : Int((Double(n) / Double(per)).rounded(.up))
+        return card("CO₂ Avoided", info: { withAnimation { showCarbonInfo.toggle() } }) {
+            bigNumber(kg >= 1000 ? String(format: "%.2f", kg / 1000) : String(format: "%.0f", kg),
+                      kg >= 1000 ? "tonnes" : "kg", Self.green)
+                .padding(.top, 8)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 13), spacing: 10) {
+                ForEach(0..<icons, id: \.self) { _ in
+                    Image(systemName: "tree.fill").font(.system(size: 15)).foregroundStyle(Self.green)
+                        .opacity(trees < 1 ? 0.4 : 1)
+                }
+            }
+            .padding(.top, 16)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(trees < 10 ? String(format: "%.1f trees", trees) : "\(n) trees").font(.app(size: 12, weight: .semibold))
+                Text(per > 1 ? "grown 10 years take this up · 1 icon = \(per)" : "grown 10 years take this up")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+            }
+            .padding(.top, 14)
+            if showCarbonInfo {
+                Text("Solar generated × the Peninsular Malaysia grid emission factor (Energy Commission 2024). One tree grown for 10 years takes up about 60 kg CO₂ (US EPA).")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .padding(.top, 12)
+            }
+            divider().padding(.top, 14)
+            Text("\(kwh(t.solar)) solar × \(String(format: "%.3f", ImpactStat.gridKgPerKWh)) kg/kWh")
+                .font(.app(size: 10)).foregroundStyle(TeslaDark.labelGrey)
+                .padding(.top, 12)
+        }
+    }
+
+    // Solar Forecast: today's curve (filled up to now), tomorrow faint behind it.
+    private var forecastCard: some View {
+        card("Solar Forecast", trailing: "chevron.right") {
+            bigNumber(model.forecastToday.map { Num.one($0) } ?? "—", "kWh today", Self.solarColor)
+                .padding(.top, 8)
+            ForecastCurveView(today: model.forecastCurveToday, tomorrow: model.forecastCurveTomorrow,
+                              todayKWh: model.forecastToday, tomorrowKWh: model.forecastTomorrow,
+                              peakToday: model.peakToday, peakTomorrow: model.peakTomorrow)
+                .frame(height: 150)
+                .padding(.top, 14)
+            divider().padding(.top, 14)
+            HStack {
+                Text("Tomorrow").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                Spacer()
+                Text(model.forecastTomorrow.map { Num.one($0) + " kWh" } ?? "—").font(.app(size: 13, weight: .semibold))
             }
             .padding(.top, 12)
         }
     }
+}
 
-    private var forecastCard: some View {
-        card("Solar forecast", "sun.max") {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                big(model.forecastToday.map { String(format: "%.1f kWh", $0) } ?? "—")
-                Text("today").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+/// The Model 3 side photo, painted yellow from the front by `fraction`.
+struct SolarCarView: View {
+    let fraction: Double
+    private static let base = UIImage(named: "impact_car.png")
+    private static let paint = UIImage(named: "impact_car_paint.png")
+
+    var body: some View {
+        ZStack {
+            if let b = Self.base { Image(uiImage: b).resizable().scaledToFit() }
+            if let p = Self.paint {
+                Image(uiImage: p).resizable().scaledToFit()
+                    .mask {
+                        GeometryReader { g in
+                            Rectangle().frame(width: g.size.width * CGFloat(min(max(fraction, 0), 1)))
+                        }
+                    }
             }
-            Text(forecastLine)
-                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
         }
+        .aspectRatio(960 / 305, contentMode: .fit)
+    }
+}
+
+/// Forecast curve from Solcast's half-hourly points, or a smooth bell from the day total and peak time.
+struct ForecastCurveView: View {
+    let today: [ForecastPoint]
+    let tomorrow: [ForecastPoint]
+    let todayKWh: Double?
+    let tomorrowKWh: Double?
+    let peakToday: Date?
+    let peakTomorrow: Date?
+
+    private let cal = Calendar.current
+    private let h0 = 6.0, h1 = 19.0
+    private static let yellow = Color(red: 1, green: 0.8, blue: 0.2)
+
+    /// kW at a clock hour (6.0…19.0).
+    private func series(_ pts: [ForecastPoint], _ total: Double?, _ peak: Date?, _ dayStart: Date) -> (Double) -> Double {
+        let p = pts.filter { cal.isDate($0.time, inSameDayAs: dayStart) }
+        if p.count > 3 {
+            let xs = p.map { $0.time.timeIntervalSince(dayStart) / 3600 }, ys = p.map(\.kw)
+            return { h in
+                guard let j = xs.firstIndex(where: { $0 >= h }) else { return 0 }
+                if j == 0 { return xs[0] - h > 0.5 ? 0 : ys[0] }
+                let q = (h - xs[j - 1]) / max(xs[j] - xs[j - 1], 0.01)
+                return ys[j - 1] + (ys[j] - ys[j - 1]) * q
+            }
+        }
+        guard let total, total > 0 else { return { _ in 0 } }
+        let mu = peak.map { $0.timeIntervalSince(cal.startOfDay(for: $0)) / 3600 } ?? 12.5
+        let sigma = 2.3
+        let a = total / (sigma * (2 * Double.pi).squareRoot())
+        return { h in a * exp(-pow(h - mu, 2) / (2 * sigma * sigma)) }
     }
 
-    /// Before today's peak: "Today's peak around 13:00 · tomorrow 13.9 kWh".
-    /// After it: "Tomorrow 13.9 kWh · peak around 12:45" (tomorrow's peak).
-    private var forecastLine: String {
-        let tomorrow = model.forecastTomorrow.map { String(format: "%.1f kWh", $0) }
-        let clock: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }
-        if let p = model.peakToday, Date() < p {
-            return ["Today's peak around \(clock(p))", tomorrow.map { "tomorrow " + $0 }].compactMap { $0 }.joined(separator: " · ")
+    var body: some View {
+        Canvas { ctx, size in
+            let start = cal.startOfDay(for: Date())
+            let tStart = cal.date(byAdding: .day, value: 1, to: start) ?? start
+            let ft = series(today, todayKWh, peakToday, start)
+            let fm = series(tomorrow, tomorrowKWh, peakTomorrow, tStart)
+            let N = 156
+            let hs = (0...N).map { h0 + (h1 - h0) * Double($0) / Double(N) }
+            let mx = max(hs.map(ft).max() ?? 0, hs.map(fm).max() ?? 0, 0.1) * 1.12
+            let plotH = size.height - 18
+            func pt(_ h: Double, _ v: Double) -> CGPoint {
+                CGPoint(x: size.width * (h - h0) / (h1 - h0), y: plotH * (1 - v / mx))
+            }
+            // grid + labels
+            for (h, l) in [(6.0, "6 AM"), (12.0, "12 PM"), (18.0, "6 PM")] {
+                let x = pt(h, 0).x
+                ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: plotH)) },
+                           with: .color(Color(white: 0.2)), lineWidth: 0.7)
+                ctx.draw(Text(l).font(.app(size: 9)).foregroundColor(TeslaDark.rowLabel),
+                         at: CGPoint(x: min(max(x, 14), size.width - 14), y: plotH + 10))
+            }
+            ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: plotH)); $0.addLine(to: CGPoint(x: size.width, y: plotH)) },
+                       with: .color(Color(white: 0.27)), lineWidth: 0.7)
+            func path(_ f: (Double) -> Double, _ a: Double, _ b: Double) -> Path {
+                Path { p in
+                    let sub = hs.filter { $0 >= a && $0 <= b }
+                    guard let first = sub.first else { return }
+                    p.move(to: pt(first, f(first)))
+                    for h in sub.dropFirst() { p.addLine(to: pt(h, f(h))) }
+                }
+            }
+            // tomorrow: faint dashed
+            ctx.stroke(path(fm, h0, h1), with: .color(Color(white: 0.38)), style: StrokeStyle(lineWidth: 1.2, dash: [3, 4]))
+            // today: filled + solid up to now, dashed after
+            let now = Date().timeIntervalSince(start) / 3600
+            let cut = min(max(now, h0), h1)
+            if cut > h0 {
+                var fill = path(ft, h0, cut)
+                fill.addLine(to: pt(cut, ft(cut))); fill.addLine(to: pt(cut, 0)); fill.addLine(to: pt(h0, 0)); fill.closeSubpath()
+                ctx.fill(fill, with: .linearGradient(Gradient(colors: [Self.yellow.opacity(0.42), Self.yellow.opacity(0.12)]),
+                                                     startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: plotH)))
+                var line = path(ft, h0, cut); line.addLine(to: pt(cut, ft(cut)))
+                ctx.stroke(line, with: .color(Self.yellow), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+            }
+            if cut < h1 {
+                var rest = Path(); rest.move(to: pt(cut, ft(cut)))
+                for h in hs where h > cut { rest.addLine(to: pt(h, ft(h))) }
+                ctx.stroke(rest, with: .color(Self.yellow.opacity(0.6)), style: StrokeStyle(lineWidth: 1.4, dash: [3, 4]))
+            }
+            // peak marker
+            let peakH = hs.max { ft($0) < ft($1) } ?? 12.5
+            if ft(peakH) > 0.05 {
+                let p = pt(peakH, ft(peakH))
+                ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)), with: .color(Self.yellow), lineWidth: 2)
+                let clock = start.addingTimeInterval(peakH * 3600)
+                let t = (peakToday ?? clock).formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+                ctx.draw(Text("Peak \(t)").font(.app(size: 10)).foregroundColor(.white), at: CGPoint(x: p.x, y: max(p.y - 12, 6)))
+            }
+            // now
+            if now > h0 && now < h1 {
+                let x = pt(now, 0).x
+                ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: plotH)) }, with: .color(.white), lineWidth: 1.2)
+                let p = pt(now, ft(now))
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)), with: .color(.white))
+            }
         }
-        return [tomorrow.map { "Tomorrow " + $0 }, model.peakTomorrow.map { "peak around \(clock($0))" }]
-            .compactMap { $0 }.joined(separator: " · ")
     }
 }

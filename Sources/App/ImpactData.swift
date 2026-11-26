@@ -77,6 +77,9 @@ final class EnergyStore: ObservableObject {
     @Published var forecastReadAt: Date?      // when Solcast last changed today's forecast
     @Published var forecastNextRead: Date?    // estimate: 5 reads spread evenly from sunrise to sunset
     @Published var kWhPerKm: Double?
+    /// Solcast's half-hourly forecast (kW) for today and tomorrow, when the sensor carries it.
+    @Published var forecastCurveToday: [ForecastPoint] = []
+    @Published var forecastCurveTomorrow: [ForecastPoint] = []
 
     private let cal = Calendar.current
     private var lastRefresh: Date?
@@ -291,6 +294,8 @@ final class EnergyStore: ObservableObject {
             if let p = peakTomorrow { d.set(p.timeIntervalSince1970, forKey: "impact.forecastPeak") } else { d.removeObject(forKey: "impact.forecastPeak") }
         }
         forecastToday = s[ImpactStat.forecastToday]?.number.map { $0 * k } ?? forecastToday
+        let ct = Self.detailed(s[ImpactStat.forecastToday]); if !ct.isEmpty { forecastCurveToday = ct }
+        let cm = Self.detailed(s[ImpactStat.forecastTomorrow]); if !cm.isEmpty { forecastCurveTomorrow = cm }
         peakToday = s[ImpactStat.peakToday].flatMap { HAClient.parseISO($0.state) } ?? peakToday
         if SolarSensors.current.isSolcast {
             forecastReadAt = s[ImpactStat.forecastToday]?.lastChanged ?? forecastReadAt
@@ -428,6 +433,30 @@ final class HAWebSocket {
 
 
 /// Which entities hold the solar forecast.
+struct ForecastPoint {
+    let time: Date   // middle of the period
+    let kw: Double
+}
+
+extension EnergyStore {
+    /// Solcast's "detailedForecast" (half-hourly) or "detailedHourly" attribute, as kW points.
+    static func detailed(_ st: HAState?) -> [ForecastPoint] {
+        guard let a = st?.attributes else { return [] }
+        let half = a["detailedForecast"] as? [[String: Any]]
+        let list = half ?? (a["detailedHourly"] as? [[String: Any]]) ?? []
+        let mid: TimeInterval = half != nil ? 900 : 1800
+        var out: [ForecastPoint] = []
+        for e in list {
+            guard let t = (e["period_start"] as? String).flatMap({ HAClient.parseISO($0) }) else { continue }
+            let raw = e["pv_estimate"]
+            guard let v = (raw as? NSNumber)?.doubleValue ?? (raw as? String).flatMap(Double.init) else { continue }
+            out.append(ForecastPoint(time: t.addingTimeInterval(mid), kw: v))
+        }
+        if let mx = out.map(\.kw).max(), mx > 50 { out = out.map { ForecastPoint(time: $0.time, kw: $0.kw / 1000) } }
+        return out.sorted { $0.time < $1.time }
+    }
+}
+
 struct SolarSensors {
     var today = "sensor.energy_production_today"
     var tomorrow = "sensor.energy_production_tomorrow"
