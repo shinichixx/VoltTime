@@ -349,18 +349,18 @@ struct MyHomeView: View {
     // MARK: Picture with live labels
 
     /// Where the house photo (with its figures and flow streaks) sits under the title; the rows don't move.
-    static let photoY: CGFloat = -5
-    /// GRID sits this far under the end of the photo's line, so its gap to Energy matches Exporting → Wall Connector.
-    static let gridDrop: CGFloat = 35
+    /// 17 pt lower than build 79, so Exporting → Wall Connector and GRID → Energy are both 40 pt.
+    static let photoY: CGFloat = 12
 
     private func backdrop(width w: CGFloat, height: CGFloat) -> some View {
         let bg = TeslaDark.bg
         return ZStack(alignment: .topLeading) {
             bg
             photo(width: w)
-                // The photo's own bottom fades into the page, so it never ends in a hard line.
-                .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.80),
-                                             .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+                // The photo's own top and bottom fade into the page, so it never ends in a hard line.
+                .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.07),
+                                             .init(color: .black, location: 0.80), .init(color: .clear, location: 1)],
+                                     startPoint: .top, endPoint: .bottom))
                 .offset(y: Self.photoY)
             PowerFlowOverlay(model: model, width: w)   // moving pulses along the wires
                 .offset(y: Self.photoY)
@@ -449,12 +449,7 @@ struct MyHomeView: View {
                 .buttonStyle(.plain)
                 .padding(.vertical, -8)
             }
-            // The photo's own line stops where GRID used to be; carry it on, just as faint, down to the label.
-            LinearGradient(colors: [.white.opacity(0.045), .white.opacity(0.015)], startPoint: .top, endPoint: .bottom)
-                .frame(width: 0.67, height: Self.gridDrop + 2)
-                .position(x: w * 0.7947, y: Self.photoY + w * 1.20 - 2 + (Self.gridDrop + 2) / 2)
-                .allowsHitTesting(false)
-            anchored(x: w * 0.7947, y: Self.photoY + w * 1.20 + Self.gridDrop, bottom: false) {
+            anchored(x: w * 0.7947, y: Self.photoY + w * 1.20, bottom: false) {
                 Button { path.append(.energyView(.grid)) } label: {
                     FlowLabel(title: "GRID", value: Text("\(MyHomeModel.kw(model.gridW)) kW"))
                         .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
