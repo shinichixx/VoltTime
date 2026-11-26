@@ -213,11 +213,12 @@ struct EnergyView: View {
                 figure("Charged", arrow: "arrow.down", t.car).padding(.top, 14)
             }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .opacity(selection == nil ? 1 : 0)   // the reading takes this space while you hold the graph
             .overlay(alignment: .topLeading) {
                 // Week / Month / Year: the held bar's reading sits here instead of a box (Tesla app).
                 if let sel = selection, period != .day {
-                    let gs = EnergyReading.groups(comp, selectedFlow(sel), 1, unit: "kWh", gridBoth: true)
+                    let gs = EnergyReading.groups(comp, selectedFlow(sel), 1, unit: "kWh", gridBoth: true, whole: whole)
                     HStack(alignment: .top, spacing: 0) {
                         ForEach(gs.indices, id: \.self) { i in
                             EnergyReadingView(group: gs[i], unit: "kWh", large: true)
@@ -260,7 +261,7 @@ struct EnergyView: View {
             }
             .foregroundStyle(TeslaDark.rowLabel)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(Num.kwh(v)).font(.app(size: 24, weight: .semibold))
+                Text(Num.kwh(v, whole: whole)).font(.app(size: 24, weight: .semibold))
                 Text("kWh").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
@@ -268,7 +269,7 @@ struct EnergyView: View {
 
     private func netLine(_ t: EnergyFlow) -> String {
         let net = t.imp - t.exp
-        return "Net Grid Usage: \(Num.kwh(abs(net))) kWh \(net >= 0 ? "Imported" : "Exported")"
+        return "Net Grid Usage: \(Num.kwh(abs(net), whole: whole)) kWh \(net >= 0 ? "Imported" : "Exported")"
     }
 
     // MARK: Energy Flow tables
@@ -333,7 +334,7 @@ struct EnergyView: View {
                             .frame(width: 48, alignment: .leading)
                         Text(p.name).font(.app(size: 13.5)).foregroundStyle(TeslaDark.rowLabel)
                         Spacer()
-                        Text(Num.kwh(p.kwh) + " kWh").font(.app(size: 13.5))
+                        Text(Num.kwh(p.kwh, whole: whole) + " kWh").font(.app(size: 13.5))
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 44)
@@ -373,7 +374,9 @@ struct EnergyView: View {
         }
     }
 
-    private func kwh(_ v: Double) -> String { Num.kwh(v) + " kWh" }
+    private func kwh(_ v: Double) -> String { Num.kwh(v, whole: whole) + " kWh" }
+    /// Year and Lifetime show whole kWh.
+    private var whole: Bool { period == .year || period == .lifetime }
 
     private func tile(_ icon: String, _ color: Color, _ title: String, _ value: String, _ caption: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -905,16 +908,26 @@ private struct EnergyChartView: View {
 
 /// What a reading shows: per group an arrow + summary line and the icons with their values.
 enum EnergyReading {
-    struct Item { let kind: FlowGlyph.Kind; let color: Color; let value: Double }
+    struct Item {
+        let kind: FlowGlyph.Kind; let color: Color; let value: Double; var whole = false
+        var text: String { EnergyReading.n(value, whole: whole) }
+    }
     struct Group { let arrow: String?; let summary: String; let items: [Item] }
 
-    static func n(_ v: Double) -> String {
-        let s = String(format: "%.1f", v)
-        return s == "-0.0" ? "0.0" : s.replacingOccurrences(of: "-", with: "−")
+    /// One decimal, or none for Year / Lifetime; commas for thousands; a real minus sign.
+    static func n(_ v: Double, whole: Bool = false) -> String {
+        let s = whole ? Num.whole(v) : Num.one(v)
+        return (s == "-0.0" || s == "-0") ? String(s.dropFirst()) : s.replacingOccurrences(of: "-", with: "−")
     }
+    static func isZero(_ s: String) -> Bool { s == "0.0" || s == "0" }
 
     /// gridBoth: Grid shows Imported and Exported side by side (longer periods); otherwise whichever is bigger.
-    static func groups(_ comp: EnergyComponent, _ f: EnergyFlow, _ k: Double, unit u: String, gridBoth: Bool) -> [Group] {
+    static func groups(_ comp: EnergyComponent, _ f: EnergyFlow, _ k: Double, unit u: String, gridBoth: Bool,
+                       whole: Bool = false) -> [Group] {
+        func n(_ v: Double) -> String { EnergyReading.n(v, whole: whole) }
+        func Item(kind: FlowGlyph.Kind, color: Color, value: Double) -> EnergyReading.Item {
+            EnergyReading.Item(kind: kind, color: color, value: value, whole: whole)
+        }
         let imp = Group(arrow: "arrow.up", summary: "\(n(f.imp * k)) \(u) Imported",
                         items: [Item(kind: .home, color: EnergyColor.home, value: f.homeGrid * k),
                                 Item(kind: .car, color: EnergyColor.vehicle, value: f.carGrid * k)])
@@ -962,20 +975,22 @@ struct EnergyReadingView: View {
             .foregroundStyle(TeslaDark.rowLabel)
             HStack(alignment: .bottom, spacing: 14) {
                 ForEach(Array(group.items.enumerated()), id: \.offset) { _, it in
-                    let v = EnergyReading.n(it.value)
+                    let v = it.text
                     VStack(spacing: 4) {
                         FlowGlyph(kind: it.kind, color: it.color, height: large ? 15 : 14, maxWidth: 18)
                             .frame(height: 15)
-                        Text(v).font(.app(size: large ? 14 : 12.5, weight: .semibold).monospacedDigit())
-                            .foregroundStyle(v == "0.0" ? TeslaDark.rowLabel : Color.white)
+                        // Header: the figures match the summary line's size (Tesla app).
+                        Text(v).font(.app(size: large ? 11.5 : 12.5, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(EnergyReading.isZero(v) ? TeslaDark.rowLabel : Color.white)
                             .fixedSize()
                     }
                     .frame(minWidth: 28)
                 }
-                Text(unit).font(.app(size: large ? 13 : 12)).foregroundStyle(TeslaDark.rowLabel)
+                Text(unit).font(.app(size: large ? 11.5 : 12)).foregroundStyle(TeslaDark.rowLabel).fixedSize()
             }
         }
         .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)   // never "Cha…" or "k…"
     }
 }
 
@@ -1004,7 +1019,7 @@ struct EnergyScale {
     func label(_ v: Double, top: Bool, unit: String) -> String {
         let big = unit == "kWh" && max(abs(domain.lowerBound), abs(domain.upperBound)) > 1000
         let x = abs(big ? v / 1000 : v)
-        let n = abs(x - x.rounded()) < 0.001 ? String(Int(x.rounded())) : String(format: "%.1f", x)
+        let n = abs(x - x.rounded()) < 0.001 ? Num.whole(x) : String(format: "%.1f", x)
         return top ? "\(n) \(big ? "MWh" : unit)" : n
     }
 }

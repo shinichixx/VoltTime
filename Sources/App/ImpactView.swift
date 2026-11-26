@@ -149,7 +149,7 @@ struct ImpactView: View {
     }
 
     private func kwh(_ v: Double) -> String {
-        Num.kwh(v) + " kWh"
+        Num.kwh(v, whole: period == .year || period == .lifetime) + " kWh"
     }
 
     private func pct(_ v: Double?) -> String { v.map { "\(Int(($0 * 100).rounded()))%" } ?? "—" }

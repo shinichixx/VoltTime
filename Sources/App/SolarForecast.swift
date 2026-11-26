@@ -364,7 +364,7 @@ struct ForecastVsActualView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func k(_ v: Double) -> String { Num.kwh(v) }
+    private func k(_ v: Double) -> String { Num.kwh(v, whole: byMonth) }
 
     private func summaryLabel(_ r: PeriodRange) -> String {
         let current = offset == 0

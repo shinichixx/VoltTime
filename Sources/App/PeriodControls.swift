@@ -258,7 +258,9 @@ private struct TimescalePanel: View {
 enum Num {
     static let en = Locale(identifier: "en_US")
     static func whole(_ v: Double) -> String { Int(v.rounded()).formatted(.number.locale(en)) }
-    static func kwh(_ v: Double) -> String { v >= 100 ? whole(v) : String(format: "%.1f", v) }
+    /// One decimal (no decimals from 100 up, or when `whole`), with a comma for thousands: 1,284.
+    static func kwh(_ v: Double, whole w: Bool = false) -> String { (w || abs(v) >= 100) ? whole(v) : one(v) }
+    static func one(_ v: Double) -> String { v.formatted(.number.locale(en).precision(.fractionLength(1))) }
 }
 
 
