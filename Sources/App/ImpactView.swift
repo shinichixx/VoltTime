@@ -304,20 +304,36 @@ struct ImpactView: View {
             }
             .padding(.top, 14)
             divider().padding(.top, 16)
-            HStack(alignment: .top) {
-                legendDot(Self.solarColor, kwh(t.carSolar), "Solar").frame(maxWidth: .infinity, alignment: .leading)
-                legendDot(Color(white: 0.4), kwh(max(t.car - t.carSolar, 0)), "Grid").frame(maxWidth: .infinity, alignment: .leading)
+            let km: Double? = {
+                guard let perKm = model.kWhPerKm, perKm > 0, t.carSolar > 0 else { return nil }
+                return t.carSolar * ImpactStat.chargeEfficiency / perKm
+            }()
+            HStack(alignment: .top, spacing: 0) {
+                statColumn(dot: Self.solarColor, kwh(t.carSolar), "Solar")
+                statDivider()
+                statColumn(dot: Color(white: 0.4), kwh(max(t.car - t.carSolar, 0)), "Grid")
+                statDivider()
+                statColumn(dot: nil, km.map { "\(Num.whole($0)) km" } ?? "—", "Driven on sunshine", valueColor: Self.solarColor)
             }
             .padding(.top, 14)
-            if let perKm = model.kWhPerKm, t.carSolar > 0 {
-                let km = t.carSolar * ImpactStat.chargeEfficiency / perKm
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("\(Num.whole(km)) km").font(.app(size: 14, weight: .semibold)).foregroundStyle(Self.solarColor)
-                    Text("driven on sunshine").font(.app(size: 12)).foregroundStyle(TeslaDark.labelGrey)
-                }
-                .padding(.top, 18)
-            }
         }
+    }
+
+    private func statColumn(dot: Color?, _ value: String, _ name: String, valueColor: Color = .white) -> some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 6) {
+                if let dot { Circle().fill(dot).frame(width: 7, height: 7) }
+                Text(value).font(.app(size: 13, weight: .semibold)).foregroundStyle(valueColor)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            }
+            Text(name).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+                .lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func statDivider() -> some View {
+        Rectangle().fill(Color.white.opacity(0.09)).frame(width: 0.5, height: 30)
     }
 
     // CO₂ Avoided: tonnes, and the trees that would take it up.
@@ -330,29 +346,29 @@ struct ImpactView: View {
         return card("CO₂ Avoided", info: { withAnimation { showCarbonInfo.toggle() } }) {
             bigNumber(kg >= 1000 ? String(format: "%.2f", kg / 1000) : String(format: "%.0f", kg),
                       kg >= 1000 ? "tonnes" : "kg", Self.green)
-                .padding(.top, 8)
+                .padding(.top, 4)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 13), spacing: 10) {
                 ForEach(0..<icons, id: \.self) { _ in
                     Image(systemName: "tree.fill").font(.system(size: 15)).foregroundStyle(Self.green)
                         .opacity(trees < 1 ? 0.4 : 1)
                 }
             }
-            .padding(.top, 16)
+            .padding(.top, 8)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(trees < 10 ? String(format: "%.1f trees", trees) : "\(n) trees").font(.app(size: 12, weight: .semibold))
-                Text(per > 1 ? "grown 10 years take this up · 1 icon = \(per)" : "grown 10 years take this up")
+                Text(per > 1 ? "absorb this in 10 years · 1 icon = \(per)" : "absorb this in 10 years")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
             }
-            .padding(.top, 14)
+            .padding(.top, 8)
             if showCarbonInfo {
                 Text("Solar generated × the Peninsular Malaysia grid emission factor (Energy Commission 2024). One tree grown for 10 years takes up about 60 kg CO₂ (US EPA).")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 12)
             }
-            divider().padding(.top, 14)
+            divider().padding(.top, 12)
             Text("\(kwh(t.solar)) solar × \(String(format: "%.3f", ImpactStat.gridKgPerKWh)) kg/kWh")
                 .font(.app(size: 10)).foregroundStyle(TeslaDark.labelGrey)
-                .padding(.top, 12)
+                .padding(.top, 10)
         }
     }
 
@@ -366,6 +382,19 @@ struct ImpactView: View {
                               peakToday: model.peakToday, peakTomorrow: model.peakTomorrow)
                 .frame(height: 150)
                 .padding(.top, 14)
+            HStack(spacing: 16) {
+                HStack(spacing: 6) {
+                    Capsule().fill(Self.solarColor).frame(width: 14, height: 2)
+                    Text("Today, hourly Solcast")
+                }
+                HStack(spacing: 6) {
+                    HStack(spacing: 2) { ForEach(0..<3, id: \.self) { _ in Capsule().fill(Color(white: 0.45)).frame(width: 3, height: 1.5) } }
+                    Text("Tomorrow forecast")
+                }
+            }
+            .font(.app(size: 9)).foregroundStyle(TeslaDark.rowLabel)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 10)
             divider().padding(.top, 14)
             HStack {
                 Text("Tomorrow").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
@@ -395,7 +424,7 @@ struct SolarCarView: View {
                     }
             }
         }
-        .aspectRatio(960 / 305, contentMode: .fit)
+        .aspectRatio(1100 / 359, contentMode: .fit)
     }
 }
 
