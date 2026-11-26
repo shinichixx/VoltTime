@@ -689,7 +689,7 @@ private struct EnergyChartView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if comp == .grid {
+            if comp == .grid || comp == .all {
                 VStack {
                     Text("Import")
                     Spacer()

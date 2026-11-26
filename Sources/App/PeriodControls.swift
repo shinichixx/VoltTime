@@ -143,6 +143,8 @@ private struct TimescalePanel: View {
     let close: () -> Void
 
     @State private var choosing = false
+    /// Choose Date is first laid out below the screen, then slid up, so its UIKit wheel moves with the rest.
+    @State private var sheetUp = false
 
     private let cal = Calendar.current
     private let width: CGFloat = 214
@@ -151,20 +153,28 @@ private struct TimescalePanel: View {
     var body: some View {
         GeometryReader { g in
             ZStack(alignment: .topLeading) {
-                Color.black.opacity(choosing ? 0.45 : 0.001)
+                Color.black.opacity(sheetUp ? 0.45 : 0.001)
                     .ignoresSafeArea()
                     .onTapGesture { close() }
+                panel
+                    .offset(x: min(max(12, anchor.maxX - width), g.size.width - width - 12),
+                            y: anchor.maxY + 6 - g.frame(in: .global).minY)
+                    .opacity(sheetUp ? 0 : 1)
+                    .allowsHitTesting(!choosing)
                 if choosing {
                     VStack {
                         Spacer()
                         ChooseDateSheet(periodRaw: $periodRaw, offset: $offset, firstDay: firstDay, close: close)
+                            .geometryGroup()
+                            .offset(y: sheetUp ? 0 : 640)   // taller than the sheet and the bottom safe area
+                            .onAppear {
+                                // Next run loop: the wheel is in place (off screen) before the slide starts.
+                                DispatchQueue.main.async {
+                                    withAnimation(.easeOut(duration: 0.28)) { sheetUp = true }
+                                }
+                            }
                     }
                     .ignoresSafeArea(edges: .bottom)
-                    .transition(.move(edge: .bottom))
-                } else {
-                    panel
-                        .offset(x: min(max(12, anchor.maxX - width), g.size.width - width - 12),
-                                y: anchor.maxY + 6 - g.frame(in: .global).minY)
                 }
             }
         }
@@ -187,7 +197,7 @@ private struct TimescalePanel: View {
             }
             if period != .lifetime {
                 row("Choose Date…", check: false) {
-                    withAnimation(.easeOut(duration: 0.2)) { choosing = true }
+                    choosing = true
                 }
             }
         }
