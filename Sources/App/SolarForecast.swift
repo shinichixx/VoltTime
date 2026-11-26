@@ -160,14 +160,14 @@ struct ForecastVsActualView: View {
     @State private var forward = false
 
     private let cal = Calendar.current
-    private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .month }
+    private var period: ImpactPeriod { ImpactPeriod(stored: periodRaw) ?? .month }
     private var byMonth: Bool { period == .year || period == .lifetime }
     private static let yellow = Color(red: 1, green: 0.8, blue: 0.2)
 
     private var first: Date { log.firstDay ?? cal.startOfDay(for: Date()) }
 
     var body: some View {
-        let r = PeriodRange.make(period, offset: offset, firstDay: first)
+        let r = PeriodRange.make(period, offset: offset, firstDay: first, stored: periodRaw)
         let bs = buckets(r)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -210,8 +210,8 @@ struct ForecastVsActualView: View {
 
     /// One swipe, one period (the graph slides in from that side).
     private func step(_ by: Int, _ r: PeriodRange) {
-        if by < 0 { guard period != .lifetime, r.start > first else { return } }
-        else { guard period != .lifetime, offset < 0 else { return } }
+        if by < 0 { guard period.steps, r.start > first else { return } }
+        else { guard period.steps, offset < 0 else { return } }
         forward = by > 0
         picked = nil
         DispatchQueue.main.async { withAnimation(.easeInOut(duration: 0.28)) { offset += by } }
@@ -538,6 +538,9 @@ struct ForecastVsActualView: View {
             case .lifetime:
                 let every = months > 24 ? 6 : (months > 12 ? 3 : 1)
                 if i % every == 0 { out.append((mid, d.formatted(months > 12 ? .dateTime.month(.abbreviated).year(.twoDigits) : .dateTime.month(.narrow)))) }
+            case .custom:
+                let n = cal.dateComponents([.day], from: dom.lowerBound, to: dom.upperBound).day ?? 0
+                if n <= 7 || i % 7 == 0 { out.append((mid, "\(cal.component(.day, from: d))")) }
             case .day: break
             }
             d = next
@@ -581,7 +584,7 @@ struct ForecastVsActualView: View {
 
     private func xStride(_ n: Int) -> Int {
         switch period {
-        case .month: return 7
+        case .month, .custom: return n > 7 ? 7 : 1
         case .lifetime: return n > 12 ? 3 : 1
         default: return 1
         }

@@ -109,12 +109,15 @@ struct EnergyView: View {
     }
 
     private let cal = Calendar.current
-    private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .day }
+    private var period: ImpactPeriod { ImpactPeriod(stored: periodRaw) ?? .day }
     private var comp: EnergyComponent { EnergyComponent(rawValue: compRaw) ?? .all }
 
-    private var range: PeriodRange { PeriodRange.make(period, offset: offset, firstDay: store.firstDay) }
-    private var canBack: Bool { period != .lifetime && (store.firstDay.map { range.start > $0 } ?? false) }
-    private var canForward: Bool { period != .lifetime && offset < 0 }
+    private var range: PeriodRange { PeriodRange.make(period, offset: offset, firstDay: store.firstDay, stored: periodRaw) }
+    private var cover: Coverage { store.coverage(range) }
+    /// Nothing recorded at all: show "–", not 0 (which would look like a real reading).
+    private var noData: Bool { cover.have == 0 && !store.loading }
+    private var canBack: Bool { period.steps && (store.firstDay.map { range.start > $0 } ?? false) }
+    private var canForward: Bool { period.steps && offset < 0 }
 
     /// One swipe, one period: the old graph slides out and the next one slides in.
     private func step(_ by: Int) {
@@ -150,6 +153,10 @@ struct EnergyView: View {
                     .frame(height: 270)
                     .clipShape(OpenTopClip())   // the slide stays inside the graph; the reading box may rise above it
                     .padding(.top, 18)
+                if let note = cover.note(day: period == .day, loading: store.loading), cover.have > 0 {
+                    Text(note).font(.app(size: 11.5)).foregroundStyle(TeslaDark.rowLabel)
+                        .padding(.horizontal, 20).padding(.top, 8)
+                }
                 Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
                     .opacity(selection == nil ? 1 : 0.25)
                 ScrollView {
@@ -303,7 +310,7 @@ struct EnergyView: View {
         switch period {
         case .day:
             return range.label + " · " + sel.addingTimeInterval(-450).formatted(date: .omitted, time: .shortened)
-        case .week, .month:
+        case .week, .month, .custom:
             return sel.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
         default:
             return sel.formatted(.dateTime.month(.wide).year())
@@ -318,13 +325,14 @@ struct EnergyView: View {
             }
             .foregroundStyle(TeslaDark.rowLabel)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(Num.kwh(v, whole: whole)).font(.app(size: 24, weight: .semibold))
+                Text(noData ? "–" : Num.kwh(v, whole: whole)).font(.app(size: 24, weight: .semibold))
                 Text("kWh").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
     }
 
     private func netLine(_ t: EnergyFlow) -> String {
+        if noData { return "Net Grid Usage: –" }
         let net = t.imp - t.exp
         return "Net Grid Usage: \(Num.kwh(abs(net), whole: whole)) kWh \(net >= 0 ? "Imported" : "Exported")"
     }
@@ -386,12 +394,12 @@ struct EnergyView: View {
                     HStack(spacing: 0) {
                         FlowGlyph(kind: p.glyph, color: p.color, height: 15, maxWidth: 18)
                             .frame(width: 34, alignment: .center)
-                        Text(sum > 0 ? "\(Int((p.kwh / sum * 100).rounded()))%" : "0%")
+                        Text(noData ? "–" : sum > 0 ? "\(Int((p.kwh / sum * 100).rounded()))%" : "0%")
                             .font(.app(size: 14, weight: .semibold))
                             .frame(width: 48, alignment: .leading)
                         Text(p.name).font(.app(size: 13.5)).foregroundStyle(TeslaDark.rowLabel)
                         Spacer()
-                        Text(Num.kwh(p.kwh, whole: whole) + " kWh").font(.app(size: 13.5))
+                        Text(noData ? "–" : Num.kwh(p.kwh, whole: whole) + " kWh").font(.app(size: 13.5))
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 44)
@@ -495,6 +503,7 @@ private struct EnergyChartView: View {
         var out: [FlowPoint] = []
         var d = range.start
         let end = min(range.end, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date())
+        if store.coverage(range).have == 0 { return [] }
         while d < end {
             let next = cal.date(byAdding: unit, value: 1, to: d) ?? end
             out.append(FlowPoint(date: d, flow: store.flowTotal(from: d, to: min(next, end)), k: 1))
@@ -694,7 +703,7 @@ private struct EnergyChartView: View {
         }
         .overlay {
             if pts.isEmpty && !store.loading {
-                Text(isDay ? "No data for this day" : "No data for this period").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                Text(isDay ? "No data for this date" : "No data for this period").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }
     }
@@ -773,6 +782,10 @@ private struct EnergyChartView: View {
                 let months = cal.dateComponents([.month], from: range.start, to: end).month ?? 0
                 let every = months > 24 ? 6 : (months > 12 ? 3 : 1)
                 if i % every == 0 { out.append((mid, d.formatted(months > 12 ? .dateTime.month(.abbreviated).year(.twoDigits) : .dateTime.month(.narrow)))) }
+            case .custom:
+                // Up to a week: every day; longer: every 7th day from the start.
+                let n = cal.dateComponents([.day], from: range.start, to: end).day ?? 0
+                if n <= 7 || i % 7 == 0 { out.append((mid, "\(cal.component(.day, from: d))")) }
             case .day:
                 break
             }
@@ -836,7 +849,7 @@ private struct EnergyChartView: View {
 
     private func axisCount(_ n: Int) -> Int {
         switch period {
-        case .month: return 7
+        case .month, .custom: return n > 7 ? 7 : 1
         case .lifetime: return n > 12 ? 3 : 1
         default: return 1
         }
@@ -1003,8 +1016,8 @@ private struct EnergyChartView: View {
         guard b.hi - b.lo > 0.0001 else { return nil }
         let pt = (scale.domain.upperBound - scale.domain.lowerBound) / 248   // one point in kWh
         var lo = b.lo, hi = b.hi
-        if hi <= 0 { hi -= 1 * pt }                       // below zero: gap at the top
-        else { lo += (lo <= 0.0001 ? 1 : 0.75) * pt }     // above zero: gap at 0, or under a colour beneath
+        if hi <= 0 { hi -= 2 * pt }                       // below zero: 2 pt gap under the 0 line
+        else { lo += (lo <= 0.0001 ? 2 : 0.75) * pt }     // above zero: 2 pt over 0, or a thin gap on a colour beneath
         if hi - lo < pt { if b.hi <= 0 { lo = hi - pt } else { hi = lo + pt } }
         return (lo, hi)
     }

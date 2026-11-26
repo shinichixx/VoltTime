@@ -50,6 +50,17 @@ enum ImpactStat {
     static let chargeEfficiency = 0.93
 }
 
+struct Coverage {
+    let have: Int
+    let days: Int
+    /// "No data for this date", "Data for 26 of 31 days", or nothing when complete (or still loading).
+    func note(day: Bool, loading: Bool) -> String? {
+        if loading || have >= days { return nil }
+        if have == 0 { return day ? "No data for this date" : "No data for this period" }
+        return "Data for \(have) of \(days) days"
+    }
+}
+
 struct StoreFile: Codable {
     var first: String?
     var days: [String: Data]
@@ -146,6 +157,20 @@ final class EnergyStore: ObservableObject {
     }
 
     func total(from start: Date, to end: Date) -> DaySummary { DaySummary(flowTotal(from: start, to: end)) }
+
+    /// How many days of a period (up to today) have saved energy.
+    func coverage(_ r: PeriodRange) -> Coverage {
+        let end = min(r.end, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? r.end)
+        var have = 0, days = 0
+        var d = cal.startOfDay(for: r.start)
+        while d < end {
+            days += 1
+            if curve(d) != nil { have += 1 }
+            guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
+            d = n
+        }
+        return Coverage(have: have, days: days)
+    }
 
     // MARK: Restore
 

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum ImpactPeriod: String, CaseIterable, Identifiable {
-    case day = "Day", week = "Week", month = "Month", year = "Year", lifetime = "Lifetime"
+    case day = "Day", week = "Week", month = "Month", year = "Year", lifetime = "Lifetime", custom = "Custom"
     var id: String { rawValue }
 
     var component: Calendar.Component? {
@@ -10,9 +10,12 @@ enum ImpactPeriod: String, CaseIterable, Identifiable {
         case .week: return .weekOfYear
         case .month: return .month
         case .year: return .year
-        case .lifetime: return nil
+        case .lifetime, .custom: return nil
         }
     }
+
+    /// Whether there's a previous / next one to swipe to.
+    var steps: Bool { component != nil }
 }
 
 /// Opened from the Impact row on My Home. Tesla-app style: period menu top right, cards below.
@@ -26,14 +29,16 @@ struct ImpactView: View {
     @State private var showCarbonInfo = false
     @State private var forward = false
 
-    private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .month }
+    private var period: ImpactPeriod { ImpactPeriod(stored: periodRaw) ?? .month }
 
     static let solarColor = Color(red: 1, green: 0.8, blue: 0.2)
     static let gridColor = Color(red: 142 / 255, green: 142 / 255, blue: 147 / 255)
 
     var body: some View {
-        let r = PeriodRange.make(period, offset: offset, firstDay: model.firstDay)
+        let r = PeriodRange.make(period, offset: offset, firstDay: model.firstDay, stored: periodRaw)
         let t = model.total(from: r.start, to: r.end)
+        let cover = model.coverage(r)
+        let empty = cover.have == 0 && !model.loading
         ScrollView {
             VStack(spacing: 10) {
                 if model.curves.isEmpty && model.loading {
@@ -44,13 +49,19 @@ struct ImpactView: View {
                     .frame(maxWidth: .infinity, minHeight: 200)
                 } else {
                     // Swipe the cards for the previous / next period; they slide in from that side.
+                    if let note = cover.note(day: period == .day, loading: model.loading) {
+                        Text(note).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+                    }
                     ZStack {
                         VStack(spacing: 10) {
                             selfPoweredCard(t)
-                            valueCard(r)
-                            offsetCard(t)
-                            carCard(t)
-                            carbonCard(t)
+                            if !empty { valueCard(r) }
+                            if !empty {   // nothing recorded: no zeros that look like readings
+                                offsetCard(t)
+                                carCard(t)
+                                carbonCard(t)
+                            }
                         }
                         .id("\(periodRaw)|\(offset)")
                         .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
@@ -92,7 +103,7 @@ struct ImpactView: View {
 
     /// One swipe, one period; can't go past today or before the first recorded day.
     private func step(_ by: Int, _ r: PeriodRange) {
-        guard period != .lifetime else { return }
+        guard period.steps else { return }
         if by < 0 { guard model.firstDay.map({ r.start > $0 }) ?? false else { return } }
         else { guard offset < 0 else { return } }
         forward = by > 0
@@ -155,7 +166,7 @@ struct ImpactView: View {
     /// "This Month", "Today"… for the current period; the period's own name otherwise.
     private func caption(_ r: PeriodRange) -> String {
         if period == .lifetime { return "Lifetime" }
-        guard offset == 0 else { return r.label }
+        guard offset == 0, period != .custom else { return r.label }
         switch period {
         case .day: return "Today"
         case .week: return "This Week"

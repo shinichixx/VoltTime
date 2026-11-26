@@ -124,6 +124,19 @@ extension EnergyStore {
             return (vals, (0..<n).map { i in
                 i == 0 ? "1st" : i == 14 ? "15th" : i == n - 1 ? Self.ordinal(n) : nil
             })
+        case .custom:
+            var vals: [Double] = [], days: [Date] = []
+            var d = r.start
+            while d < r.end {
+                vals.append(value(day: d))
+                days.append(d)
+                guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
+                d = n
+            }
+            let n = vals.count
+            return (vals, days.enumerated().map { i, d in
+                i == 0 || i == n - 1 || (n > 4 && i == n / 2) ? d.formatted(.dateTime.day().month(.abbreviated)) : nil
+            })
         case .year, .lifetime:
             var vals: [Double] = [], starts: [Date] = []
             var m = cal.dateInterval(of: .month, for: r.start)?.start ?? r.start

@@ -6,9 +6,12 @@ struct PeriodRange: Equatable {
     let end: Date
     let label: String
 
-    static func make(_ period: ImpactPeriod, offset: Int, firstDay: Date?) -> PeriodRange {
+    static func make(_ period: ImpactPeriod, offset: Int, firstDay: Date?, stored: String = "") -> PeriodRange {
         let cal = Calendar.current
         let now = Date()
+        if period == .custom, let s = CustomSpan(stored: stored) {
+            return PeriodRange(start: s.start, end: cal.date(byAdding: .day, value: 1, to: s.end) ?? s.end, label: s.label)
+        }
         guard let comp = period.component else {
             let start = firstDay ?? cal.startOfDay(for: now)
             return PeriodRange(start: start,
@@ -29,7 +32,7 @@ struct PeriodRange: Equatable {
                 : "\(interval.start.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated)))"
         case .month: label = interval.start.formatted(.dateTime.month(.wide).year())
         case .year: label = interval.start.formatted(.dateTime.year())
-        case .lifetime: label = ""
+        case .lifetime, .custom: label = ""
         }
         return PeriodRange(start: interval.start, end: interval.end, label: label)
     }
@@ -43,20 +46,20 @@ struct PeriodBar: View {
     @Binding var offset: Int
 
     var body: some View {
-        let canBack = period != .lifetime && (firstDay.map { range.start > $0 } ?? false)
-        let canForward = period != .lifetime && offset < 0
+        let canBack = period.steps && (firstDay.map { range.start > $0 } ?? false)
+        let canForward = period.steps && offset < 0
         HStack {
             Button { offset -= 1 } label: { Image(systemName: "chevron.left").padding(10) }
                 .disabled(!canBack)
                 .foregroundStyle(canBack ? TeslaDark.rowLabel : Color(white: 0.23))
-                .opacity(period == .lifetime ? 0 : 1)
+                .opacity(period.steps ? 1 : 0)
             Spacer()
             Text(range.label).font(.app(size: 15, weight: .medium))
             Spacer()
             Button { offset += 1 } label: { Image(systemName: "chevron.right").padding(10) }
                 .disabled(!canForward)
                 .foregroundStyle(canForward ? TeslaDark.rowLabel : Color(white: 0.23))
-                .opacity(period == .lifetime ? 0 : 1)
+                .opacity(period.steps ? 1 : 0)
         }
         .font(.system(size: 15, weight: .semibold))
         .buttonStyle(.plain)
@@ -65,7 +68,7 @@ struct PeriodBar: View {
 
 /// "Day ⌄" timescale picker (Tesla app): tapping it drops a dark panel under it titled Timescale, with
 /// Day … Lifetime, a line, then Go to Today (only when you're not on the current period) and Choose Date…,
-/// which opens a calendar and goes to the day / week / month / year that date falls in.
+/// which opens the Choose Date sheet (ChooseDate.swift).
 struct PeriodMenu: View {
     @Binding var periodRaw: String
     @Binding var offset: Int
@@ -76,7 +79,7 @@ struct PeriodMenu: View {
 
     @State private var frame: CGRect = .zero
 
-    private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .month }
+    private var period: ImpactPeriod { ImpactPeriod(stored: periodRaw) ?? .month }
 
     var body: some View {
         Button {
@@ -140,11 +143,10 @@ private struct TimescalePanel: View {
     let close: () -> Void
 
     @State private var choosing = false
-    @State private var picked = Date()
 
     private let cal = Calendar.current
     private let width: CGFloat = 214
-    private var period: ImpactPeriod { ImpactPeriod(rawValue: periodRaw) ?? .month }
+    private var period: ImpactPeriod { ImpactPeriod(stored: periodRaw) ?? .month }
 
     var body: some View {
         GeometryReader { g in
@@ -153,8 +155,12 @@ private struct TimescalePanel: View {
                     .ignoresSafeArea()
                     .onTapGesture { close() }
                 if choosing {
-                    VStack { Spacer(); calendar }
-                        .ignoresSafeArea(edges: .bottom)
+                    VStack {
+                        Spacer()
+                        ChooseDateSheet(periodRaw: $periodRaw, offset: $offset, firstDay: firstDay, close: close)
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                    .transition(.move(edge: .bottom))
                 } else {
                     panel
                         .offset(x: min(max(12, anchor.maxX - width), g.size.width - width - 12),
@@ -168,19 +174,18 @@ private struct TimescalePanel: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Timescale").font(.app(size: 12, weight: .medium)).foregroundStyle(Color(white: 0.55))
                 .padding(.top, 14).padding(.bottom, 4)
-            ForEach(ImpactPeriod.allCases) { p in
+            ForEach(ImpactPeriod.allCases.filter { $0 != .custom }) { p in
                 row(p.rawValue, check: p == period) {
                     if p != period { periodRaw = p.rawValue; offset = 0 }
                     close()
                 }
             }
             Rectangle().fill(Color(white: 0.32)).frame(height: 1).padding(.vertical, 6)
-            if offset != 0 && period != .lifetime {
+            if offset != 0 && period.steps {
                 row("Go to Today", check: false) { offset = 0; close() }
             }
             if period != .lifetime {
                 row("Choose Date…", check: false) {
-                    picked = PeriodRange.make(period, offset: offset, firstDay: firstDay).start
                     withAnimation(.easeOut(duration: 0.2)) { choosing = true }
                 }
             }
@@ -203,53 +208,6 @@ private struct TimescalePanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private var lowest: Date { firstDay.map { cal.startOfDay(for: $0) } ?? cal.date(byAdding: .year, value: -5, to: Date()) ?? Date() }
-
-    private var calendar: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button("Cancel") { close() }.foregroundStyle(TeslaDark.rowLabel)
-                Spacer()
-                Text("Choose Date").font(.app(size: 15, weight: .semibold))
-                Spacer()
-                Button("Go") { go() }.font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
-            }
-            .font(.app(size: 15))
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
-            DatePicker("", selection: $picked, in: lowest...Date(), displayedComponents: .date)
-                .datePickerStyle(.graphical)
-                .labelsHidden()
-                .tint(Color(white: 0.85))
-                .padding(.horizontal, 12)
-            Text(hint).font(.app(size: 11.5)).foregroundStyle(TeslaDark.rowLabel)
-                .padding(.bottom, 34)
-        }
-        .foregroundStyle(.white)
-        .background(UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14, style: .continuous)
-            .fill(Color(red: 36 / 255, green: 37 / 255, blue: 40 / 255)))
-        .environment(\.colorScheme, .dark)
-        .transition(.move(edge: .bottom))
-    }
-
-    private var hint: String {
-        switch period {
-        case .day: return "Opens this day."
-        case .week: return "Opens the week this day falls in."
-        case .month: return "Opens the month this day falls in."
-        default: return "Opens the year this day falls in."
-        }
-    }
-
-    /// Offset of the period holding `picked`, counted back from the current one.
-    private func go() {
-        guard let c = period.component,
-              let now = cal.dateInterval(of: c, for: Date())?.start,
-              let then = cal.dateInterval(of: c, for: picked)?.start else { close(); return }
-        offset = min(0, cal.dateComponents([c], from: now, to: then).value(for: c) ?? 0)
-        close()
     }
 }
 
