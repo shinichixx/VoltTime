@@ -493,8 +493,6 @@ struct ForecastVsActualView: View {
                            _ ctx: inout GraphicsContext, _ size: CGSize, lines: Bool) {
         guard let anchor = proxy.plotFrame else { return }
         let plot = g[anchor]
-        var shadowed = ctx
-        shadowed.addFilter(.shadow(color: .black.opacity(0.85), radius: 2))
         if !lines {
             for (d, label) in barLabels(r) {
                 guard let px = proxy.position(forX: d) else { continue }
@@ -515,7 +513,7 @@ struct ForecastVsActualView: View {
                 ctx.stroke(p, with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
             } else if !isBottom {
                 let t = ctx.resolve(Text(scale.label(v, top: isTop, unit: "kWh")).font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
-                shadowed.draw(t, at: CGPoint(x: plot.maxX - 4, y: y + 2), anchor: .topTrailing)
+                ctx.drawGlowing(t, at: CGPoint(x: plot.maxX - 4, y: y + 2), anchor: .topTrailing)
             }
         }
     }

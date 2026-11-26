@@ -696,6 +696,7 @@ private struct EnergyChartView: View {
                     Text("Export")
                 }
                 .font(.app(size: 10)).foregroundStyle(TeslaDark.dim)
+                .chartLabelGlow()
                 .padding(.vertical, 4).padding(.leading, 6)
                 .padding(.bottom, 22)
                 .allowsHitTesting(false)
@@ -716,8 +717,6 @@ private struct EnergyChartView: View {
         guard let anchor = proxy.plotFrame else { return }
         let plot = g[anchor]
         let unitName = isDay ? "kW" : "kWh"
-        var shadowed = ctx   // numbers keep a faint dark shadow, readable over the graph
-        shadowed.addFilter(.shadow(color: .black.opacity(0.85), radius: 2))
         // Day: 6 AM, 12 PM, 6 PM centred under their dotted lines.
         if isDay && !lines {
             for h in [6, 12, 18] {
@@ -756,7 +755,7 @@ private struct EnergyChartView: View {
             } else if !isBottom {
                 let text = ctx.resolve(Text(scale.label(v, top: isTop, unit: unitName))
                     .font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
-                shadowed.draw(text, at: CGPoint(x: plot.maxX - 4, y: y + 2), anchor: .topTrailing)
+                ctx.drawGlowing(text, at: CGPoint(x: plot.maxX - 4, y: y + 2), anchor: .topTrailing)
             }
         }
     }
@@ -1152,6 +1151,26 @@ struct EnergyReadingView: View {
         }
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)   // never "Cha…" or "k…"
+    }
+}
+
+/// Chart figures that sit over bars and areas: a soft glow in the page background colour round the grey text.
+extension GraphicsContext {
+    func drawGlowing(_ text: GraphicsContext.ResolvedText, at point: CGPoint, anchor: UnitPoint) {
+        var tight = self
+        tight.addFilter(.shadow(color: TeslaDark.bg, radius: 1.5))
+        var soft = self
+        soft.addFilter(.shadow(color: TeslaDark.bg, radius: 3))
+        // Each pass builds the glow up; one shadow alone is too faint over a grey bar.
+        for _ in 0..<2 { soft.draw(text, at: point, anchor: anchor) }
+        for _ in 0..<3 { tight.draw(text, at: point, anchor: anchor) }
+        draw(text, at: point, anchor: anchor)
+    }
+}
+
+extension View {
+    func chartLabelGlow() -> some View {
+        shadow(color: TeslaDark.bg, radius: 1.5).shadow(color: TeslaDark.bg, radius: 1.5).shadow(color: TeslaDark.bg, radius: 3)
     }
 }
 
