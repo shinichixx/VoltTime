@@ -98,6 +98,7 @@ struct ContentView: View {
                 }
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $pageID)
+                .pagerFX(fx)
                 .scrollIndicators(.hidden)
                 .scrollBounceBehavior(.basedOnSize, axes: .vertical)   // the pager itself never moves up or down
                 .ignoresSafeArea(.container)
@@ -135,12 +136,11 @@ struct ContentView: View {
                     withTransaction(instant) {
                         pageID = i
                         page = i
-                        // The pages report their place only when they move, and a jump behind the menu
-                        // never does, so set the two photos by hand (car or house fully shown).
-                        fx.carX = i == 0 ? 0 : 10_000
-                        fx.homeX = i == 1 ? 0 : nil
-                        fx.carScroll = 0
-                        fx.homeScroll = 0
+                        // Older iOS only (iOS 18+ follows the pager's own offset): set the two photos by hand.
+                        if !fx.pagerDriven {
+                            fx.carX = i == 0 ? 0 : 10_000
+                            fx.homeX = i == 1 ? 0 : nil
+                        }
                     }
                     DispatchQueue.main.async { path.removeAll() }
                 }

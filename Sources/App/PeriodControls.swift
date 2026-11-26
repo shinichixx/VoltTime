@@ -241,6 +241,9 @@ final class PagerFX: ObservableObject {
     @Published var carScroll: CGFloat = 0
     @Published var homeX: CGFloat? = nil
     @Published var homeScroll: CGFloat = 0
+    /// iOS 18+: the pager's own scroll offset sets carX / homeX (build 102). The pages' screen positions
+    /// go stale when the pager jumps behind the Menu, which left the house showing on the car page.
+    var pagerDriven = false
 
     /// 1 while the page is in place, 0 once it's half way off.
     static func swipe(_ x: CGFloat?, _ w: CGFloat) -> Double {
@@ -248,6 +251,26 @@ final class PagerFX: ObservableObject {
         return max(0, 1 - 2 * min(1, abs(x) / max(w, 1)))
     }
     static func scrolled(_ y: CGFloat) -> Double { max(0.08, 1 - Double(max(y, 0)) / 150) }
+}
+
+/// Where the pager is scrolled to, and how wide one page is.
+struct PagerGeo: Equatable { var x: CGFloat; var w: CGFloat }
+
+extension View {
+    /// iOS 18+: the car sits at -offset, the house one page to the right of it.
+    @ViewBuilder func pagerFX(_ fx: PagerFX) -> some View {
+        if #available(iOS 18.0, *) {
+            onScrollGeometryChange(for: PagerGeo.self) { g in
+                PagerGeo(x: g.contentOffset.x + g.contentInsets.leading, w: g.containerSize.width)
+            } action: { _, p in
+                fx.pagerDriven = true
+                fx.carX = -p.x
+                fx.homeX = p.w - p.x
+            }
+        } else {
+            self
+        }
+    }
 }
 
 

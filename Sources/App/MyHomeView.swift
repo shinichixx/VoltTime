@@ -305,8 +305,8 @@ struct MyHomeView: View {
     private func page(width w: CGFloat, height: CGFloat, screen: CGFloat, px: CGFloat) -> some View {
         ZStack(alignment: .top) {
             Color.clear
-                .onAppear { fx.homeX = px }
-                .onChange(of: px) { _, v in fx.homeX = v }
+                .onAppear { if !fx.pagerDriven { fx.homeX = px } }
+                .onChange(of: px) { _, v in if !fx.pagerDriven { fx.homeX = v } }
                 .onChange(of: scroll) { _, v in fx.homeScroll = v }
 
             ScrollView {

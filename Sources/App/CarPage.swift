@@ -195,8 +195,8 @@ struct CarView2: View {
             ZStack(alignment: .top) {
                 // Background and car photo are drawn behind the pager (ContentView), so the swipe never cuts the car.
                 Color.clear
-                    .onAppear { fx.carX = px }
-                    .onChange(of: px) { _, v in fx.carX = v }
+                    .onAppear { if !fx.pagerDriven { fx.carX = px } }
+                    .onChange(of: px) { _, v in if !fx.pagerDriven { fx.carX = v } }
                     .onChange(of: scroll) { _, v in fx.carScroll = v }
 
                 ScrollViewReader { proxy in
