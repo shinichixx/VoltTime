@@ -565,6 +565,7 @@ private struct EnergyChartView: View {
                     ForEach(Array(parts(p).enumerated()), id: \.offset) { i, part in
                         if let s = gapped(bounds(p, i), scale) {
                             BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi), width: .ratio(0.6))
+                                .cornerRadius(1.5)
                                 .foregroundStyle(by: .value("Part", part.0))
                                 .opacity(dim(p))
                         }
@@ -819,7 +820,7 @@ private struct EnergyChartView: View {
                 ForEach(allSegments(p.flow)) { seg in
                     if let s = gapped((seg.lo, seg.hi), scale) {
                         BarMark(x: .value("Date", p.date, unit: unit), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
-                            .foregroundStyle(seg.color).position(by: .value("Side", seg.side)).opacity(dim(p))
+                            .cornerRadius(1.5).foregroundStyle(seg.color).position(by: .value("Side", seg.side)).opacity(dim(p))
                     }
                 }
             }
@@ -860,8 +861,8 @@ private struct EnergyChartView: View {
         guard b.hi - b.lo > 0.0001 else { return nil }
         let pt = (scale.domain.upperBound - scale.domain.lowerBound) / 248   // one point in kWh
         var lo = b.lo, hi = b.hi
-        if hi <= 0 { hi -= 2 * pt }                       // below zero: gap at the top
-        else { lo += (lo <= 0.0001 ? 2 : 1.5) * pt }      // above zero: gap at 0, or under a colour beneath
+        if hi <= 0 { hi -= 1 * pt }                       // below zero: gap at the top
+        else { lo += (lo <= 0.0001 ? 1 : 0.75) * pt }     // above zero: gap at 0, or under a colour beneath
         if hi - lo < pt { if b.hi <= 0 { lo = hi - pt } else { hi = lo + pt } }
         return (lo, hi)
     }
