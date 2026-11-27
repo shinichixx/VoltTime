@@ -2,6 +2,7 @@ import SwiftUI
 
 /// One speed rule for every power-flow streak (My Car and My Home): the same power moves at the same speed.
 /// 12 kW (and anything above) runs at 112 points per second on a 393 pt wide screen.
+/// Below 0.5 kW the streak moves at half the curve's speed.
 enum FlowSpeed {
     private static let curve: [(kW: Double, v: Double)] = [(0, 20), (1, 28), (3, 42), (7, 62), (12, 80)]
 
@@ -13,7 +14,7 @@ enum FlowSpeed {
             v = a.v + (b.v - a.v) * (k - a.kW) / (b.kW - a.kW)
             break
         }
-        return v * 112 / 80
+        return v * 112 / 80 * (watts < 500 ? 0.5 : 1)   // a trickle crawls at half pace
     }
 }
 
