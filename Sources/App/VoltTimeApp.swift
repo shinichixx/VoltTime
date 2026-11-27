@@ -60,7 +60,7 @@ struct ContentView: View {
             TeslaDark.bg.ignoresSafeArea()
             GeometryReader { g in
                 let w = g.size.width
-                CarScene(car: car.car)
+                CarScene(car: car.car, meterW: car.isHome ? myHome.liveCarW : nil)
                     .frame(width: w * 1.095)
                     .frame(width: w, height: 215)
                     .clipped()

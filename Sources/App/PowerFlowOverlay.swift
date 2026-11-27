@@ -4,12 +4,14 @@ import SwiftUI
 /// (bright head, fading tail) runs along them in the direction power flows, one at a time per route.
 /// A streak keeps going through the meter box: solar from the roof through the inverter and the box into the
 /// house, grid from the street through the box into the house. Into the house there are two lanes:
-/// green = the solar share, yellow = the grid share, each at the speed of its own power.
+/// green = the solar share, yellow = the grid share. Each wire section moves at the speed of the power it carries
+/// (FlowSpeed), so a streak changes pace as it passes the box.
 struct PowerFlowOverlay: View {
     @ObservedObject var model: MyHomeModel
     let width: CGFloat
     @Environment(\.scenePhase) private var phase
     @State private var visible = false
+    @State private var clock = FlowClock()
 
     // Wire routes in photo pixels (scenario photos are 1179 px wide), listed in the direction of flow.
     private static let solarWire: [CGPoint] = [.init(x: 627, y: 946), .init(x: 630, y: 955), .init(x: 648, y: 990), .init(x: 648, y: 1062)]
@@ -35,8 +37,9 @@ struct PowerFlowOverlay: View {
 
     /// One streak route: wire pieces joined end to end; the hop between pieces (inside the box) isn't drawn.
     private struct Route {
+        let id: String
         let pieces: [[CGPoint]]   // screen points
-        let watts: Double
+        let watts: [Double]       // the power each piece carries (sets its speed)
         let color: Color
         var width: CGFloat = 1.5  // core line, points
     }
@@ -122,35 +125,24 @@ struct PowerFlowOverlay: View {
         var out: [Route] = []
         var solarUsed = false
         if s > th, houseSolar > th {
-            out.append(Route(pieces: solarIn + [screen(Self.solarLane)], watts: houseSolar, color: Self.green))
+            out.append(Route(id: "solarHome", pieces: solarIn + [screen(Self.solarLane)], watts: [s, s, houseSolar], color: Self.green))
             solarUsed = true
         }
         if g < -th {   // exporting: solar runs on out to the street
-            out.append(Route(pieces: solarIn + [screen(Array(Self.gridToBox.reversed()))], watts: -g, color: Self.green))
+            out.append(Route(id: "export", pieces: solarIn + [screen(Array(Self.gridToBox.reversed()))], watts: [s, s, -g], color: Self.green))
             solarUsed = true
         }
         if s > th, !solarUsed {   // solar going only to the car
-            out.append(Route(pieces: solarIn, watts: s, color: Self.green))
+            out.append(Route(id: "solarCar", pieces: solarIn, watts: [s, s], color: Self.green))
         }
         if g > th {
-            out.append(Route(pieces: [screen(Self.gridToBox), screen(Self.gridLane)],   // always on through the box into the house
-                             watts: houseGrid > th ? houseGrid : g, color: Self.yellow))
+            out.append(Route(id: "import", pieces: [screen(Self.gridToBox), screen(Self.gridLane)],   // always on through the box into the house
+                             watts: [g, houseGrid > th ? houseGrid : g], color: Self.yellow))
         }
         if c > th {
-            out.append(Route(pieces: [screen(Self.carCable)], watts: c, color: Self.green))
+            out.append(Route(id: "car", pieces: [screen(Self.carCable)], watts: [c], color: Self.green))
         }
         return out
-    }
-
-    /// Fixed speed bands (so a streak doesn't jump every time the reading changes a little).
-    private func speed(_ watts: Double) -> Double {
-        let scale = Double(width / 393)
-        switch watts {
-        case ..<1000: return 26 * scale
-        case ..<3000: return 40 * scale
-        case ..<6000: return 56 * scale
-        default: return 72 * scale
-        }
     }
 
     private func draw(_ r: Route, _ t: Double, _ ctx: inout GraphicsContext) {
@@ -158,7 +150,10 @@ struct PowerFlowOverlay: View {
         // crossing the box) but not drawn.
         var pts: [CGPoint] = []
         var drawn: [Bool] = []   // per segment
-        for piece in r.pieces where piece.count > 1 {
+        var speeds: [Double] = []   // per segment, points per second
+        for (n, piece) in r.pieces.enumerated() where piece.count > 1 {
+            let v = FlowSpeed.pointsPerSecond(watts: r.watts[n]) * Double(width / 393)
+            speeds += Array(repeating: v, count: piece.count - (pts.isEmpty ? 1 : 0))
             if !pts.isEmpty { drawn.append(false) }   // the hop from the last piece
             pts.append(piece[0])
             for q in piece.dropFirst() { pts.append(q); drawn.append(true) }
@@ -181,14 +176,36 @@ struct PowerFlowOverlay: View {
 
         let unit = Double(width / 393)
         let tail = total * 0.45
-        let cycle = total + tail                       // the next streak starts once this one has gone
-        let head = (t * speed(r.watts)).truncatingRemainder(dividingBy: cycle)
+        // Distance ⇄ travel time, so every part of the streak moves at the speed of the wire it is on.
+        var times: [Double] = [0]
+        for i in 1..<cum.count { times.append(times[i - 1] + (cum[i] - cum[i - 1]) / speeds[i - 1]) }
+        let first = speeds[0], last = speeds[speeds.count - 1], end = times[times.count - 1]
+        func time(_ d: Double) -> Double {
+            if d >= total { return end + (d - total) / last }
+            let i = seg(max(d, 0))
+            return times[i] + (d - cum[i]) / speeds[i]
+        }
+        func distance(_ s: Double) -> Double {
+            if s <= 0 { return s * first }
+            if s >= end { return total + (s - end) * last }
+            var i = 0
+            while i < times.count - 2, times[i + 1] <= s { i += 1 }
+            return cum[i] + (s - times[i]) * speeds[i]
+        }
+        // The position is kept as a distance, so new readings change the speed without a jump.
+        // The next streak starts once this one has gone.
+        let head = clock.advance(r.id, to: t) { x, dt in
+            let next = distance(time(x) + dt)
+            return distance(time(next) - tail / ((first + last) / 2)) >= total ? 0 : next
+        }
+        let headTime = time(head)
+        let tailTime = tail / ((first + last) / 2)
         let steps = 48
         var glow = ctx
         glow.addFilter(.blur(radius: 1.6 * unit))
         for j in 0..<steps {
-            let d1 = min(head - tail * Double(j) / Double(steps), total)
-            let d0 = max(head - tail * Double(j + 1) / Double(steps), 0)
+            let d1 = min(distance(headTime - tailTime * Double(j) / Double(steps)), total)
+            let d0 = max(distance(headTime - tailTime * Double(j + 1) / Double(steps)), 0)
             if d1 <= 0 { break }
             if d0 >= total { continue }
             // Split at segment ends so a hop (inside the box) is skipped cleanly.

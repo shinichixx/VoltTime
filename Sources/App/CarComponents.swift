@@ -35,12 +35,16 @@ enum CarArt {
 /// The photos fade into the page on all sides by themselves, so the car is never dimmed.
 struct CarScene: View {
     let car: CarSnapshot
+    /// The home Wall Connector's reading while the car is at home; nil elsewhere (Tessie's figure is used).
+    var meterW: Double? = nil
     var body: some View {
         let img = CarArt.image(for: car)
         let aspect = img.map { $0.size.width / max($0.size.height, 1) } ?? 2.17
         ZStack {
             if let img { Image(uiImage: img).resizable().scaledToFit() }
-            if CarArt.showsFlow(for: car) { ChargeFlow(kW: car.chargerPowerKW ?? 7) }
+            if CarArt.showsFlow(for: car) {
+                ChargeFlow(watts: meterW ?? (car.chargerPowerKW ?? 7) * 1000, solid: car.fastCharger == true)
+            }
         }
         .aspectRatio(aspect, contentMode: .fit)
         // A long, soft fade into the page on every side, so the photo has no visible edge.
@@ -59,21 +63,38 @@ struct CarScene: View {
     }
 }
 
-/// Green dashes travelling along the cable into the charge port.
 /// Charging flow like the Tesla app: one long green streak at a time runs up the cable into the plug,
-/// as thin as the cable, faster at higher charging power (1–8 kW).
+/// at the shared flow speed. On a DC fast charger the whole cable is lit instead, with no movement.
 struct ChargeFlow: View {
-    var kW: Double = 7
+    var watts: Double
+    var solid = false
     @Environment(\.scenePhase) private var phase
+    @State private var clock = FlowClock()
 
     var body: some View {
         GeometryReader { geo in
             let poly = CableShape.polyline(in: CGRect(origin: .zero, size: geo.size))
-            TimelineView(.animation(minimumInterval: nil, paused: phase != .active)) { tl in
-                Canvas { ctx, _ in draw(poly, geo.size.width, tl.date.timeIntervalSinceReferenceDate, &ctx) }
+            if solid {
+                Canvas { ctx, _ in drawSolid(poly, geo.size.width, &ctx) }
+            } else {
+                TimelineView(.animation(minimumInterval: nil, paused: phase != .active)) { tl in
+                    Canvas { ctx, _ in draw(poly, geo.size.width, tl.date.timeIntervalSinceReferenceDate, &ctx) }
+                }
             }
         }
         .allowsHitTesting(false)
+    }
+
+    private func drawSolid(_ pts: [CGPoint], _ width: CGFloat, _ ctx: inout GraphicsContext) {
+        guard let first = pts.first else { return }
+        var p = Path()
+        p.move(to: first)
+        for q in pts.dropFirst() { p.addLine(to: q) }
+        let unit = Double(width / 393)
+        var glow = ctx
+        glow.addFilter(.blur(radius: 1.0 * unit))
+        glow.stroke(p, with: .color(Self.green.opacity(0.45)), style: StrokeStyle(lineWidth: 2.6 * unit, lineCap: .round, lineJoin: .round))
+        ctx.stroke(p, with: .color(Self.green), style: StrokeStyle(lineWidth: 1.5 * unit, lineCap: .round, lineJoin: .round))
     }
 
     private static let green = Color(red: 0.30, green: 0.95, blue: 0.45)
@@ -92,11 +113,11 @@ struct ChargeFlow: View {
             return CGPoint(x: pts[lo].x + (pts[hi].x - pts[lo].x) * r, y: pts[lo].y + (pts[hi].y - pts[lo].y) * r)
         }
         let unit = Double(width / 393)
-        let k = min(max(kW, 1), 8)
-        let speed = (12 + (k - 1) / 7 * 34) * 1.6 * unit          // points per second
+        let screen = unit / 1.095                                   // the picture is 1.095 × the screen wide
+        let speed = FlowSpeed.pointsPerSecond(watts: watts) * screen
         let tail = total * 0.65
         let cycle = total + tail                                   // next streak starts once the last has gone into the plug
-        let head = (t * speed).truncatingRemainder(dividingBy: cycle)
+        let head = clock.advance("car", to: t) { x, dt in (x + speed * dt).truncatingRemainder(dividingBy: cycle) }
         let steps = 48
         var glow = ctx
         glow.addFilter(.blur(radius: 1.0 * unit))
