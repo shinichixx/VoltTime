@@ -113,6 +113,8 @@ struct EnergyView: View {
     @ObservedObject private var vehicle = VehicleHistory.shared
     /// Vehicle: the car's use graph below zero. Off each time the page opens (charging only).
     @State private var showUsed = false
+    /// Tap and hold on Charge Level (the page doesn't scroll meanwhile).
+    @State private var chargeHold = false
 
     init(store: EnergyStore, start: EnergyComponent = .all) {
         _store = ObservedObject(wrappedValue: store)
@@ -174,7 +176,9 @@ struct EnergyView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if comp == .vehicle {
                             // Battery % in front of the charge limit, edge to edge (Tesla app).
-                            ChargeLevelGraph(vehicle: vehicle, period: period, range: range)
+                            ChargeLevelGraph(vehicle: vehicle, period: period, range: range,
+                                             slideID: "\(periodRaw)|\(offset)", forward: forward, swipe: step,
+                                             onHold: { chargeHold = $0 })
                                 .opacity(selection == nil ? 1 : 0.25)
                             Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 16)
                                 .opacity(selection == nil ? 1 : 0.25)
@@ -220,6 +224,7 @@ struct EnergyView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                .scrollDisabled(chargeHold)   // reading Charge Level: the finger moves the line, not the page
                 .mask(VStack(spacing: 0) {
                     LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 12)
                     Color.black
@@ -240,7 +245,7 @@ struct EnergyView: View {
                 .padding(.bottom, 6)
         }
         .teslaPage(comp.pageTitle)
-        .onChange(of: compRaw) { _, _ in look.focus = nil }
+        .onChange(of: compRaw) { _, _ in look.focus = nil; showUsed = false }   // back to charging only from another view
         .onChange(of: periodRaw) { _, _ in look.focus = nil }
         .onChange(of: offset) { _, _ in look.focus = nil }
         .task(id: "\(periodRaw)|\(offset)") {
@@ -681,9 +686,13 @@ private struct EnergyChartView: View {
                                hi: pts.map { max($0.flow.house + $0.flow.car, $0.flow.solar + $0.flow.imp) * $0.k }.max() ?? 0)
         }
         if comp == .vehicle && showUsed {
-            // Same kW either side of zero.
+            // Same kW per step either side of zero; below zero only reaches as far as the use needs.
             let b = EnergyScale(lo: 0, hi: pts.map { $0.flow.car * $0.k }.max() ?? 0)
-            return EnergyScale(domain: -b.domain.upperBound...b.domain.upperBound, step: b.step)
+            let top = b.domain.upperBound, st = b.step
+            let low = pts.map { p in parts(p).enumerated().filter { negative($0.offset) }.map { min($0.element.2, 0) }.reduce(0, +) }
+                .min() ?? 0
+            let bottom = low < -0.001 ? max(-top, (low / st - 0.001).rounded(.down) * st) : -st
+            return EnergyScale(domain: bottom...top, step: st)
         }
         var hi = 0.0, lo = 0.0
         for p in pts {
