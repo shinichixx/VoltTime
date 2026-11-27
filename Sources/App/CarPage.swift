@@ -336,7 +336,7 @@ struct CarView2: View {
             .frame(height: 16)
             .padding(.top, 2.6)
             Text(subline).font(.app(size: 12.3, weight: .semibold)).foregroundStyle(K.grey)
-                .lineLimit(1).minimumScaleFactor(0.8)     // the longer "tomorrow" / date lines shrink to stay on one line
+                .lineLimit(1).minimumScaleFactor(0.8)     // shrinks only if a line is ever too long
                 .frame(height: 16)
                 .padding(.top, 8.7)
         }
@@ -371,7 +371,7 @@ struct CarView2: View {
         if c.charging, let m = c.minutesToLimit, m > 0 {
             let mm = Int(m.rounded())
             let done = (c.updated ?? Date()).addingTimeInterval(m * 60)
-            return (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " remaining to charge limit · estimated " + Self.finishText(done)
+            return (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " to charge limit · est. " + Self.finishText(done)
         }
         if c.chargingState == "Complete" { return "Charge complete" }
         let place = model.whereLine
