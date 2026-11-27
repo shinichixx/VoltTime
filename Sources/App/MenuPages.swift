@@ -88,7 +88,7 @@ struct MenuRow<Icon: View>: View {
                 .scaleEffect(compact ? 0.77 : 1, anchor: .leading)
                 .frame(width: 49, alignment: .leading)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.app(size: compact ? 15.5 : 17, weight: .semibold)).foregroundStyle(.white)
+                Text(title).font(.app(size: compact ? 15 : 17, weight: .semibold)).foregroundStyle(.white)
                 if let subtitle {
                     HStack(spacing: 6) {
                         if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
@@ -98,11 +98,12 @@ struct MenuRow<Icon: View>: View {
                 }
             }
             Spacer(minLength: 8)
+            if subtitle == nil, let dot { Circle().fill(dot).frame(width: 7, height: 7).padding(.trailing, 20) }
             Image(systemName: "chevron.right").font(.system(size: 14, weight: .regular)).foregroundStyle(TeslaDark.dim)
         }
         .padding(.leading, 37)
         .padding(.trailing, 33)
-        .frame(height: compact ? 64 : 70)
+        .frame(height: compact ? 54 : 70)
         .contentShape(Rectangle())
     }
 }
@@ -126,8 +127,6 @@ struct MenuPage: View {
     let select: (Int) -> Void
     @ObservedObject private var profile = ProfileStore.shared
     @ObservedObject private var backup = BackupManager.shared
-    @ObservedObject private var s3xy = S3XYLink.shared
-    @AppStorage("car.gate.ask") private var gateAsk = true
 
     var body: some View {
         ScrollView {
@@ -135,31 +134,19 @@ struct MenuPage: View {
                 NavigationLink { ProfilePage() } label: { profileHeader }
                     .buttonStyle(.plain)
                     .padding(.top, 32)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 25)
 
                 NavigationLink { MyProductsPage(car: car, select: select) } label: {
                     MenuRow(title: "My Products", compact: true) { MenuSymbol(name: "car.fill") }
                 }.buttonStyle(.plain)
                 NavigationLink { ConnectionPage(car: car, home: home) } label: {
-                    MenuRow(title: "Connection", subtitle: connectionLine, compact: true) { ConnectionGlyph(size: 26, color: TeslaDark.rowIcon) }
-                }.buttonStyle(.plain)
-                NavigationLink { QuickControlsPage(car: car) } label: {
-                    MenuRow(title: "Quick Controls",
-                            subtitle: car.controls.prefix(QuickControlsPage.slots).map(\.short).joined(separator: " · "), compact: true) {
-                        MenuSymbol(name: "square.grid.3x2.fill", size: 18)
-                    }
-                }.buttonStyle(.plain)
-                NavigationLink { AutogatePage(car: car) } label: {
-                    MenuRow(title: "Autogate", subtitle: gateAsk ? "Asks before sending" : "Sends straight away · asks when away", compact: true) {
-                        GateGlyph(size: 22, color: TeslaDark.rowIcon)
-                    }
+                    MenuRow(title: "Connection", compact: true) { ConnectionGlyph(size: 26, color: TeslaDark.rowIcon) }
                 }.buttonStyle(.plain)
                 NavigationLink { NotificationsPage() } label: {
-                    MenuRow(title: "Notifications", subtitle: alertsLine, compact: true) { MenuSymbol(name: "bell.fill") }
+                    MenuRow(title: "Notifications", compact: true) { MenuSymbol(name: "bell.fill") }
                 }.buttonStyle(.plain)
                 NavigationLink { BackupPage(energy: energy, home: home) } label: {
-                    MenuRow(title: "Backup", subtitle: (backup.lastDate == nil ? "Not saved yet" : backup.lastText) + " · iCloud Drive",
-                            dot: backup.summaryColor, compact: true) {
+                    MenuRow(title: "Backup", dot: backup.summaryColor, compact: true) {
                         MenuSymbol(name: "arrow.triangle.2.circlepath", size: 19)
                     }
                 }.buttonStyle(.plain)
@@ -215,22 +202,6 @@ struct MenuPage: View {
                 .fill(Color(white: 0.105))
                 .padding(.bottom, -400)   // runs on past the bottom edge
         )
-    }
-
-    private var alertsLine: String {
-        let d = UserDefaults.standard
-        let on = [d.bool(forKey: BatteryAlerts.cellKey) ? "Cell gap" : nil, d.bool(forKey: BatteryAlerts.healthKey) ? "Battery health" : nil].compactMap { $0 }
-        return on.isEmpty ? "Off" : on.joined(separator: " · ")
-    }
-
-    /// "Tessie · Home Assistant · S3XY off", or what needs attention first.
-    private var connectionLine: String {
-        if !car.configured { return "Tessie not set up" }
-        if car.error != nil { return "Can't reach Tessie" }
-        if !home.haConfigured { return "Home Assistant not set up" }
-        if home.message != nil { return "Home Assistant can't connect" }
-        let s3 = s3xy.state == .receiving ? "S3XY" : "S3XY off"
-        return "Tessie · Home Assistant · " + s3
     }
 }
 
@@ -298,20 +269,41 @@ struct ProfilePage: View {
 
 // MARK: - My Products
 
+/// Names typed in My Products > Edit, kept on the phone and in backups ("car." and "home." settings).
+enum ProductNames {
+    static let carKey = "car.customName"
+    static let homeKey = "home.customName"
+    static let homeDefault = "Home IM2 Kuantan"
+    static func shown(_ custom: String, or fallback: String) -> String {
+        custom.isEmpty ? (fallback.isEmpty ? "My Car" : fallback) : custom
+    }
+    static func car(_ fromTesla: String) -> String { shown(UserDefaults.standard.string(forKey: carKey) ?? "", or: fromTesla) }
+}
+
+/// Page titles on My Car, My Home and Simulation: the Tesla app's size and place.
+enum PageTitle {
+    static let size: CGFloat = 20.3
+    static let kerning: CGFloat = -0.2
+    static let inset: CGFloat = 2      // past the 7% margin
+    static let top: CGFloat = 22.7     // above the 32 pt title line
+}
+
 struct MyProductsPage: View {
     @ObservedObject var car: CarModel
     let select: (Int) -> Void
+    @AppStorage(ProductNames.carKey) private var carName = ""
+    @AppStorage(ProductNames.homeKey) private var homeName = ""
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Button { select(0) } label: {
-                    product(image: "product_car.png", title: car.car.name.isEmpty ? "My Car" : car.car.name,
-                            subtitle: UserDefaults.standard.string(forKey: TessieClient.vinKey) ?? "")
+                NavigationLink { ProductPage(car: car, product: .car, select: select) } label: {
+                    row(image: "product_car.png", title: ProductNames.shown(carName, or: car.car.name),
+                        subtitle: UserDefaults.standard.string(forKey: TessieClient.vinKey) ?? "")
                 }.buttonStyle(.plain)
                 Rectangle().fill(TSurface.line).frame(height: 0.7).padding(.horizontal, 30)
-                Button { select(1) } label: {
-                    product(image: "product_home.png", title: "IM2 Kuantan", subtitle: "Home")
+                NavigationLink { ProductPage(car: car, product: .home, select: select) } label: {
+                    row(image: "product_home.png", title: ProductNames.shown(homeName, or: ProductNames.homeDefault), subtitle: "Home")
                 }.buttonStyle(.plain)
             }
             .padding(.top, 1)
@@ -319,16 +311,16 @@ struct MyProductsPage: View {
         .teslaPage("My Products", black: true, lowered: true)
     }
 
-    private func product(image: String, title: String, subtitle: String) -> some View {
+    private func row(image: String, title: String, subtitle: String) -> some View {
         HStack(spacing: 0) {
             Group {
                 if let img = UIImage(named: image) { Image(uiImage: img).resizable().scaledToFit() }
             }
             .frame(width: 106, height: 56)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.app(size: 12.5, weight: .semibold)).foregroundStyle(.white)
+                Text(title).font(.app(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                 if !subtitle.isEmpty {
-                    Text(subtitle).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+                    Text(subtitle).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
                 }
             }
             .padding(.leading, 30)
@@ -339,6 +331,125 @@ struct MyProductsPage: View {
         .padding(.trailing, 33)
         .frame(height: 91)
         .contentShape(Rectangle())
+    }
+}
+
+/// One product (Tesla app): name with the VIN or "Home" under it, Edit at the top right, its picture,
+/// Go To Product, and the settings that belong to it.
+struct ProductPage: View {
+    enum Product { case car, home }
+    @ObservedObject var car: CarModel
+    let product: Product
+    let select: (Int) -> Void
+    @AppStorage(ProductNames.carKey) private var carName = ""
+    @AppStorage(ProductNames.homeKey) private var homeName = ""
+    @State private var editing = false
+
+    private var isCar: Bool { product == .car }
+    private var name: String {
+        isCar ? ProductNames.shown(carName, or: car.car.name) : ProductNames.shown(homeName, or: ProductNames.homeDefault)
+    }
+    private var detail: String {
+        guard isCar else { return "Home" }
+        let vin = UserDefaults.standard.string(forKey: TessieClient.vinKey) ?? ""
+        return vin.isEmpty ? "" : "VIN " + vin
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Group {
+                    if let img = UIImage(named: isCar ? "product_car.png" : "product_home.png") {
+                        Image(uiImage: img).resizable().scaledToFit()
+                    }
+                }
+                .frame(height: 175)
+                .padding(.horizontal, 40)
+                .padding(.top, 20)
+                .padding(.bottom, 15)
+
+                Button { select(isCar ? 0 : 1) } label: {
+                    MenuRow(title: "Go To Product", compact: true) { MenuSymbol(name: "rectangle.portrait.and.arrow.right", size: 19) }
+                }.buttonStyle(.plain)
+                if isCar {
+                    NavigationLink { QuickControlsPage(car: car) } label: {
+                        MenuRow(title: "Quick Controls", compact: true) { MenuSymbol(name: "square.grid.2x2.fill", size: 19) }
+                    }.buttonStyle(.plain)
+                } else {
+                    NavigationLink { AutogatePage(car: car) } label: {
+                        MenuRow(title: "Autogate", compact: true) { GateGlyph(size: 22, color: TeslaDark.rowIcon) }
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+        .teslaPage(name, subtitle: detail, black: true, lowered: true, trailing: AnyView(
+            Button { editing = true } label: {
+                Text("Edit").font(.app(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.2, green: 0.4, blue: 0.96))
+                    .frame(minWidth: 44, minHeight: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        ))
+        .navigationDestination(isPresented: $editing) {
+            if isCar {
+                EditNamePage(key: ProductNames.carKey, fallback: car.car.name)
+            } else {
+                EditNamePage(key: ProductNames.homeKey, fallback: ProductNames.homeDefault)
+            }
+        }
+    }
+}
+
+/// A product's name as TesLah shows it. Saving it empty (or unchanged from the original) goes back to the original.
+struct EditNamePage: View {
+    let key: String
+    let fallback: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("NAME").font(.app(size: 11, weight: .medium)).kerning(0.6).foregroundStyle(TeslaDark.rowLabel)
+                    .padding(.bottom, 8)
+                TextField(fallback, text: $text)
+                    .font(.app(size: 15))
+                    .foregroundStyle(.white)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($focused)
+                    .onSubmit(save)
+                    .padding(.horizontal, 14)
+                    .frame(height: 48)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(TSurface.field))
+                Button(action: save) {
+                    Text("Save").font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).frame(height: 50)
+                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(red: 0.2, green: 0.4, blue: 0.96)))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 24)
+                Text("Changes the name in TesLah only. Save it empty to go back to the original.")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .padding(.top, 10)
+            }
+            .padding(.horizontal, 30)
+            .padding(.top, 24)
+        }
+        .teslaPage("Edit Name", black: true, lowered: true)
+        .onAppear {
+            text = ProductNames.shown(UserDefaults.standard.string(forKey: key) ?? "", or: fallback)
+            focused = true
+        }
+    }
+
+    private func save() {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Always written (empty = the original), so a restore can bring either back.
+        UserDefaults.standard.set(t == fallback ? "" : t, forKey: key)
+        dismiss()
     }
 }
 
@@ -354,7 +465,7 @@ struct ConnectionPage: View {
             VStack(spacing: 0) {
                 NavigationLink { TessiePage(car: car) } label: {
                     MenuRow(title: "Tessie",
-                            subtitle: car.configured ? (car.error == nil ? "Connected · \(car.car.name)" : "Can't reach Tessie · tap to check") : "Not set up · add your token",
+                            subtitle: car.configured ? (car.error == nil ? "Connected · \(ProductNames.car(car.car.name))" : "Can't reach Tessie · tap to check") : "Not set up · add your token",
                             dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : Color(white: 0.55)) {
                         MenuSymbol(name: "bolt.car.fill", size: 19)
                     }

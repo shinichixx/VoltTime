@@ -367,9 +367,9 @@ struct CarLocationPage: View {
     }
 
     private var shareText: String {
-        var t = c.name + " · " + title + "\n" + addressLines.joined(separator: "\n")
+        var t = ProductNames.car(c.name) + " · " + title + "\n" + addressLines.joined(separator: "\n")
         if let la = c.lat, let lo = c.lon {
-            t += "\n" + gpsText + "\nhttps://maps.apple.com/?ll=\(String(format: "%.5f,%.5f", la, lo))&q=\(c.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Car")"
+            t += "\n" + gpsText + "\nhttps://maps.apple.com/?ll=\(String(format: "%.5f,%.5f", la, lo))&q=\(ProductNames.car(c.name).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Car")"
         }
         return t
     }
@@ -382,7 +382,7 @@ struct CarLocationPage: View {
     private func openMaps() {
         guard let co = coord else { return }
         let item = MKMapItem(placemark: MKPlacemark(coordinate: co))
-        item.name = c.name
+        item.name = ProductNames.car(c.name)
         item.openInMaps()
     }
 

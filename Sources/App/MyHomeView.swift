@@ -286,6 +286,7 @@ struct MyHomeView: View {
     @Environment(\.scenePhase) private var phase
     @EnvironmentObject private var fx: PagerFX
     @State private var scroll: CGFloat = 0
+    @AppStorage(ProductNames.homeKey) private var homeName = ""
 
     var body: some View {
         GeometryReader { geo in
@@ -423,13 +424,16 @@ struct MyHomeView: View {
 
     private func header(width w: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
-            Text("Home IM2 Kuantan")
-                .font(.app(size: 27, weight: .semibold))
-                .kerning(-0.3)
+            Text(ProductNames.shown(homeName, or: ProductNames.homeDefault))
+                .font(.app(size: PageTitle.size, weight: .semibold))
+                .kerning(PageTitle.kerning)
                 .foregroundStyle(.white)
+                .lineLimit(1)
                 .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
-                .padding(.leading, w * 0.07)
-                .padding(.top, 24)
+                .frame(height: 32)
+                .padding(.leading, w * 0.07 + PageTitle.inset)
+                .padding(.trailing, 60)
+                .padding(.top, PageTitle.top)
 
             // ☰ (Tesla app, top right): My Home settings and backup. Same spot as on My Car.
             HStack {
@@ -439,7 +443,7 @@ struct MyHomeView: View {
                     .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
                     .accessibilityLabel("My Home settings")
             }
-            .padding(.trailing, 20.5)
+            .padding(.trailing, 17.5)
             .frame(width: w, alignment: .trailing)
             .padding(.top, 24 + 16 - 23)
 
@@ -447,8 +451,8 @@ struct MyHomeView: View {
                 .font(.app(size: 15))
                 .foregroundStyle(model.status.color)
                 .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
-                .padding(.leading, w * 0.07)
-                .padding(.top, 58)
+                .padding(.leading, w * 0.07 + PageTitle.inset)
+                .padding(.top, 54)
         }
         .frame(width: w, alignment: .topLeading)
     }

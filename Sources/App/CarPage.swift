@@ -175,6 +175,9 @@ struct CarView2: View {
     @State private var scroll: CGFloat = 0
     @EnvironmentObject private var fx: PagerFX
     @State private var portAsk: PortAsk?
+    @Environment(\.scenePhase) private var phase
+    @State private var leftApp = false       // minimised since the last time the app was in front
+    @AppStorage(ProductNames.carKey) private var carName = ""
     @State private var onScreen = true       // live copy of `active` for the delayed scroll reset
     @ObservedObject private var history = BatteryHistory.shared
     private var c: CarSnapshot { model.car }
@@ -183,7 +186,7 @@ struct CarView2: View {
     enum PortAsk: Identifiable { case open, unlock; var id: Self { self } }
 
     // Layout (points from the top of the page, the same reference as My Home's title):
-    private let headerBottom: CGFloat = 108      // title, battery line, "remaining…" line
+    private let headerBottom: CGFloat = 105      // title, battery line, "remaining…" line
     private let buttonsTop: CGFloat = 356        // first thing that scrolls (icon row below the car)
 
     var body: some View {
@@ -257,6 +260,15 @@ struct CarView2: View {
                 .ignoresSafeArea(.container)
                 .padding(.top, -topInset)   // the scroll view itself reaches the top of the screen
                 // Swiped away to My Home: back to the top, so the car page always opens at the top.
+                // Minimised: back to the resting position, so reopening never shows the rows scrolled up.
+                // (A glance at Notification Centre or the app switcher alone keeps the place.)
+                .onChange(of: phase) { _, p in
+                    if p == .background { leftApp = true }
+                    guard p == .background || (p == .active && leftApp) else { return }
+                    var t = Transaction(); t.disablesAnimations = true
+                    withTransaction(t) { proxy.scrollTo("top", anchor: .top) }
+                    if p == .active { leftApp = false }
+                }
                 .onChange(of: active) { _, on in
                     // Back to the top only once the swipe has settled on another page (out of sight),
                     // and not if you've swiped back to My Car in the meantime.
@@ -287,53 +299,68 @@ struct CarView2: View {
                         .accessibilityLabel("My Car settings")
                 }
                 .padding(.top, 24 + 16 - 23)
-                .padding(.trailing, 20.5)   // lines end 34 pt from the edge, where the Tesla app's ☰ ends
+                .padding(.trailing, 17.5)   // centred where the Tesla app's ☰ is
                 .opacity(headerOpacity)
                 .allowsHitTesting(headerOpacity > 0.5)
             }
         }
     }
 
-    // MARK: Header: "Ultra Rouge" exactly like "Home IM2 Kuantan" (27 pt, 24 pt from the top, 7% from the left),
-    // then the battery line and the "remaining" line with the Tesla app's gaps (12 pt and 11.3 pt).
+    // MARK: Header, sizes and positions measured from the Tesla app (build 114): 20.3 pt title, then the
+    // battery line and the "remaining" line.
 
     private func header(_ w: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                Text(c.name)
-                    .font(.app(size: 27, weight: .semibold))
-                    .kerning(-0.3)
+                Text(ProductNames.shown(carName, or: c.name))
+                    .font(.app(size: PageTitle.size, weight: .semibold))
+                    .kerning(PageTitle.kerning)
                     .foregroundStyle(.white)
-                Spacer()
+                    .lineLimit(1)
+                    .padding(.trailing, 40)
+                Spacer(minLength: 0)
             }
             .frame(height: 32)
             HStack(spacing: 8) {
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 3.5).fill(K.batteryBody).frame(width: 35, height: 15.5)
-                    RoundedRectangle(cornerRadius: 2).fill(socColor).frame(width: max(2, 31 * (c.soc ?? 0) / 100), height: 11.5).padding(.leading, 2)
+                    RoundedRectangle(cornerRadius: 3.5).fill(K.batteryBody).frame(width: 36, height: 16)
+                    RoundedRectangle(cornerRadius: 2).fill(socColor).frame(width: max(2, 32 * (c.soc ?? 0) / 100), height: 12).padding(.leading, 2)
                 }
                 .overlay(alignment: .trailing) { RoundedRectangle(cornerRadius: 1).fill(K.batteryBody).frame(width: 1.5, height: 5.5).offset(x: 2.5) }
                 HStack(spacing: 6) {
-                    Text("\(Int(c.soc ?? 0))%").font(.app(size: 13, weight: .semibold)).foregroundStyle(socColor)
-                    if c.charging { Image(systemName: "bolt.fill").font(.system(size: 14)).foregroundStyle(K.green) }
+                    Text("\(Int(c.soc ?? 0))%").font(.app(size: 14.3, weight: .semibold)).foregroundStyle(socColor)
+                    if c.charging { Image(systemName: "bolt.fill").font(.system(size: 15.6)).foregroundStyle(K.green).padding(.leading, 5) }
                     Text("· \(c.rangeKm.map { "\(Int($0.rounded())) km" } ?? "—")").font(.app(size: 13, weight: .medium)).foregroundStyle(K.grey)
                 }
-                .padding(.leading, 4)
             }
-            .frame(height: 15.5)
-            .padding(.top, 6)
-            Text(subline).font(.app(size: 12, weight: .medium)).foregroundStyle(K.grey).lineLimit(1)
-                .padding(.top, 8.5)
+            .frame(height: 16)
+            .padding(.top, 2.6)
+            Text(subline).font(.app(size: 12.3, weight: .semibold)).foregroundStyle(K.grey)
+                .lineLimit(1).minimumScaleFactor(0.8)     // the longer "tomorrow" / date lines shrink to stay on one line
+                .frame(height: 16)
+                .padding(.top, 8.7)
         }
-        .padding(.leading, w * 0.07)
-        .padding(.trailing, 20)
-        .padding(.top, 24)
+        .padding(.leading, w * 0.07 + PageTitle.inset)
+        .padding(.trailing, 18)
+        .padding(.top, PageTitle.top)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private static let hhmm: DateFormatter = {
         let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "HH:mm"; return f
     }()
+
+    private static let dayMonth: DateFormatter = {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "d MMM"; return f
+    }()
+
+    /// "22:26", "tomorrow 07:15" or "30 Nov, 07:15".
+    private static func finishText(_ d: Date) -> String {
+        let t = hhmm.string(from: d)
+        if Calendar.current.isDateInToday(d) { return t }
+        if Calendar.current.isDateInTomorrow(d) { return "tomorrow " + t }
+        return dayMonth.string(from: d) + ", " + t
+    }
 
     private var socColor: Color {
         if c.charging { return K.green }
@@ -344,7 +371,7 @@ struct CarView2: View {
         if c.charging, let m = c.minutesToLimit, m > 0 {
             let mm = Int(m.rounded())
             let done = (c.updated ?? Date()).addingTimeInterval(m * 60)
-            return (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " remaining to charge limit (" + Self.hhmm.string(from: done) + ")"
+            return (mm >= 60 ? "\(mm / 60)h \(mm % 60)m" : "\(mm)m") + " remaining to charge limit · estimated " + Self.finishText(done)
         }
         if c.chargingState == "Complete" { return "Charge complete" }
         let place = model.whereLine

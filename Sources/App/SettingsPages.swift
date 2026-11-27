@@ -44,14 +44,14 @@ struct SystemTile: View {
 extension View {
     /// Dark page with our own slim top bar (Tesla app): thin grey back arrow, small centred title, optional
     /// item on the right. Replaces the system bar, which is much taller on iOS 26.
-    func teslaPage(_ title: String, black: Bool = false, lowered: Bool = false, trailing: AnyView? = nil) -> some View {
+    func teslaPage(_ title: String, subtitle: String? = nil, black: Bool = false, lowered: Bool = false, trailing: AnyView? = nil) -> some View {
         let bg = black ? TSurface.page : TeslaDark.bg
         return self
             .background(bg.ignoresSafeArea())
             .navigationTitle(title)
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                TeslaTopBar(title: title, trailing: trailing, background: bg, lowered: lowered)
+                TeslaTopBar(title: title, subtitle: subtitle, trailing: trailing, background: bg, lowered: lowered)
             }
     }
 
@@ -70,15 +70,21 @@ extension View {
 /// The slim top bar: 32 pt under the status bar; content starts right below it.
 struct TeslaTopBar: View {
     let title: String
+    var subtitle: String? = nil
     let trailing: AnyView?
     let background: Color
     var lowered = false   // Menu and My Products: title 22 pt lower, back arrow 11 pt further in (Tesla app)
 
     var body: some View {
         ZStack {
-            Text(title).font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.horizontal, 80)
+            VStack(spacing: 4) {
+                Text(title).font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.app(size: 11, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
+                }
+            }
+            .lineLimit(1).minimumScaleFactor(0.8)
+            .padding(.horizontal, 64)
             HStack(spacing: 0) {
                 PlainBackButton().padding(.leading, lowered ? 25 : 14)
                 Spacer()

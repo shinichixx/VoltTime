@@ -380,7 +380,7 @@ final class CarModel: ObservableObject {
         if c == .gate, let away = gateAway {
             if let m = away.meters {
                 let dist = m < 1000 ? "\(Int((m / 10).rounded() * 10)) m" : String(format: "%.1f km", m / 1000)
-                return ("You're not at home", "\(car.name) is \(dist) away.\nOpen the front gate anyway?", "Open Gate", true)
+                return ("You're not at home", "\(ProductNames.car(car.name)) is \(dist) away.\nOpen the front gate anyway?", "Open Gate", true)
             }
             return ("Open the front gate?", "Couldn't check where the car is.", "Yes", false)
         }

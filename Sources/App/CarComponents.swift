@@ -195,8 +195,8 @@ struct SentryGlyph: View {
 /// ☰, a little smaller than the system one (Tesla app top right).
 struct MenuGlyph: View {
     var body: some View {
-        VStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { _ in Capsule().fill(Color(white: 0.88)).frame(width: 18, height: 1.5) }
+        VStack(spacing: 3) {
+            ForEach(0..<3, id: \.self) { _ in Capsule().fill(Color(white: 0.88)).frame(width: 13, height: 1.2) }
         }
         .frame(width: 44, height: 44)
         .contentShape(Rectangle())

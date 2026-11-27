@@ -8,19 +8,21 @@ struct SimulationPage: View {
     var body: some View {
         GeometryReader { geo in
         VStack(spacing: 0) {
-            // Title and line exactly where My Car / My Home put theirs (24 pt down, 7% in; line at 58 pt).
+            // Title and line exactly where My Car / My Home put theirs (PageTitle; line at 54 pt).
             ZStack(alignment: .topLeading) {
                 Text("Simulation")
-                    .font(.app(size: 27, weight: .semibold))
-                    .kerning(-0.3)
+                    .font(.app(size: PageTitle.size, weight: .semibold))
+                    .kerning(PageTitle.kerning)
                     .foregroundStyle(.white)
-                    .padding(.top, 24)
+                    .frame(height: 32)
+                    .padding(.top, PageTitle.top)
                 Text("Nothing is sent to the car")
                     .font(.app(size: 15))
                     .foregroundStyle(TeslaDark.rowLabel)
-                    .padding(.top, 58)
+                    .padding(.top, 54)
             }
-            .padding(.leading, geo.size.width * 0.07)
+            .padding(.bottom, 4)   // the switch below stays where it was
+            .padding(.leading, geo.size.width * 0.07 + PageTitle.inset)
             .frame(maxWidth: .infinity, alignment: .leading)
             TSegment(items: ["Home charging", "Public charging"], selected: kind) { kind = $0 }
                 .padding(.horizontal, 20)
