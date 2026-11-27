@@ -120,6 +120,13 @@ struct HAClient {
         self.token = t
     }
 
+    /// "Home Wi-Fi" or "Tailscale", from the address that answered last; nil before any answer.
+    static func routeName() async -> String? {
+        guard let used = await HARoute.shared.lastUsed else { return nil }
+        let home = url(from: UserDefaults.standard.string(forKey: HARoute.homeKey) ?? HARoute.defaultHome)
+        return used == home ? "Home Wi-Fi" : "Tailscale"
+    }
+
     /// The address to use right now.
     func currentBase() async -> URL {
         await HARoute.shared.base(home: homeURL, away: baseURL)
@@ -160,6 +167,7 @@ struct HAClient {
             let msg = String(data: data, encoding: .utf8)?.prefix(160) ?? ""
             throw APIError(message: "Home Assistant error \(http.statusCode) \(msg)")
         }
+        await HARoute.shared.used(base)
         return data
     }
 

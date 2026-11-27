@@ -17,6 +17,10 @@ actor HARoute {
     private var cached: (home: URL, ok: Bool, at: Date)?
     private var probing: (home: URL, task: Task<Bool, Never>)?
     private var generation = 0
+    /// The address that answered the latest request (shown in Menu › Connection).
+    private(set) var lastUsed: URL?
+
+    func used(_ base: URL) { lastUsed = base }
 
     /// Forget the last answer (network changed, app reopened, a request failed).
     func reset() {

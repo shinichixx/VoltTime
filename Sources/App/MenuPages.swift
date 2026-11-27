@@ -459,6 +459,8 @@ struct ConnectionPage: View {
     @ObservedObject var car: CarModel
     @ObservedObject var home: HomeModel
     @ObservedObject private var s3xy = S3XYLink.shared
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var haRoute: String?
 
     var body: some View {
         ScrollView {
@@ -472,7 +474,7 @@ struct ConnectionPage: View {
                 }.buttonStyle(.plain)
                 NavigationLink { HomeAssistantPage() } label: {
                     MenuRow(title: "Home Assistant",
-                            subtitle: home.haConfigured ? (home.message == nil ? "Connected" : "Can't connect") : "Not set up",
+                            subtitle: home.haConfigured ? (home.message == nil ? haRoute.map { "Connected · \($0)" } ?? "Connected" : "Can't connect") : "Not set up",
                             dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : Color(white: 0.55)) {
                         MenuSymbol(name: "house.fill", size: 19)
                     }
@@ -486,7 +488,15 @@ struct ConnectionPage: View {
             .padding(.top, 8)
         }
         .teslaPage("Connection", black: true)
-        .task { await home.refresh() }
+        .task { await refreshHome() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await HARoute.shared.reset(); await refreshHome() } }
+        }
+    }
+
+    private func refreshHome() async {
+        await home.refresh()
+        haRoute = await HAClient.routeName()
     }
 
     private var s3xyLine: String {

@@ -24,7 +24,7 @@ Dark, Tesla-app style. Three pages, swiped left and right (no tab bar):
     the HA "Tesla Charging – Controller" automation still does the work), *Charging start time* (Routine only:
     location tomorrow GPS 73% / TSET 63% / Others, ready time, start time) → *Charge details* (duration, energy,
     safety buffer, start %, cost, charger and battery parameters), and the Home Assistant connection
-    (home Wi-Fi address first, Tailscale when it does not answer).
+    (home Wi-Fi address first, Tailscale when it does not answer; Menu › Connection shows which one is in use).
   The 9 scenario photos are built in (`Sources/Photos`, JPEG at iPhone width, ~1 MB total).
 - **Ultra Rouge** (the car, straight from Tessie – not through Home Assistant) – two layouts, switched in
   Settings → Car → Layout:
