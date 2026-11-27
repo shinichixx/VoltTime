@@ -107,6 +107,7 @@ struct ContentView: View {
                 if let v, v != page { page = v }
             }
             .onChange(of: page) { _, v in
+                if v != 2 { home.simStartSoc = nil }   // leaving Simulation: back to LIVE next visit
                 if pageID != v { withAnimation(.easeInOut(duration: 0.3)) { pageID = v } }
             }
             // The house's power figures float above the pager (the Model 3 one opens Charging).

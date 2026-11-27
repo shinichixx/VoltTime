@@ -17,6 +17,9 @@ final class HomeModel: ObservableObject {
 
     // Live from Home Assistant
     @Published var liveSoc: Double?
+    /// Simulation › Home charging: the start level picked by hand. nil = follow the car (LIVE).
+    /// Kept while on the Simulation page; cleared when swiping away to My Home.
+    @Published var simStartSoc: Double?
     @Published var liveLimit: Double?
     @Published var scheduledStart: Date?
     @Published var destination = ""

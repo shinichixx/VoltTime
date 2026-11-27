@@ -8,8 +8,8 @@ struct SimulateView: View {
     @AppStorage("sim.leave") private var leaveMinutes = 7 * 60
     @AppStorage("sim.target") private var target = 100.0
     @AppStorage("sim.buffer") private var bufferMinutes = 15
-    @State private var startSoc = 20.0
-    @State private var seeded = false
+
+    private var startSoc: Double { model.simStartSoc ?? min(99, (model.liveSoc ?? model.startSoc).rounded()) }
 
     private static let targets = [63, 73, 80, 90, 100]
 
@@ -70,12 +70,6 @@ struct SimulateView: View {
             .padding(.bottom, 60)
         }
         // See-through: the page background is drawn behind the pager (so the house can fade behind it).
-        .onAppear {
-            if !seeded {
-                startSoc = min(99, (model.liveSoc ?? model.startSoc).rounded())
-                seeded = true
-            }
-        }
     }
 
     private var isLive: Bool {
@@ -84,14 +78,14 @@ struct SimulateView: View {
     }
 
     private var startBinding: Binding<Int> {
-        Binding(get: { Int(startSoc) }, set: { startSoc = Double($0) })
+        Binding(get: { Int(startSoc) }, set: { model.simStartSoc = Double($0) })
     }
 
     private var socBadge: AnyView? {
         guard let live = model.liveSoc else { return nil }
         if abs(live - startSoc) < 0.5 { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
         return AnyView(
-            Button { startSoc = min(99, live.rounded()) } label: {
+            Button { model.simStartSoc = nil } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.counterclockwise").font(.system(size: 10, weight: .semibold))
                     Text("Use car \(Int(live.rounded()))%").font(.app(size: 12, weight: .semibold))
