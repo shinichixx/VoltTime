@@ -473,6 +473,83 @@ struct ChargeLevelGraph: View {
         }
     }
 
+    private var pts: [(Date, Double)] { vehicle.soc(from: range.start, to: range.end) }
+
+    private var graph: some View {
+        let p = pts
+        let limit = vehicle.limit
+        let t0 = range.start.timeIntervalSince1970
+        let span = max(range.end.timeIntervalSince1970 - t0, 1)
+        return Canvas { ctx, size in
+            let w = size.width, h = size.height
+            let top: CGFloat = 4           // room for the 100% line
+            let plotH = h - top
+            func y(_ pct: Double) -> CGFloat { top + plotH * (1 - CGFloat(min(max(pct, 0), 100)) / 100) }
+            func x(_ d: Date) -> CGFloat { w * CGFloat((d.timeIntervalSince1970 - t0) / span) }
+            // 100% line, faint.
+            var hundred = Path(); hundred.move(to: CGPoint(x: 0, y: y(100))); hundred.addLine(to: CGPoint(x: w, y: y(100)))
+            ctx.stroke(hundred, with: .color(Color.white.opacity(0.12)), style: StrokeStyle(lineWidth: 0.6, dash: [1.5, 3]))
+            // Back: the charge limit, the whole width.
+            if let limit {
+                ctx.fill(Path(CGRect(x: 0, y: y(limit), width: w, height: h - y(limit))), with: .color(Self.back.opacity(0.55)))
+            }
+            // Dotted time lines (Day: 6 AM, 12 PM, 6 PM).
+            if period == .day {
+                for hr in [6.0, 12, 18] {
+                    let px = x(range.start.addingTimeInterval(hr * 3600))
+                    var l = Path(); l.move(to: CGPoint(x: px, y: top)); l.addLine(to: CGPoint(x: px, y: h))
+                    ctx.stroke(l, with: .color(Color.white.opacity(0.12)), style: StrokeStyle(lineWidth: 0.6, dash: [1.5, 4]))
+                }
+            }
+            // Front: battery %, carried to the left edge from the first reading (and to the right on a past day).
+            guard let first = p.first, let lastPt = p.last else { return }
+            var curve: [CGPoint] = [CGPoint(x: 0, y: y(first.1))]
+            curve += p.map { CGPoint(x: x($0.0), y: y($0.1)) }
+            let endX = range.end <= Date() ? w : min(w, x(Date()))
+            curve.append(CGPoint(x: endX, y: y(lastPt.1)))
+            var edge = Path()
+            edge.move(to: curve[0])
+            for q in curve.dropFirst() { edge.addLine(to: q) }
+            var fill = edge
+            fill.addLine(to: CGPoint(x: endX, y: h)); fill.addLine(to: CGPoint(x: 0, y: h)); fill.closeSubpath()
+            ctx.fill(fill, with: .linearGradient(Gradient(colors: [Self.front.opacity(0.85), Color.black.opacity(0)]),
+                                                 startPoint: CGPoint(x: 0, y: y(100)), endPoint: CGPoint(x: 0, y: h)))
+            ctx.stroke(edge, with: .color(Self.line), style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
+            // Baseline dots: brighter at the labelled times.
+            if period == .day {
+                for hr in 0...24 {
+                    let px = x(range.start.addingTimeInterval(Double(hr) * 3600))
+                    let big = [6, 12, 18].contains(hr)
+                    let r: CGFloat = big ? 1.6 : 1
+                    ctx.fill(Path(ellipseIn: CGRect(x: px - r, y: h - r, width: r * 2, height: r * 2)),
+                             with: .color(big ? .white : Color(white: 0.45)))
+                }
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Text("100%").font(.app(size: 10.5, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
+                .chartLabelGlow().padding(.trailing, 6).padding(.top, 6)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Text("0").font(.app(size: 10.5, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
+                .chartLabelGlow().padding(.trailing, 6).padding(.bottom, 4)
+        }
+        .overlay {
+            GeometryReader { g in
+                ZStack {
+                    ChargeTouch(onHold: { touched($0, width: g.size.width) }, onSwipe: swipe)
+                    holdLayer(g.size, p)
+                }
+            }
+        }
+        .overlay {
+            if p.isEmpty {
+                Text(vehicle.loading ? "Reading the car's history…" : (vehicle.message ?? "No battery data for this period"))
+                    .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            }
+        }
+    }
+
     /// Day: 6 AM, 12 PM, 6 PM under their lines; longer periods: the first and last day.
     private var labels: some View {
         GeometryReader { g in
