@@ -179,6 +179,7 @@ struct ContentView: View {
             S3XYLink.shared.start()   // cell balance from the S3XY Commander while TesLah is open
             await home.refresh()
             await energy.refresh()   // tops up the saved energy so Impact / Energy open instantly
+            await VehicleHistory.shared.refreshToday()   // today's Charge Level and the latest charge limit
             await Task.detached(priority: .utility) { Snapshots.takeDailyIfNeeded() }.value
             await BackupReminder.apply()
         }
@@ -190,6 +191,7 @@ struct ContentView: View {
             if old == .background {   // opened again from the background: top up, and the day's local copy
                 Task {
                     await energy.refresh()
+                    await VehicleHistory.shared.refreshToday()
                     await Task.detached(priority: .utility) { Snapshots.takeDailyIfNeeded() }.value
                 }
             }

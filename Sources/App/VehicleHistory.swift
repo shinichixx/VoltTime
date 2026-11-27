@@ -4,8 +4,9 @@ import SwiftUI
 // Charging (above zero) still comes from Home Assistant, split solar / grid like the other views.
 //
 // Per day, per 5-minute slot: battery % and the energy that left the battery, split into driving and standby
-// (parked: climate, Sentry, sleep drain). Kept in Caches (it can always be read from Tessie again, so it stays
-// out of iCloud backups): about 1.4 kB a day.
+// (parked: climate, Sentry, sleep drain). Build 109: kept for good in Application Support (about 1.4 kB a day),
+// in backups and snapshots. A finished day is read from Tessie once; only today and the charge limit are read
+// each time the app opens.
 
 struct VehicleDay {
     var minutes: Int          // 5 (Day graphs), 15 (fetched for Week / Month bars) or 60 (Year / Lifetime)
@@ -104,11 +105,14 @@ final class VehicleHistory: ObservableObject {
     private var todayRead: Date?
     private var inFlight: Set<String> = []
 
-    nonisolated static var file: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("vehicle-history.plist")
-    }
+    nonisolated static var file: URL { AppData.support.appendingPathComponent("vehicle-history.plist") }
 
     private init() {
+        // Builds 105-108 kept it in Caches: move it across so nothing has to be read again.
+        let old = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("vehicle-history.plist")
+        if !FileManager.default.fileExists(atPath: Self.file.path), FileManager.default.fileExists(atPath: old.path) {
+            try? FileManager.default.moveItem(at: old, to: Self.file)
+        }
         if let d = try? Data(contentsOf: Self.file), let saved = try? PropertyListDecoder().decode([String: Data].self, from: d) {
             var out: [String: VehicleDay] = [:]
             for (k, v) in saved { if let day = VehicleDay(packed: v) { out[k] = day } }
@@ -122,6 +126,30 @@ final class VehicleHistory: ObservableObject {
     private func save() {
         let keep = days.filter { $0.value.complete }.mapValues { $0.packed() }
         if let d = try? PropertyListEncoder().encode(keep) { try? d.write(to: Self.file, options: .atomic) }
+    }
+
+    /// Restore from a backup: adds the days this phone doesn't have (or has in less detail). Returns how many.
+    func merge(_ data: Data) -> Int {
+        guard let saved = try? PropertyListDecoder().decode([String: Data].self, from: data) else { return 0 }
+        var n = 0
+        for (k, v) in saved {
+            guard let day = VehicleDay(packed: v) else { continue }
+            if let have = days[k], have.complete, have.minutes <= day.minutes { continue }
+            days[k] = day
+            n += 1
+        }
+        if n > 0 { save() }
+        return n
+    }
+
+    /// Each time the app opens: today's battery % and the latest charge limit (finished days stay as saved).
+    func refreshToday() async {
+        guard let t = TessieClient.configured(),
+              let vin = UserDefaults.standard.string(forKey: TessieClient.vinKey), !vin.isEmpty else { return }
+        await readLimit(t, vin)
+        let today = cal.startOfDay(for: Date())
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: today) ?? today
+        await fill(t, vin, minutes: 5, from: today, to: tomorrow)
     }
 
     // MARK: Reading what's saved
@@ -203,15 +231,19 @@ final class VehicleHistory: ObservableObject {
         await readLimit(t, vin)
         let minutes = period == .day ? 5 : ((period == .year || period == .lifetime) ? 60 : 15)
         let today = cal.startOfDay(for: Date())
-        // Never more than about 13 months back (Tessie only keeps so much, and it keeps the reads short).
-        let oldest = cal.date(byAdding: .month, value: -13, to: today) ?? today
-        var start = max(cal.startOfDay(for: range.start), oldest)
         let end = min(range.end, cal.date(byAdding: .day, value: 1, to: today) ?? range.end)
+        await fill(t, vin, minutes: minutes, from: cal.startOfDay(for: range.start), to: end)
+    }
+
+    /// Reads whatever of [start, end) isn't saved yet: nothing for saved finished days, today at most once a minute.
+    private func fill(_ t: TessieClient, _ vin: String, minutes: Int, from rangeStart: Date, to end: Date) async {
+        let today = cal.startOfDay(for: Date())
+        var start = rangeStart
         // Skip saved days at the front and back; read the stretch in between in one go.
         func needs(_ d: Date) -> Bool {
             if d >= today { return todayRead.map { Date().timeIntervalSince($0) > 60 } ?? true || (days[key(d)]?.minutes ?? 99) > minutes }
             guard let have = days[key(d)] else { return true }
-            return have.minutes > minutes
+            return !have.complete || have.minutes > minutes   // a day read before it was over is read again once
         }
         while start < end, !needs(start) { start = cal.date(byAdding: .day, value: 1, to: start) ?? end }
         var last = cal.date(byAdding: .day, value: -1, to: end) ?? start
@@ -325,6 +357,7 @@ struct ChargeLevelGraph: View {
     @State private var folded = false
     /// Tap and hold: the time being read.
     @State private var hold: Date?
+    @State private var holding = false
 
     private static let back = Color(red: 0.13, green: 0.36, blue: 0.24)        // the limit band
     private static let front = Color(red: 0.19, green: 0.62, blue: 0.39)       // battery % fill
@@ -366,33 +399,17 @@ struct ChargeLevelGraph: View {
     }
 
     private func endHold() {
-        if hold != nil { hold = nil; onHold(false) }
+        hold = nil
+        if holding { holding = false; onHold(false) }
     }
 
-    /// Tap and hold (then move) reads the charge; otherwise a sideways swipe turns the page, as on the graph above.
-    private func gestures(width: CGFloat) -> some Gesture {
-        let press = LongPressGesture(minimumDuration: 0.25, maximumDistance: 12)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-        let flick = DragGesture(minimumDistance: 18)
-        return press.exclusively(before: flick)
-            .onChanged { v in
-                if case .first(let s) = v, case .second(true, let d?) = s {
-                    let f = min(max(d.location.x / max(width, 1), 0), 1)
-                    let t = range.start.addingTimeInterval(range.end.timeIntervalSince(range.start) * Double(f))
-                    if hold == nil { onHold(true) }
-                    hold = t
-                }
-            }
-            .onEnded { v in
-                switch v {
-                case .first:
-                    endHold()
-                case .second(let d):
-                    let w = d.translation.width, h = d.translation.height
-                    guard abs(w) > 50, abs(w) > abs(h) * 1.4 else { return }
-                    swipe(w < 0 ? 1 : -1)   // finger to the left: the next (later) period
-                }
-            }
+    /// Touch on the graph: tap and hold (then move) reads the charge, a sideways swipe turns the page; a vertical
+    /// drag isn't taken, so the page scrolls from here too.
+    private func touched(_ x: CGFloat?, width: CGFloat) {
+        guard let x else { endHold(); return }
+        let f = min(max(x / max(width, 1), 0), 1)
+        hold = range.start.addingTimeInterval(range.end.timeIntervalSince(range.start) * Double(f))
+        if !holding { holding = true; onHold(true) }
     }
 
     /// Battery % at a time, as the curve draws it: carried from the first reading to the left edge and from the
@@ -523,8 +540,7 @@ struct ChargeLevelGraph: View {
         .overlay {
             GeometryReader { g in
                 ZStack {
-                    Color.clear.contentShape(Rectangle())
-                        .simultaneousGesture(gestures(width: g.size.width))
+                    ChargeTouch(onHold: { touched($0, width: g.size.width) }, onSwipe: swipe)
                     holdLayer(g.size, p)
                 }
             }
@@ -560,5 +576,61 @@ struct ChargeLevelGraph: View {
             }
         }
         .frame(height: 14)
+    }
+}
+
+/// UIKit touch layer for the Charge Level graph: a long press that follows the finger, and a pan that only starts
+/// for a sideways move (so a vertical drag goes on to scroll the page, and both can run beside the scroll view).
+struct ChargeTouch: UIViewRepresentable {
+    var onHold: (CGFloat?) -> Void
+    var onSwipe: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        v.backgroundColor = .clear
+        let press = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pressed(_:)))
+        press.minimumPressDuration = 0.25
+        press.allowableMovement = 12
+        press.delegate = context.coordinator
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.panned(_:)))
+        pan.delegate = context.coordinator
+        v.addGestureRecognizer(press)
+        v.addGestureRecognizer(pan)
+        return v
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.parent = self }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var parent: ChargeTouch
+        init(_ p: ChargeTouch) { parent = p }
+
+        @objc func pressed(_ g: UILongPressGestureRecognizer) {
+            switch g.state {
+            case .began, .changed: parent.onHold(g.location(in: g.view).x)
+            case .ended, .cancelled, .failed: parent.onHold(nil)
+            default: break
+            }
+        }
+
+        @objc func panned(_ g: UIPanGestureRecognizer) {
+            guard g.state == .ended else { return }
+            let t = g.translation(in: g.view)
+            guard abs(t.x) > 50, abs(t.x) > abs(t.y) * 1.4 else { return }
+            parent.onSwipe(t.x < 0 ? 1 : -1)   // finger to the left: the next (later) period
+        }
+
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            guard let pan = g as? UIPanGestureRecognizer else { return true }
+            let v = pan.velocity(in: pan.view)
+            return abs(v.x) > abs(v.y) * 1.4
+        }
+
+        func gestureRecognizer(_ a: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith b: UIGestureRecognizer) -> Bool {
+            // The page's own scroll may run beside ours; our press and pan never run together.
+            !(a.view === b.view)
+        }
     }
 }

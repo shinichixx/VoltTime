@@ -46,6 +46,7 @@ struct BackupContents {
     var carPhotos: [String: Data] = [:]   // "car.png", "car-charging.png"
     var battery: Data? = nil              // battery-history.json
     var forecast: Data? = nil             // solar-forecast.json
+    var vehicle: Data? = nil              // vehicle-history.plist (Charge Level and the car's use)
 }
 
 enum VoltArchive {
@@ -72,6 +73,9 @@ enum VoltArchive {
         }
         if fm.fileExists(atPath: SolarForecastLog.file.path) {   // daily solar forecasts
             try fm.copyItem(at: SolarForecastLog.file, to: stage.appendingPathComponent("solar-forecast.json"))
+        }
+        if fm.fileExists(atPath: VehicleHistory.file.path) {   // Charge Level and the car's use, per day
+            try fm.copyItem(at: VehicleHistory.file, to: stage.appendingPathComponent("vehicle-history.plist"))
         }
         for name in ["car.png", "car-charging.png", ProfileStore.photoName] where includePhotos {
             let src = CarArt.folder.appendingPathComponent(name)
@@ -126,8 +130,9 @@ enum VoltArchive {
         }
         let battery = try? Data(contentsOf: dest.appendingPathComponent("battery-history.json"))
         let forecast = try? Data(contentsOf: dest.appendingPathComponent("solar-forecast.json"))
-        guard energy != nil || settings != nil || !photos.isEmpty || battery != nil || forecast != nil else { throw BadFile() }
-        return BackupContents(curves: energy ?? [:], settings: settings, carPhotos: photos, battery: battery, forecast: forecast)
+        let vehicle = try? Data(contentsOf: dest.appendingPathComponent("vehicle-history.plist"))
+        guard energy != nil || settings != nil || !photos.isEmpty || battery != nil || forecast != nil || vehicle != nil else { throw BadFile() }
+        return BackupContents(curves: energy ?? [:], settings: settings, carPhotos: photos, battery: battery, forecast: forecast, vehicle: vehicle)
     }
 
     /// A VoltTime backup of either kind: .aar (build 30 on) or the older CSV.
@@ -596,6 +601,10 @@ struct BackupPage: View {
         if let f = p.contents.forecast {
             let n = SolarForecastLog.shared.merge(f)
             if n > 0 { parts.append("\(n) solar forecasts back") }
+        }
+        if let v = p.contents.vehicle {
+            let n = VehicleHistory.shared.merge(v)
+            if n > 0 { parts.append("\(n) days of charge level back") }
         }
         note = "Restored: " + (parts.isEmpty ? "nothing new" : parts.joined(separator: ", "))
         snapshots = Snapshots.list()
