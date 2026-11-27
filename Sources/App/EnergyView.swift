@@ -1352,18 +1352,20 @@ struct EnergyScale {
         let low = min(lo, 0), high = max(hi, 0)
         let span = max(high - low, 0.5)
         let steps: [Double] = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000]
-        let st = steps.first { span / $0 <= 4.5 } ?? 10000
+        let st = steps.first { span / $0 <= 5 } ?? 10000
         let top = max(st, (high / st).rounded(.up) * st)
         let bottom = low < -0.001 ? (low / st).rounded(.down) * st : 0
         domain = bottom...top
         step = st
     }
 
-    /// Tesla app: the unit only on the top line ("8 kW"), negatives shown without the minus ("4" below zero).
+    /// Tesla app: the unit only on the top line ("8 kW"), values below zero keep the minus ("-4").
     func label(_ v: Double, top: Bool, unit: String) -> String {
         let big = unit == "kWh" && max(abs(domain.lowerBound), abs(domain.upperBound)) > 1000
-        let x = abs(big ? v / 1000 : v)
-        let n = abs(x - x.rounded()) < 0.001 ? Num.whole(x) : String(format: "%.1f", x)
+        let x = big ? v / 1000 : v
+        let a = abs(x)
+        let digits = abs(a - a.rounded()) < 0.001 ? Num.whole(a) : String(format: "%.1f", a)
+        let n = x < -0.001 ? "-" + digits : digits
         return top ? "\(n) \(big ? "MWh" : unit)" : n
     }
 }
