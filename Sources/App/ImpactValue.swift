@@ -282,3 +282,29 @@ struct ValueBarsView: View {
         }
     }
 }
+
+// Time-of-Use (Impact): where home use (house + car) came from, split by TNB peak / off-peak.
+struct TouSplit {
+    var peak = EnergyFlow()
+    var off = EnergyFlow()
+}
+
+extension EnergyStore {
+    /// Sums the saved slots of each day in [start, end) into peak and off-peak, by each slot's own time.
+    func touSplit(from start: Date, to end: Date) -> TouSplit {
+        let cal = Calendar.current
+        var out = TouSplit()
+        var d = cal.startOfDay(for: start)
+        while d < end {
+            if let c = curve(d) {
+                for i in 0..<c.count {
+                    let t = d.addingTimeInterval(Double(i * c.minutes) * 60)
+                    if Tariff.isPeak(t) { out.peak = out.peak + c.flow(i) } else { out.off = out.off + c.flow(i) }
+                }
+            }
+            guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
+            d = n
+        }
+        return out
+    }
+}

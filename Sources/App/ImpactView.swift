@@ -27,6 +27,8 @@ struct ImpactView: View {
     @State private var showInfo = false
     @State private var showValueInfo = false
     @State private var showCarbonInfo = false
+    @State private var showTouInfo = false
+    @AppStorage("impact.touPeak") private var touPeak = true
     @State private var forward = false
 
     private var period: ImpactPeriod { ImpactPeriod(stored: periodRaw) ?? .month }
@@ -56,6 +58,7 @@ struct ImpactView: View {
                     ZStack {
                         VStack(spacing: 10) {
                             selfPoweredCard(t)
+                            if !empty { touCard(r) }
                             if !empty { valueCard(r) }
                             if !empty {   // nothing recorded: no zeros that look like readings
                                 offsetCard(t)
@@ -213,6 +216,72 @@ struct ImpactView: View {
             Text(v.map { "\(Int(($0 * 100).rounded()))%" } ?? "—").font(.app(size: 12, weight: .semibold))
                 .frame(width: 38, alignment: .leading)
             Text(name).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+        }
+    }
+
+    // Time-of-Use: sources of home use (house + car) at peak and off-peak.
+    private func touCard(_ r: PeriodRange) -> some View {
+        let split = model.touSplit(from: r.start, to: r.end)
+        func used(_ f: EnergyFlow) -> (solar: Double, grid: Double) { (f.homeSolar + f.carSolar, f.homeGrid + f.carGrid) }
+        let p = used(split.peak), o = used(split.off)
+        let pTotal = p.solar + p.grid, oTotal = o.solar + o.grid
+        let cur = touPeak ? p : o
+        let curTotal = touPeak ? pTotal : oTotal
+        func tab(_ name: String, _ total: Double, _ on: Bool, _ peak: Bool) -> some View {
+            Button { withAnimation(.easeInOut(duration: 0.2)) { touPeak = peak } } label: {
+                VStack(spacing: 3) {
+                    Text(name).font(.app(size: 13, weight: .semibold)).foregroundStyle(on ? Color.white : TeslaDark.dim)
+                    Text(kwh(total)).font(.app(size: 10)).foregroundStyle(on ? TeslaDark.rowLabel : TeslaDark.dim)
+                    Rectangle().fill(on ? Color.white : Color.clear).frame(width: 56, height: 2).clipShape(Capsule()).padding(.top, 7)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        func bar(_ name: String, _ v: Double, _ color: Color) -> some View {
+            let frac = curTotal > 0 ? v / curTotal : 0
+            return VStack(spacing: 8) {
+                HStack {
+                    Text(name).font(.app(size: 13, weight: .semibold))
+                    Spacer()
+                    Text(kwh(v)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).padding(.trailing, 8)
+                    Text(curTotal > 0 ? "\(Int((frac * 100).rounded()))%" : "—").font(.app(size: 13, weight: .semibold))
+                }
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.17))
+                        Capsule().fill(color).frame(width: g.size.width * frac)
+                    }
+                }
+                .frame(height: 6)
+            }
+        }
+        return card("Time-of-Use", info: { withAnimation { showTouInfo.toggle() } }) {
+            HStack(spacing: 0) {
+                tab("Peak", pTotal, touPeak, true)
+                tab("Off-Peak", oTotal, !touPeak, false)
+            }
+            .padding(.top, 14)
+            divider()
+            if curTotal > 0 {
+                VStack(spacing: 18) {
+                    bar("Solar", cur.solar, Self.solarColor)
+                    bar("Grid", cur.grid, Self.gridColor)
+                }
+                .padding(.top, 16)
+            } else {
+                Text(touPeak ? "No peak-time use in this period" : "No off-peak use in this period")
+                    .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    .frame(maxWidth: .infinity).padding(.vertical, 22)
+            }
+            if showTouInfo {
+                Text(touPeak
+                     ? "Peak: Monday to Friday, 2pm to 10pm · RM\(String(format: "%.4f", Tariff.peak))/kWh. Home use includes the car."
+                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday and Sunday · RM\(String(format: "%.4f", Tariff.offPeak))/kWh. Home use includes the car.")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .padding(.top, 14)
+            }
         }
     }
 
