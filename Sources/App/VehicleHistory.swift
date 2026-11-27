@@ -420,7 +420,9 @@ struct ChargeLevelGraph: View {
     private func touched(_ x: CGFloat?, width: CGFloat) {
         guard let x else { endHold(); return }
         let f = min(max(x / max(width, 1), 0), 1)
-        selection = range.start.addingTimeInterval(range.end.timeIntervalSince(range.start) * Double(f))
+        // Never past now: the line stops at today / the current time, as on the graph above.
+        selection = min(range.start.addingTimeInterval(range.end.timeIntervalSince(range.start) * Double(f)),
+                        Date().addingTimeInterval(-1))
         if !holding { holding = true; onHold(true) }
     }
 
@@ -428,11 +430,11 @@ struct ChargeLevelGraph: View {
     private func readTime(_ t: Date) -> Date {
         let cal = Calendar.current
         switch period {
-        case .day: return t
+        case .day: return min(t, Date())
         case .year, .lifetime:
             let m = cal.dateInterval(of: .month, for: t) ?? DateInterval(start: t, duration: 0)
-            return m.start.addingTimeInterval(m.duration / 2)
-        default: return cal.startOfDay(for: t).addingTimeInterval(12 * 3600)
+            return min(m.start.addingTimeInterval(m.duration / 2), Date())
+        default: return min(cal.startOfDay(for: t).addingTimeInterval(12 * 3600), Date())
         }
     }
 
