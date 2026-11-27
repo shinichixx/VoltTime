@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One speed rule for every power-flow streak (My Car and My Home): the same power moves at the same speed.
-/// 12 kW (and anything above) runs at 210 points per second on a 393 pt wide screen.
+/// 12 kW (and anything above) runs at 112 points per second on a 393 pt wide screen.
 enum FlowSpeed {
     private static let curve: [(kW: Double, v: Double)] = [(0, 20), (1, 28), (3, 42), (7, 62), (12, 80)]
 
@@ -13,7 +13,7 @@ enum FlowSpeed {
             v = a.v + (b.v - a.v) * (k - a.kW) / (b.kW - a.kW)
             break
         }
-        return v * 210 / 80
+        return v * 112 / 80
     }
 }
 
