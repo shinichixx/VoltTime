@@ -354,9 +354,9 @@ struct ChargeLevelGraph: View {
     var forward = false
     var swipe: (Int) -> Void = { _ in }
     var onHold: (Bool) -> Void = { _ in }
+    /// The time being read, shared with the usage graph above: holding either graph sets it, and both show it.
+    @Binding var selection: Date?
     @State private var folded = false
-    /// Tap and hold: the time being read.
-    @State private var hold: Date?
     @State private var holding = false
 
     private static let back = Color(red: 0.13, green: 0.36, blue: 0.24)        // the limit band
@@ -367,6 +367,19 @@ struct ChargeLevelGraph: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Charge Level").font(.app(size: 14, weight: .semibold))
+                if let t = selection {
+                    // While a graph is held: the charge at that time and the latest limit, beside the title.
+                    let soc = socAt(readTime(t), pts)
+                    HStack(spacing: 6) {
+                        Text(soc.map { "\(Int($0.rounded()))%" } ?? "–")
+                            .font(.app(size: 14, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(soc == nil ? TeslaDark.rowLabel : Self.line)
+                        Text("· Limit").font(.app(size: 12.5)).foregroundStyle(TeslaDark.rowLabel)
+                        Text(vehicle.limit.map { "\(Int($0.rounded()))%" } ?? "–")
+                            .font(.app(size: 14, weight: .semibold).monospacedDigit())
+                    }
+                    .padding(.leading, 6)
+                }
                 Spacer()
                 Button { withAnimation(.easeInOut(duration: 0.3)) { folded.toggle() } } label: {
                     Image(systemName: "chevron.up").font(.system(size: 14, weight: .medium))
@@ -399,8 +412,7 @@ struct ChargeLevelGraph: View {
     }
 
     private func endHold() {
-        hold = nil
-        if holding { holding = false; onHold(false) }
+        if holding { holding = false; selection = nil; onHold(false) }
     }
 
     /// Touch on the graph: tap and hold (then move) reads the charge, a sideways swipe turns the page; a vertical
@@ -408,8 +420,20 @@ struct ChargeLevelGraph: View {
     private func touched(_ x: CGFloat?, width: CGFloat) {
         guard let x else { endHold(); return }
         let f = min(max(x / max(width, 1), 0), 1)
-        hold = range.start.addingTimeInterval(range.end.timeIntervalSince(range.start) * Double(f))
+        selection = range.start.addingTimeInterval(range.end.timeIntervalSince(range.start) * Double(f))
         if !holding { holding = true; onHold(true) }
+    }
+
+    /// Bars (Week, Month, Year) read at the middle of the held day / month; Day at the time itself.
+    private func readTime(_ t: Date) -> Date {
+        let cal = Calendar.current
+        switch period {
+        case .day: return t
+        case .year, .lifetime:
+            let m = cal.dateInterval(of: .month, for: t) ?? DateInterval(start: t, duration: 0)
+            return m.start.addingTimeInterval(m.duration / 2)
+        default: return cal.startOfDay(for: t).addingTimeInterval(12 * 3600)
+        }
     }
 
     /// Battery % at a time, as the curve draws it: carried from the first reading to the left edge and from the
@@ -426,130 +450,26 @@ struct ChargeLevelGraph: View {
         return a.1 + (b.1 - a.1) * t.timeIntervalSince(a.0) / span
     }
 
-    private func timeLabel(_ t: Date) -> String {
-        let hm = t.formatted(.dateTime.hour().minute())
-        return period == .day ? hm : "\(t.formatted(.dateTime.day().month(.abbreviated))), \(hm)"
-    }
-
-    /// The reading line, a dot on the battery curve and the box (beside the finger, flipped near the right edge).
+    /// The reading line and a dot on the battery curve, at the time held on either graph.
     @ViewBuilder private func holdLayer(_ size: CGSize, _ p: [(Date, Double)]) -> some View {
-        if let t = hold {
+        if let sel = selection {
+            let t = readTime(sel)
             let span = max(range.end.timeIntervalSince(range.start), 1)
-            let px = size.width * CGFloat(t.timeIntervalSince(range.start) / span)
+            let px = size.width * CGFloat(min(max(t.timeIntervalSince(range.start) / span, 0), 1))
             let soc = socAt(t, p)
             let top: CGFloat = 4
             let dotY = soc.map { top + (size.height - top) * (1 - CGFloat(min(max($0, 0), 100)) / 100) }
-            let boxW: CGFloat = 132
-            let right = px + 10 + boxW <= size.width - 4
             ZStack(alignment: .topLeading) {
                 Path { l in l.move(to: CGPoint(x: px, y: 0)); l.addLine(to: CGPoint(x: px, y: size.height)) }
                     .stroke(Color.white.opacity(0.85), lineWidth: 1)
                 if let dotY {
-                    Circle().fill(Self.line).frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(TeslaDark.bg, lineWidth: 1.5))
+                    Circle().fill(Self.line).frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
                         .position(x: px, y: dotY)
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(timeLabel(t)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-                    holdRow(Self.line, "Charge", soc.map { "\(Int($0.rounded()))%" } ?? "–")
-                    holdRow(Self.front, "Limit", vehicle.limit.map { "\(Int($0.rounded()))%" } ?? "–")
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .frame(width: boxW, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(white: 0.21)))
-                .offset(x: right ? px + 10 : max(4, px - 10 - boxW), y: 6)
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .allowsHitTesting(false)
-        }
-    }
-
-    private func holdRow(_ c: Color, _ name: String, _ value: String) -> some View {
-        HStack(spacing: 7) {
-            Circle().fill(c).frame(width: 7, height: 7)
-            Text(name).font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            Spacer(minLength: 6)
-            Text(value).font(.app(size: 12.5, weight: .semibold).monospacedDigit())
-                .foregroundStyle(value == "–" ? TeslaDark.rowLabel : Color.white)
-        }
-        .lineLimit(1)
-    }
-
-    private var pts: [(Date, Double)] { vehicle.soc(from: range.start, to: range.end) }
-
-    private var graph: some View {
-        let p = pts
-        let limit = vehicle.limit
-        let t0 = range.start.timeIntervalSince1970
-        let span = max(range.end.timeIntervalSince1970 - t0, 1)
-        return Canvas { ctx, size in
-            let w = size.width, h = size.height
-            let top: CGFloat = 4           // room for the 100% line
-            let plotH = h - top
-            func y(_ pct: Double) -> CGFloat { top + plotH * (1 - CGFloat(min(max(pct, 0), 100)) / 100) }
-            func x(_ d: Date) -> CGFloat { w * CGFloat((d.timeIntervalSince1970 - t0) / span) }
-            // 100% line, faint.
-            var hundred = Path(); hundred.move(to: CGPoint(x: 0, y: y(100))); hundred.addLine(to: CGPoint(x: w, y: y(100)))
-            ctx.stroke(hundred, with: .color(Color.white.opacity(0.12)), style: StrokeStyle(lineWidth: 0.6, dash: [1.5, 3]))
-            // Back: the charge limit, the whole width.
-            if let limit {
-                ctx.fill(Path(CGRect(x: 0, y: y(limit), width: w, height: h - y(limit))), with: .color(Self.back.opacity(0.55)))
-            }
-            // Dotted time lines (Day: 6 AM, 12 PM, 6 PM).
-            if period == .day {
-                for hr in [6.0, 12, 18] {
-                    let px = x(range.start.addingTimeInterval(hr * 3600))
-                    var l = Path(); l.move(to: CGPoint(x: px, y: top)); l.addLine(to: CGPoint(x: px, y: h))
-                    ctx.stroke(l, with: .color(Color.white.opacity(0.12)), style: StrokeStyle(lineWidth: 0.6, dash: [1.5, 4]))
-                }
-            }
-            // Front: battery %, carried to the left edge from the first reading (and to the right on a past day).
-            guard let first = p.first, let lastPt = p.last else { return }
-            var curve: [CGPoint] = [CGPoint(x: 0, y: y(first.1))]
-            curve += p.map { CGPoint(x: x($0.0), y: y($0.1)) }
-            let endX = range.end <= Date() ? w : min(w, x(Date()))
-            curve.append(CGPoint(x: endX, y: y(lastPt.1)))
-            var edge = Path()
-            edge.move(to: curve[0])
-            for q in curve.dropFirst() { edge.addLine(to: q) }
-            var fill = edge
-            fill.addLine(to: CGPoint(x: endX, y: h)); fill.addLine(to: CGPoint(x: 0, y: h)); fill.closeSubpath()
-            ctx.fill(fill, with: .linearGradient(Gradient(colors: [Self.front.opacity(0.85), Color.black.opacity(0)]),
-                                                 startPoint: CGPoint(x: 0, y: y(100)), endPoint: CGPoint(x: 0, y: h)))
-            ctx.stroke(edge, with: .color(Self.line), style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
-            // Baseline dots: brighter at the labelled times.
-            if period == .day {
-                for hr in 0...24 {
-                    let px = x(range.start.addingTimeInterval(Double(hr) * 3600))
-                    let big = [6, 12, 18].contains(hr)
-                    let r: CGFloat = big ? 1.6 : 1
-                    ctx.fill(Path(ellipseIn: CGRect(x: px - r, y: h - r, width: r * 2, height: r * 2)),
-                             with: .color(big ? .white : Color(white: 0.45)))
-                }
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            Text("100%").font(.app(size: 10.5, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
-                .chartLabelGlow().padding(.trailing, 6).padding(.top, 6)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            Text("0").font(.app(size: 10.5, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
-                .chartLabelGlow().padding(.trailing, 6).padding(.bottom, 4)
-        }
-        .overlay {
-            GeometryReader { g in
-                ZStack {
-                    ChargeTouch(onHold: { touched($0, width: g.size.width) }, onSwipe: swipe)
-                    holdLayer(g.size, p)
-                }
-            }
-        }
-        .overlay {
-            if p.isEmpty {
-                Text(vehicle.loading ? "Reading the car's history…" : (vehicle.message ?? "No battery data for this period"))
-                    .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            }
         }
     }
 

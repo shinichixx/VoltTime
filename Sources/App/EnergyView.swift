@@ -154,10 +154,8 @@ struct EnergyView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Pinned: the title row, the totals and the graph down to the line under it; only what's below scrolls.
                 titleRow.padding(.horizontal, 20)
-                    .opacity(chargeHold ? 0.25 : 1)
                 header(t)
                     .padding(.horizontal, 20)
-                    .opacity(chargeHold ? 0.25 : 1)
                     ZStack {
                         EnergyChartView(store: store, vehicle: vehicle, period: period, comp: comp, range: range, swipe: step,
                                         selection: $selection, look: look, canHold: true, showUsed: showUsed)
@@ -168,24 +166,21 @@ struct EnergyView: View {
                     .frame(height: 270)
                     .clipShape(OpenTopClip())   // the slide stays inside the graph; the reading box may rise above it
                     .padding(.top, 18)
-                    .opacity(chargeHold ? 0.25 : 1)
                 if let note = cover.note(day: period == .day, loading: store.loading), cover.have > 0 {
                     Text(note).font(.app(size: 11.5)).foregroundStyle(TeslaDark.rowLabel)
                         .padding(.horizontal, 20).padding(.top, 8)
-                        .opacity(chargeHold ? 0.25 : 1)
                 }
                 Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
-                    .opacity(selection == nil && !chargeHold ? 1 : 0.25)
+                    .opacity(selection == nil ? 1 : 0.25)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if comp == .vehicle {
                             // Battery % in front of the charge limit, edge to edge (Tesla app).
                             ChargeLevelGraph(vehicle: vehicle, period: period, range: range,
                                              slideID: "\(periodRaw)|\(offset)", forward: forward, swipe: step,
-                                             onHold: { chargeHold = $0 })
-                                .opacity(selection == nil ? 1 : 0.25)
+                                             onHold: { chargeHold = $0 }, selection: $selection)
                             Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 16)
-                                .opacity(selection == nil && !chargeHold ? 1 : 0.25)
+                                .opacity(selection == nil ? 1 : 0.25)
                         }
                         Group {
                             Group {
@@ -222,8 +217,8 @@ struct EnergyView: View {
                             }
                         }
                         .padding(.horizontal, 20)
-                        .opacity(selection == nil && !chargeHold ? 1 : 0.25)   // dims while reading a graph (Tesla app)
-                        .animation(.easeOut(duration: 0.15), value: selection == nil && !chargeHold)
+                        .opacity(selection == nil ? 1 : 0.25)   // dims while reading a graph (Tesla app)
+                        .animation(.easeOut(duration: 0.15), value: selection == nil)
                         Color.clear.frame(height: 96)   // clear of the floating bar
                     }
                 }
@@ -248,7 +243,6 @@ struct EnergyView: View {
             EnergyTabBar(selected: Binding(get: { comp }, set: { compRaw = $0.rawValue; selection = nil }))
                 .padding(.bottom, 6)
         }
-        .animation(.easeOut(duration: 0.15), value: chargeHold)
         .teslaPage(comp.pageTitle)
         .onChange(of: compRaw) { _, _ in look.focus = nil; showUsed = false }   // back to charging only from another view
         .onChange(of: periodRaw) { _, _ in look.focus = nil }
