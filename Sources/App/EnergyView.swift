@@ -90,6 +90,8 @@ struct FlowPoint: Identifiable {
     /// Vehicle view: energy the car used in this step (kWh), driving and parked.
     var drive: Double = 0
     var idle: Double = 0
+    /// Vehicle use graph: the most it draws (kW or kWh), so bursts run off the edge instead of squashing the scale.
+    var capKW: Double = .infinity
     var id: Double { date.timeIntervalSince1970 }
 }
 
@@ -109,6 +111,8 @@ struct EnergyView: View {
     @State private var look = EnergyLook()
     @State private var folded = false
     @ObservedObject private var vehicle = VehicleHistory.shared
+    /// Vehicle: the car's use graph below zero. Off each time the page opens (charging only).
+    @State private var showUsed = false
 
     init(store: EnergyStore, start: EnergyComponent = .all) {
         _store = ObservedObject(wrappedValue: store)
@@ -152,12 +156,12 @@ struct EnergyView: View {
                     .padding(.horizontal, 20)
                     ZStack {
                         EnergyChartView(store: store, vehicle: vehicle, period: period, comp: comp, range: range, swipe: step,
-                                        selection: $selection, look: look, canHold: true)
+                                        selection: $selection, look: look, canHold: true, showUsed: showUsed)
                             .id("\(periodRaw)|\(offset)")
                             .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
                                                     removal: .move(edge: forward ? .leading : .trailing)))
                     }
-                    .frame(height: 270)
+                    .frame(height: comp == .vehicle && !showUsed ? 200 : 270)
                     .clipShape(OpenTopClip())   // the slide stays inside the graph; the reading box may rise above it
                     .padding(.top, 18)
                 if let note = cover.note(day: period == .day, loading: store.loading), cover.have > 0 {
@@ -295,8 +299,13 @@ struct EnergyView: View {
                 HStack(alignment: .top, spacing: 0) {
                     figure("Charged", arrow: "arrow.up", t.car)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    figure("Used", arrow: "arrow.down", carUsed.drive + carUsed.idle, missing: carMissing)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // Tap Used to show or hide the car's use below zero; the page below slides to make room.
+                    Button { withAnimation(.easeInOut(duration: 0.3)) { showUsed.toggle() } } label: {
+                        figure("Used", arrow: "arrow.down", carUsed.drive + carUsed.idle, missing: carMissing, eye: showUsed)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.top, 14)
             }
@@ -307,7 +316,7 @@ struct EnergyView: View {
                 // Week / Month / Year: the held bar's reading sits here instead of a box (Tesla app).
                 if let sel = selection, period != .day {
                     let gs = EnergyReading.groups(comp, selectedFlow(sel), 1, unit: "kWh", gridBoth: true, whole: whole,
-                                                  used: comp == .vehicle ? selectedUsed(sel) : nil)
+                                                  used: comp == .vehicle && showUsed ? selectedUsed(sel) : nil)
                     HStack(alignment: .top, spacing: 0) {
                         ForEach(gs.indices, id: \.self) { i in
                             EnergyReadingView(group: gs[i], unit: "kWh", large: true)
@@ -356,13 +365,15 @@ struct EnergyView: View {
         }
     }
 
-    private func figure(_ title: String, arrow: String?, _ v: Double, missing: Bool? = nil) -> some View {
+    private func figure(_ title: String, arrow: String?, _ v: Double, missing: Bool? = nil, eye: Bool? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 if let arrow { Image(systemName: arrow).font(.system(size: 11, weight: .medium)) }
                 Text(title).font(.app(size: 13))
+                // A toggle: crossed-out eye = graph off, purple open eye = on.
+                if let eye { Image(systemName: eye ? "eye" : "eye.slash").font(.system(size: 12, weight: .medium)).padding(.leading, 3) }
             }
-            .foregroundStyle(TeslaDark.rowLabel)
+            .foregroundStyle(eye == true ? EnergyColor.used : TeslaDark.rowLabel)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text((missing ?? noData) ? "–" : Num.kwh(v, whole: whole)).font(.app(size: 24, weight: .semibold))
                 Text("kWh").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
@@ -528,6 +539,8 @@ private struct EnergyChartView: View {
     var look = EnergyLook()
     /// Day view: holding only works with the page at the top (the box would hide under the pinned row).
     var canHold = true
+    /// Vehicle view: draw the car's own use below zero (default: charging only).
+    var showUsed = false
 
     private let cal = Calendar.current
     private var isDay: Bool { period == .day }
@@ -536,10 +549,18 @@ private struct EnergyChartView: View {
 
     /// Day: 5-minute steps where saved (kW). Week and Month: a bar per day; Year and Lifetime: a bar per month (kWh).
     private var points: [FlowPoint] {
+        let pts = basePoints
+        guard comp == .vehicle, showUsed else { return pts }
+        // Use is drawn on the charging scale; anything beyond it runs off the edge.
+        let cap = EnergyScale(lo: 0, hi: pts.map { $0.flow.car * $0.k }.max() ?? 0).domain.upperBound
+        return pts.map { var q = $0; q.capKW = cap; return q }
+    }
+
+    private var basePoints: [FlowPoint] {
         if isDay {
             let raw = store.curve(range.start)
             // Vehicle: the car's use still shows on a day Home Assistant has nothing for (e.g. a trip away).
-            if raw == nil, comp == .vehicle, let vd = vehicle.day(range.start) {
+            if raw == nil, comp == .vehicle, showUsed, let vd = vehicle.day(range.start) {
                 let step = TimeInterval(vd.minutes * 60)
                 var last = vd.count
                 if cal.isDateInToday(range.start) { last = min(vd.count, max(0, Int(Date().timeIntervalSince(range.start) / step))) }
@@ -563,7 +584,7 @@ private struct EnergyChartView: View {
         var out: [FlowPoint] = []
         var d = range.start
         let end = min(range.end, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date())
-        if store.coverage(range).have == 0 && !(comp == .vehicle && vehicle.covered(from: range.start, to: range.end)) { return [] }
+        if store.coverage(range).have == 0 && !(comp == .vehicle && showUsed && vehicle.covered(from: range.start, to: range.end)) { return [] }
         while d < end {
             let next = cal.date(byAdding: unit, value: 1, to: d) ?? end
             let u = comp == .vehicle ? vehicle.used(from: d, to: min(next, end)) : (drive: 0.0, idle: 0.0)
@@ -598,8 +619,13 @@ private struct EnergyChartView: View {
                     ("Grid", EnergyColor.grid, f.exp * k)]
         case .vehicle:
             // Charging above zero (solar / grid, from Home Assistant); the car's own use below zero (Tessie).
-            return [("Solar", EnergyColor.solar, f.carSolar * k), ("Grid", EnergyColor.grid, f.carGrid * k),
-                    ("Driving", EnergyColor.used, -p.drive * k), ("Standby", EnergyColor.standby, -p.idle * k)]
+            var out = [("Solar", EnergyColor.solar, f.carSolar * k), ("Grid", EnergyColor.grid, f.carGrid * k)]
+            if showUsed {
+                let tot = (p.drive + p.idle) * k
+                let sc = tot > p.capKW && tot > 0 ? p.capKW / tot : 1
+                out += [("Driving", EnergyColor.used, -p.drive * k * sc), ("Standby", EnergyColor.standby, -p.idle * k * sc)]
+            }
+            return out
         case .grid:
             // Import split by who used it (Tesla app): home in blue, the car in red on top; export below zero.
             return [("Home", EnergyColor.home, f.homeGrid * k), ("Vehicle", EnergyColor.vehicle, f.carGrid * k),
@@ -653,6 +679,11 @@ private struct EnergyChartView: View {
         if comp == .all {
             return EnergyScale(lo: -(pts.map { $0.flow.exp * $0.k }.max() ?? 0),
                                hi: pts.map { max($0.flow.house + $0.flow.car, $0.flow.solar + $0.flow.imp) * $0.k }.max() ?? 0)
+        }
+        if comp == .vehicle && showUsed {
+            // Same kW either side of zero.
+            let b = EnergyScale(lo: 0, hi: pts.map { $0.flow.car * $0.k }.max() ?? 0)
+            return EnergyScale(domain: -b.domain.upperBound...b.domain.upperBound, step: b.step)
         }
         var hi = 0.0, lo = 0.0
         for p in pts {
@@ -1153,9 +1184,21 @@ private struct EnergyChartView: View {
     private func readingBox(_ p: FlowPoint) -> some View {
         let u = isDay ? "kW" : "kWh"
         let gs = EnergyReading.groups(comp, p.flow, p.k, unit: u, gridBoth: false,
-                                      used: comp == .vehicle ? (drive: p.drive, idle: p.idle) : nil)
-        return VStack(alignment: .leading, spacing: 8) {
-            ForEach(gs.indices, id: \.self) { EnergyReadingView(group: gs[$0], unit: u) }
+                                      used: comp == .vehicle && showUsed ? (drive: p.drive, idle: p.idle) : nil)
+        return Group {
+            if comp == .vehicle && gs.count > 1 {
+                // Charging and Used side by side with a thin divider, so the box stays one row tall.
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(gs.indices, id: \.self) { i in
+                        if i > 0 { Rectangle().fill(Color(white: 0.32)).frame(width: 0.5) }
+                        EnergyReadingView(group: gs[i], unit: u)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(gs.indices, id: \.self) { EnergyReadingView(group: gs[$0], unit: u) }
+                }
+            }
         }
         .fixedSize(horizontal: true, vertical: true)
         .padding(.horizontal, 10)
@@ -1291,6 +1334,11 @@ struct OpenTopClip: Shape {
 struct EnergyScale {
     let domain: ClosedRange<Double>
     let step: Double
+
+    init(domain: ClosedRange<Double>, step: Double) {
+        self.domain = domain
+        self.step = step
+    }
 
     init(lo: Double, hi: Double) {
         let low = min(lo, 0), high = max(hi, 0)

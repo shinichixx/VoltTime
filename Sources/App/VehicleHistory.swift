@@ -388,7 +388,7 @@ struct ChargeLevelGraph: View {
             for q in curve.dropFirst() { edge.addLine(to: q) }
             var fill = edge
             fill.addLine(to: CGPoint(x: endX, y: h)); fill.addLine(to: CGPoint(x: 0, y: h)); fill.closeSubpath()
-            ctx.fill(fill, with: .linearGradient(Gradient(colors: [Self.front.opacity(0.85), Self.front.opacity(0.55)]),
+            ctx.fill(fill, with: .linearGradient(Gradient(colors: [Self.front.opacity(0.85), Color.black.opacity(0)]),
                                                  startPoint: CGPoint(x: 0, y: y(100)), endPoint: CGPoint(x: 0, y: h)))
             ctx.stroke(edge, with: .color(Self.line), style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
             // Baseline dots: brighter at the labelled times.
