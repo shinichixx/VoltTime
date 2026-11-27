@@ -19,7 +19,7 @@ enum AppData {
     static var energy: URL { support.appendingPathComponent("energy.plist") }
 
     /// Settings that go into a backup (the Home Assistant token stays in the Keychain, never in a file).
-    private static let settingPrefixes = ["home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", "car.", "profile.", HAClient.urlKey]
+    private static let settingPrefixes = ["home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", "car.", "profile.", HAClient.urlKey, HARoute.homeKey, HARoute.autoKey]
 
     static func settingsData() -> Data? {
         let all = UserDefaults.standard.dictionaryRepresentation()

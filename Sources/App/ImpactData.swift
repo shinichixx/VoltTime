@@ -370,7 +370,8 @@ final class HAWebSocket {
     private init(task: URLSessionWebSocketTask) { self.task = task }
 
     static func connect(_ ha: HAClient) async throws -> HAWebSocket {
-        guard var c = URLComponents(url: ha.baseURL, resolvingAgainstBaseURL: false) else { throw APIError(message: "Bad Home Assistant URL") }
+        let base = await ha.currentBase()
+        guard var c = URLComponents(url: base, resolvingAgainstBaseURL: false) else { throw APIError(message: "Bad Home Assistant URL") }
         c.scheme = (c.scheme == "https") ? "wss" : "ws"
         c.path = (c.path.hasSuffix("/") ? String(c.path.dropLast()) : c.path) + "/api/websocket"
         guard let url = c.url else { throw APIError(message: "Bad Home Assistant URL") }
@@ -378,9 +379,15 @@ final class HAWebSocket {
         task.maximumMessageSize = 64 * 1024 * 1024
         task.resume()
         let ws = HAWebSocket(task: task)
-        _ = try await ws.receive()   // auth_required
-        try await ws.send(["type": "auth", "access_token": ha.token])
-        let auth = try await ws.receive()
+        let auth: [String: Any]
+        do {
+            _ = try await ws.receive()   // auth_required
+            try await ws.send(["type": "auth", "access_token": ha.token])
+            auth = try await ws.receive()
+        } catch {
+            await HARoute.shared.reset()   // pick the address again next time
+            throw error
+        }
         guard auth["type"] as? String == "auth_ok" else {
             task.cancel(with: .goingAway, reason: nil)
             throw APIError(message: "Home Assistant rejected the token")

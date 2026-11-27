@@ -84,28 +84,67 @@ struct HAState {
 }
 
 struct HAClient {
-    let baseURL: URL
+    let baseURL: URL          // Tailscale (used away from home)
+    var homeURL: URL? = nil   // home Wi-Fi, tried first
     let token: String
 
     static let urlKey = "haURL"
 
     static func configured() -> HAClient? {
-        HAClient(urlString: UserDefaults.standard.string(forKey: urlKey) ?? "", token: Keychain.get(Keychain.homeAssistant) ?? "")
+        let d = UserDefaults.standard
+        let away = d.string(forKey: urlKey) ?? ""
+        let auto = d.object(forKey: HARoute.autoKey) as? Bool ?? true
+        let home = d.string(forKey: HARoute.homeKey) ?? HARoute.defaultHome
+        let token = Keychain.get(Keychain.homeAssistant) ?? ""
+        // Nothing entered under Tailscale: not set up yet, unless a home address was typed in.
+        if away.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let typed = d.string(forKey: HARoute.homeKey) else { return nil }
+            return HAClient(urlString: typed, token: token)
+        }
+        return HAClient(urlString: away, token: token, home: auto ? home : nil)
     }
 
-    init?(urlString: String, token: String) {
-        var s = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.isEmpty || t.isEmpty { return nil }
+    static func url(from string: String) -> URL? {
+        var s = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return nil }
         if !s.contains("://") { s = "http://" + s }
         while s.hasSuffix("/") { s.removeLast() }
-        guard let u = URL(string: s) else { return nil }
+        return URL(string: s)
+    }
+
+    init?(urlString: String, token: String, home: String? = nil) {
+        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, let u = HAClient.url(from: urlString) else { return nil }
         baseURL = u
+        homeURL = home.flatMap { HAClient.url(from: $0) }
         self.token = t
     }
 
+    /// The address to use right now.
+    func currentBase() async -> URL {
+        await HARoute.shared.base(home: homeURL, away: baseURL)
+    }
+
     private func send(_ path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval = 20) async throws -> Data {
-        guard let url = URL(string: baseURL.absoluteString + path) else { throw APIError(message: "Bad Home Assistant URL") }
+        let base = await currentBase()
+        do {
+            return try await send(path, to: base, method: method, body: body, timeout: timeout)
+        } catch let error as URLError where error.code != .cancelled && homeURL != nil {
+            await HARoute.shared.reset()
+            // Reads may be repeated. A command is only repeated if it never reached Home Assistant,
+            // so nothing (the autogate above all) can fire twice.
+            let neverSent: [URLError.Code] = [.cannotConnectToHost, .cannotFindHost, .notConnectedToInternet]
+            guard method == "GET" || neverSent.contains(error.code) else { throw error }
+            var next = await currentBase()
+            if next == base { next = base == baseURL ? (homeURL ?? baseURL) : baseURL }
+            if next == homeURL, !(await HARoute.looksLikeHomeAssistant(next)) { throw error }
+            guard next != base else { throw error }
+            return try await send(path, to: next, method: method, body: body, timeout: timeout)
+        }
+    }
+
+    private func send(_ path: String, to base: URL, method: String, body: [String: Any]?, timeout: TimeInterval) async throws -> Data {
+        guard let url = URL(string: base.absoluteString + path) else { throw APIError(message: "Bad Home Assistant URL") }
         var req = URLRequest(url: url, timeoutInterval: timeout)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

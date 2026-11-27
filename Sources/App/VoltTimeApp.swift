@@ -187,6 +187,7 @@ struct ContentView: View {
         .onChange(of: phase) { old, p in
             if p == .background { S3XYLink.shared.stop() }
             guard p == .active else { return }
+            Task { await HARoute.shared.reset() }
             S3XYLink.shared.start()
             Task { await home.refresh() }
             if old == .background {   // opened again from the background: top up, and the day's local copy
@@ -202,6 +203,11 @@ struct ContentView: View {
 
 struct HomeAssistantPage: View {
     @AppStorage(HAClient.urlKey) private var haURL = ""
+    @AppStorage(HARoute.homeKey) private var homeURL = HARoute.defaultHome
+    @AppStorage(HARoute.autoKey) private var autoSwitch = true
+    @State private var homeOK: Bool?
+    @State private var awayOK: Bool?
+    @State private var usingHome: Bool?
     @State private var haToken = ""
     @State private var testResult: String?
     @State private var connected: Bool?
@@ -217,21 +223,11 @@ struct HomeAssistantPage: View {
                     .padding(.top, 20)
 
                 TCaption(text: "Connection")
-                TRow("Address", icon: "link") {
-                    TextField("100.x.x.x:8123", text: $haURL)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .multilineTextAlignment(.trailing)
-                        .font(.app(size: 14))
-                        .foregroundStyle(.white)
-                        .frame(width: 190)
-                        .focused($focus, equals: "url")
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
-                }
-                TRow("Token", icon: "key", last: true) {
+                addressRow("Home Wi-Fi", icon: "wifi", text: $homeURL, prompt: "192.168.x.x:8123", key: "home",
+                           note: usingHome == true ? "In use right now" : "Tried first", active: usingHome == true)
+                addressRow("Tailscale", icon: "globe", text: $haURL, prompt: "100.x.x.x:8123", key: "url",
+                           note: usingHome == false ? "In use right now" : "When home doesn't answer", active: usingHome == false)
+                TRow("Token", icon: "key") {
                     Group {
                         if editingToken || haToken.isEmpty {
                             SecureField("Long-lived token", text: $haToken)
@@ -255,6 +251,9 @@ struct HomeAssistantPage: View {
                     .padding(.vertical, 6)
                     .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
                 }
+                TRow("Switch automatically", icon: "arrow.left.arrow.right", subtitle: "Home first, then Tailscale", last: true) {
+                    Toggle("", isOn: $autoSwitch).labelsHidden().tint(TSurface.green)
+                }
 
                 Button {
                     focus = nil
@@ -264,7 +263,7 @@ struct HomeAssistantPage: View {
                 } label: {
                     HStack(spacing: 8) {
                         if testing { ProgressView().tint(.white).scaleEffect(0.8) }
-                        Text("Save & test connection").font(.app(size: 15, weight: .medium))
+                        Text("Save & test both").font(.app(size: 15, weight: .medium))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -290,6 +289,12 @@ struct HomeAssistantPage: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
 
+                if homeOK != nil || awayOK != nil {
+                    TCaption(text: "Last test")
+                    resultRow("Home Wi-Fi", homeOK)
+                    resultRow("Tailscale", awayOK, last: true)
+                }
+
                 TCaption(text: "How tonight's charge works")
                 howRow("bell", "Plug in after 7pm, Sat–Wed", "You're asked where you're going tomorrow")
                 howRow("mappin.and.ellipse", "GPS 73% · TSET 63% · Others", "No answer by 10pm means GPS 73%")
@@ -309,7 +314,8 @@ struct HomeAssistantPage: View {
         }
         .onAppear { haToken = Keychain.get(Keychain.homeAssistant) ?? "" }
         .onDisappear { Keychain.set(haToken.trimmingCharacters(in: .whitespacesAndNewlines), for: Keychain.homeAssistant) }
-        .task { if !haURL.isEmpty && !haToken.isEmpty { await test(quiet: true) } }
+        .task { if !(haURL.isEmpty && homeURL.isEmpty) && !haToken.isEmpty { await test(quiet: true) } }
+        .onChange(of: autoSwitch) { _, _ in Task { await test(quiet: true) } }
     }
 
     private var status: some View {
@@ -323,7 +329,7 @@ struct HomeAssistantPage: View {
             if let checkedAt {
                 HStack(spacing: 5) {
                     Circle().fill(connected == true ? TSurface.green : Theme.orange).frame(width: 6, height: 6)
-                    Text("Checked at \(checkedAt.formatted(date: .omitted, time: .shortened))")
+                    Text("\(usingHome.map { $0 ? "Using Home Wi-Fi · " : "Using Tailscale · " } ?? "")Checked at \(checkedAt.formatted(date: .omitted, time: .shortened))")
                 }
                 .font(.app(size: 12))
                 .foregroundStyle(TeslaDark.rowLabel)
@@ -336,24 +342,78 @@ struct HomeAssistantPage: View {
         TRow(title, icon: icon, subtitle: detail, last: last) { EmptyView() }
     }
 
+    private func addressRow(_ title: String, icon: String, text: Binding<String>, prompt: String, key: String,
+                            note: String, active: Bool) -> some View {
+        TRow(title, icon: icon, subtitle: note, dot: active ? TSurface.green : nil) {
+            TextField(prompt, text: text)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .multilineTextAlignment(.trailing)
+                .font(.app(size: 13))
+                .foregroundStyle(.white)
+                .frame(width: 180)
+                .focused($focus, equals: key)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
+        }
+    }
+
+    private func resultRow(_ title: String, _ ok: Bool?, last: Bool = false) -> some View {
+        TRow(title, last: last) {
+            Text(ok == nil ? "Not set" : (ok == true ? "Reachable" : "Not reachable"))
+                .font(.app(size: 13))
+                .foregroundStyle(ok == true ? TSurface.green : (ok == false ? Theme.orange : TeslaDark.rowLabel))
+        }
+    }
+
+    /// nil = no address entered; otherwise whether it answered and accepted the token.
+    private func check(_ address: String, probeFirst: Bool) async -> (ok: Bool, error: String?)? {
+        guard let ha = HAClient(urlString: address, token: haToken) else { return nil }
+        if probeFirst, !(await HARoute.looksLikeHomeAssistant(ha.baseURL)) {
+            return (false, "The home address didn't answer.")
+        }
+        do {
+            _ = try await ha.ping()
+            return (true, nil)
+        } catch {
+            return (false, error.localizedDescription)
+        }
+    }
+
     private func test(quiet: Bool = false) async {
-        guard let ha = HAClient(urlString: haURL, token: haToken) else {
-            if !quiet { testResult = "Enter both the address and the token." }
+        if haToken.isEmpty || (haURL.isEmpty && homeURL.isEmpty) {
+            if !quiet { testResult = "Enter an address and the token." }
             connected = nil
             return
         }
         testing = true
         defer { testing = false; checkedAt = Date() }
-        do {
-            _ = try await ha.ping()
-            connected = true
+        await HARoute.shared.reset()
+        async let h = check(homeURL, probeFirst: true)
+        async let a = check(haURL, probeFirst: false)
+        let (home, away) = await (h, a)
+        homeOK = home?.ok
+        awayOK = away?.ok
+        // What the app itself will use, with the current switch setting.
+        usingHome = nil
+        guard let ha = HAClient.configured() else {
+            connected = nil
+            testResult = "Enter the Tailscale address too."
+            return
+        }
+        let base = await ha.currentBase()
+        let isHome = base == HAClient.url(from: homeURL)
+        connected = (isHome ? home?.ok : away?.ok) == true
+        if connected == true {
+            usingHome = isHome
             let helpers = try? await ha.state(Entity.readyTime)
             testResult = helpers == nil
                 ? "Connected, but the VoltTime package isn't installed in Home Assistant yet."
                 : (quiet ? nil : "Connected – VoltTime package found.")
-        } catch {
-            connected = false
-            testResult = error.localizedDescription
+        } else {
+            testResult = (isHome ? home?.error : away?.error) ?? "Can't reach Home Assistant."
         }
     }
 }
