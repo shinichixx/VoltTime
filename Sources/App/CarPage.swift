@@ -194,6 +194,14 @@ struct CarView2: View {
             let w = geo.size.width
             let px = geo.frame(in: .global).minX
             ZStack(alignment: .top) {
+                Color.clear
+                    .task(id: meterLive) {
+                        guard meterLive else { myHome.liveCarW = nil; return }   // never show an old reading later
+                        while !Task.isCancelled {
+                            await myHome.refresh()   // every 5 s, like My Home
+                            try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        }
+                    }
                 // Background and car photo are drawn behind the pager (ContentView), so the swipe never cuts the car.
                 Color.clear
                     .onAppear { if !fx.pagerDriven { fx.carX = px } }
@@ -587,6 +595,9 @@ struct CarView2: View {
     }
 
     /// Under "Charging": the Home Assistant charging mode; Routine shows tonight's start and ready time.
+    /// Keeps the meter reading live while this page shows a charge at home.
+    private var meterLive: Bool { active && phase == .active && c.charging && model.isHome }
+
     /// While charging: "7.2 kW · 62% solar · +18 kWh this session" (solar share only at home, from Home Assistant).
     private var chargingNow: Text? {
         guard c.charging else { return nil }
@@ -596,7 +607,9 @@ struct CarView2: View {
             if supply > 50 { parts.append("\(Int((max(s, 0) / supply * 100).rounded()))% solar") }
         }
         if let e = c.energyAddedKWh { parts.append(String(format: "+%.0f kWh this session", e)) }
-        let kw = c.chargerPowerKW.map { String(format: "%.1f kW", $0) } ?? "Charging"
+        // At home: the Wall Connector's meter, as under Model 3 on My Home. Public / Supercharger (or no meter reading): Tessie.
+        let meterKW = model.isHome ? myHome.liveCarW.map { MyHomeModel.kw($0) + " kW" } : nil
+        let kw = meterKW ?? c.chargerPowerKW.map { String(format: "%.1f kW", $0) } ?? "Charging"
         return Text(([kw] + parts).joined(separator: " · ")).foregroundColor(K.grey)
     }
 

@@ -8,7 +8,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "115"
+    CURRENT_PROJECT_VERSION: "116"
 targets:
   VoltTime:
     type: application

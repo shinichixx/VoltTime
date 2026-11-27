@@ -125,6 +125,8 @@ final class MyHomeModel: ObservableObject {
     @Published var solarW: Double?
     @Published var gridW: Double?
     @Published var carW: Double?
+    /// The same meter reading for My Car's Charging row: nil as soon as Home Assistant stops giving it.
+    @Published var liveCarW: Double?
     @Published var soc: Double?
     @Published var connected = false
     @Published var charging = false
@@ -160,6 +162,7 @@ final class MyHomeModel: ObservableObject {
                                  Entity.selfPowered, Entity.importToday, Entity.exportToday, Entity.chargingMode,
                                  Entity.chargeCurrent, Entity.limit])
         if s.isEmpty {
+            liveCarW = nil
             message = "Can't reach Home Assistant. Check Tailscale, or the URL and token in Settings."
             return
         }
@@ -167,6 +170,7 @@ final class MyHomeModel: ObservableObject {
         solarW = s[Entity.solarPower]?.number
         gridW = s[Entity.gridPower]?.number
         carW = s[Entity.carPower]?.number
+        liveCarW = carW
         soc = s[Entity.battery]?.number
         connected = s[Entity.plugged]?.isOn ?? false
         charging = (s[Entity.wallConnectorStatus]?.state.lowercased() ?? "") == "charging"
