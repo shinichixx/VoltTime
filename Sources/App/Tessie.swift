@@ -76,6 +76,29 @@ struct TessieClient {
         return all.first { ($0["vin"] as? String) == vin } ?? all.first
     }
 
+    /// The car's past states over a timeframe (Tessie keeps them; Tesla doesn't). One state every `interval`
+    /// seconds, km, in the phone's time zone. Returns one dictionary per state, whichever shape Tessie sends.
+    func history(_ vin: String, from: Date, to: Date, interval: Int) async throws -> [[String: Any]] {
+        let obj = json(try await get("/\(vin)/states", query: [
+            "from": "\(Int(from.timeIntervalSince1970))",
+            "to": "\(Int(to.timeIntervalSince1970))",
+            "interval": "\(interval)",
+            "condense": "false",
+            "distance_format": "km",
+            "timezone": TimeZone.current.identifier,
+        ], timeout: 90))
+        if let list = obj["results"] as? [[String: Any]] { return list }
+        // Condensed form: parallel arrays with plural names (timestamps, battery_levels, …).
+        guard let c = obj["results"] as? [String: Any], let ts = c["timestamps"] as? [Any] else { return [] }
+        var out = Array(repeating: [String: Any](), count: ts.count)
+        for (k, v) in c {
+            guard let arr = v as? [Any], arr.count == ts.count else { continue }
+            let single = k == "timestamps" ? "timestamp" : (k.hasSuffix("s") ? String(k.dropLast()) : k)
+            for i in arr.indices where !(arr[i] is NSNull) { out[i][single] = arr[i] }
+        }
+        return out
+    }
+
     // MARK: Commands
 
     /// GET /{vin}/command/{name}; waits until the car has done it.

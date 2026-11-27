@@ -4,7 +4,7 @@ import SwiftUI
 /// a house, the car from the front, the sun over a solar panel, and a pylon. Each is sized by what you see
 /// (its own outline), so they line up and look the same size side by side.
 struct FlowGlyph: View {
-    enum Kind { case all, home, car, solar, grid }
+    enum Kind { case all, home, car, solar, grid, standby }
 
     let kind: Kind
     var color: Color = TeslaDark.rowIcon
@@ -20,6 +20,7 @@ struct FlowGlyph: View {
         case .car: return CGRect(x: 6, y: 17, width: 52, height: 36)
         case .solar: return CGRect(x: 8, y: 3, width: 48, height: 53)
         case .grid: return CGRect(x: 8, y: 2, width: 48, height: 60)
+        case .standby: return CGRect(x: 8, y: 8, width: 48, height: 48)
         }
     }
 
@@ -102,6 +103,12 @@ struct FlowGlyph: View {
             line((22, 34), (45, 48)); line((42, 34), (19, 48))
             line((19, 48), (48, 60)); line((45, 48), (16, 60))
             ctx.stroke(p, with: c, style: StrokeStyle(lineWidth: 4.6, lineCap: .round, lineJoin: .round))
+        case .standby:
+            // A clock: parked use (climate, Sentry, sleep drain).
+            ctx.stroke(Path(ellipseIn: CGRect(x: 11, y: 11, width: 42, height: 42)), with: c, lineWidth: 6)
+            var hands = Path()
+            hands.move(to: CGPoint(x: 32, y: 20)); hands.addLine(to: CGPoint(x: 32, y: 33)); hands.addLine(to: CGPoint(x: 41, y: 39))
+            ctx.stroke(hands, with: c, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
         }
     }
 }
