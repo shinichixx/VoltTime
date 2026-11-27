@@ -184,9 +184,7 @@ struct CarView2: View {
 
     // Layout (points from the top of the page, the same reference as My Home's title):
     private let headerBottom: CGFloat = 108      // title, battery line, "remaining…" line
-    private let carTop: CGFloat = 92             // car area, pinned, just under the "remaining…" line
-    private let carHeight: CGFloat = 180
-    private let buttonsTop: CGFloat = 250        // first thing that scrolls (icon row right under the car)
+    private let buttonsTop: CGFloat = 356        // first thing that scrolls (icon row below the car)
 
     var body: some View {
         GeometryReader { geo in

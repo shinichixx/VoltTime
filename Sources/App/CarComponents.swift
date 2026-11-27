@@ -43,6 +43,19 @@ struct CarScene: View {
             if CarArt.showsFlow(for: car) { ChargeFlow(kW: car.chargerPowerKW ?? 7) }
         }
         .aspectRatio(aspect, contentMode: .fit)
+        // A long, soft fade into the page on every side, so the photo has no visible edge.
+        .mask {
+            LinearGradient(stops: Self.fade(from: 0.043, to: 0.19, and: 0.81, 0.957), startPoint: .leading, endPoint: .trailing)
+                .mask { LinearGradient(stops: Self.fade(from: 0, to: 0.32, and: 0.76, 1), startPoint: .top, endPoint: .bottom) }
+        }
+    }
+
+    /// Clear → solid between `a` and `b`, solid → clear between `c` and `d`, eased (smootherstep) so no band shows.
+    private static func fade(from a: Double, to b: Double, and c: Double, _ d: Double) -> [Gradient.Stop] {
+        let steps = (0...12).map { Double($0) / 12 }
+        func ease(_ t: Double) -> Double { t * t * t * (t * (t * 6 - 15) + 10) }
+        return steps.map { Gradient.Stop(color: .black.opacity(ease($0)), location: a + (b - a) * $0) }
+            + steps.map { Gradient.Stop(color: .black.opacity(ease(1 - $0)), location: c + (d - c) * $0) }
     }
 }
 

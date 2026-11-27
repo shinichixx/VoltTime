@@ -61,12 +61,12 @@ struct ContentView: View {
             GeometryReader { g in
                 let w = g.size.width
                 CarScene(car: car.car)
-                    .frame(width: w * 0.92)
-                    .frame(width: w, height: 180)
+                    .frame(width: w * 1.095)
+                    .frame(width: w, height: 215)
                     .clipped()
                     .compositingGroup()
                     .opacity(min(PagerFX.swipe(fx.carX, w), PagerFX.scrolled(fx.carScroll)))
-                    .padding(.top, 82)   // 10 pt closer to the status line (build 58)
+                    .padding(.top, 120)   // clear of the header, with room to fade (build 113)
                     .allowsHitTesting(false)
                 MyHomeView(model: myHome, path: $path, layer: .backdrop)
                     .opacity(min(PagerFX.swipe(fx.homeX, w), PagerFX.scrolled(fx.homeScroll)))
