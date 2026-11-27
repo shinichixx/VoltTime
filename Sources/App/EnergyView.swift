@@ -57,7 +57,7 @@ enum EnergyColor {
 }
 
 /// How the graph is filtered: a tapped table row (its layer keeps colour and fill, the rest go grey lines)
-/// and the eye (every line blue, no fill).
+/// and the eye (one total in the view's own colour, fading to black at 0).
 struct EnergyLook: Equatable {
     var focus: String? = nil
     var outline = false
@@ -79,7 +79,7 @@ struct EnergyPart: Identifiable {
 }
 
 /// One time step on a graph: the energy flow in that step, and the factor that turns it into what the graph
-/// shows (×4 for a 15-minute step gives kW; 1 for a day or month bar gives kWh).
+/// shows (×12 for a 5-minute step gives kW; 1 for a day or month bar gives kWh).
 struct FlowPoint: Identifiable {
     let date: Date
     let flow: EnergyFlow
@@ -309,7 +309,9 @@ struct EnergyView: View {
         guard let sel = selection else { return range.label }
         switch period {
         case .day:
-            return range.label + " · " + sel.addingTimeInterval(-450).formatted(date: .omitted, time: .shortened)
+            // The point sits mid-slot; show the time the slot starts.
+            let half = Double(store.curve(range.start)?.minutes ?? 5) * 30
+            return range.label + " · " + sel.addingTimeInterval(-half).formatted(date: .omitted, time: .shortened)
         case .week, .month, .custom:
             return sel.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
         default:
@@ -489,11 +491,11 @@ private struct EnergyChartView: View {
     private var byMonth: Bool { period == .year || period == .lifetime }
     private var unit: Calendar.Component { byMonth ? .month : .day }
 
-    /// Day: 15-minute steps (kW). Week and Month: a bar per day; Year and Lifetime: a bar per month (kWh).
+    /// Day: 5-minute steps where saved (kW). Week and Month: a bar per day; Year and Lifetime: a bar per month (kWh).
     private var points: [FlowPoint] {
         if isDay {
             guard let raw = store.curve(range.start) else { return [] }
-            let c = raw.minutes < 15 ? raw.coarsened(to: 15) : raw
+            let c = raw   // as saved: 5-minute slots wherever there are any (older days 15-minute or hourly)
             let step = TimeInterval(c.minutes * 60)
             var last = c.count
             if cal.isDateInToday(range.start) { last = min(c.count, max(0, Int(Date().timeIntervalSince(range.start) / step))) }
@@ -633,14 +635,29 @@ private struct EnergyChartView: View {
                     }
                 }
             } else {
-                barMarks(barSegments(pts, scale))
+                barMarks(barSegments(pts, scale), scale)
             }
             if isDay && look.outline {
-                // Eye: one blue line along the top of what's used (and one along the bottom of export).
+                // Eye: one total in the view's colour, along the top of what's used (and the bottom of export),
+                // filled down to 0 unless a tapped row's own fill is showing.
+                if look.focus == nil {
+                    ForEach(pts) { p in
+                        AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", usedTop(p)), series: .value("Area", "eyeTop"))
+                            .foregroundStyle(fade(comp.color, below: false, scale, weak: 0))
+                            .alignsMarkStylesWithPlotArea()
+                            .interpolationMethod(.monotone)
+                    }
+                    ForEach(pts) { p in
+                        AreaMark(x: .value("Time", p.date), yStart: .value("Lo", belowZero(p)), yEnd: .value("Hi", 0.0), series: .value("Area", "eyeBottom"))
+                            .foregroundStyle(fade(comp.color, below: true, scale, weak: 0))
+                            .alignsMarkStylesWithPlotArea()
+                            .interpolationMethod(.monotone)
+                    }
+                }
                 ForEach(totalLines(pts)) { line in
                     ForEach(line.points, id: \.0) { q in
                         LineMark(x: .value("Time", q.0), y: .value("Edge", q.1), series: .value("T", line.key))
-                            .foregroundStyle(EnergyColor.focus)
+                            .foregroundStyle(comp.color)
                             .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
                             .interpolationMethod(.monotone)
                     }
@@ -894,7 +911,7 @@ private struct EnergyChartView: View {
                 }
             }
         } else {
-            barMarks(barSegments(points, scale))
+            barMarks(barSegments(points, scale), scale)
         }
     }
 
@@ -906,6 +923,8 @@ private struct EnergyChartView: View {
         let color: Color
         let fill: Bool
         let alpha: Double
+        /// Eye: fades from its far end to nothing at the 0 line (true = below 0), across the plot.
+        var fadesBelow: Bool? = nil
     }
 
     /// Bars for Week / Month / Year: each view's parts stacked; All puts used (home + car) beside supplied
@@ -940,14 +959,18 @@ private struct EnergyChartView: View {
                 for (i, part) in parts(p).enumerated() { add(part.0, part.1, bounds(p, i), 0.2, 0.8) }
             }
             if look.outline {
-                // Eye: one outline per bar for what's used, and one for export below 0.
+                // Eye: one bar for what's used and one for export below 0, in the view's colour; filled unless
+                // a tapped row's own fill is showing.
+                let solid = look.focus == nil
                 let (u0, u1) = comp == .all ? (0.14, 0.49) : (0.2, 0.8)
                 let (e0, e1) = comp == .all ? (0.51, 0.86) : (0.2, 0.8)
                 if let g = gapped((0, usedTop(p)), scale) {
-                    out.append(BarSeg(id: "\(p.id)top", x0: at(u0), x1: at(u1), lo: g.lo, hi: g.hi, color: EnergyColor.focus, fill: false, alpha: a))
+                    out.append(BarSeg(id: "\(p.id)top", x0: at(u0), x1: at(u1), lo: g.lo, hi: g.hi, color: comp.color, fill: solid, alpha: a,
+                                      fadesBelow: solid ? false : nil))
                 }
                 if let g = gapped((belowZero(p), 0), scale) {
-                    out.append(BarSeg(id: "\(p.id)bottom", x0: at(e0), x1: at(e1), lo: g.lo, hi: g.hi, color: EnergyColor.focus, fill: false, alpha: a))
+                    out.append(BarSeg(id: "\(p.id)bottom", x0: at(e0), x1: at(e1), lo: g.lo, hi: g.hi, color: comp.color, fill: solid, alpha: a,
+                                      fadesBelow: solid ? true : nil))
                 }
             }
         }
@@ -955,11 +978,18 @@ private struct EnergyChartView: View {
     }
 
     /// Filled bars, or a 1 pt outline when the layer is filtered out.
-    @ChartContentBuilder private func barMarks(_ segs: [BarSeg]) -> some ChartContent {
-        ForEach(segs.filter(\.fill)) { s in
+    @ChartContentBuilder private func barMarks(_ segs: [BarSeg], _ scale: EnergyScale) -> some ChartContent {
+        ForEach(segs.filter { $0.fill && $0.fadesBelow == nil }) { s in
             RectangleMark(xStart: .value("A", s.x0), xEnd: .value("B", s.x1), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
                 .cornerRadius(1.5)
                 .foregroundStyle(s.color)
+                .opacity(s.alpha)
+        }
+        ForEach(segs.filter { $0.fadesBelow != nil }) { s in
+            RectangleMark(xStart: .value("A", s.x0), xEnd: .value("B", s.x1), yStart: .value("Lo", s.lo), yEnd: .value("Hi", s.hi))
+                .cornerRadius(1.5)
+                .foregroundStyle(fade(s.color, below: s.fadesBelow == true, scale, strong: 0.9, weak: 0.05))
+                .alignsMarkStylesWithPlotArea()
                 .opacity(s.alpha)
         }
         ForEach(segs.filter { !$0.fill }) { s in
@@ -986,9 +1016,9 @@ private struct EnergyChartView: View {
 
     private func totalLines(_ pts: [FlowPoint]) -> [EdgeLine] {
         Self.runs(pts, has: { usedTop($0) > 0.001 }, edge: { usedTop($0) }).map {
-            EdgeLine(key: "top\($0.id)", color: EnergyColor.focus, points: $0.points)
+            EdgeLine(key: "top\($0.id)", color: comp.color, points: $0.points)
         } + Self.runs(pts, has: { belowZero($0) < -0.001 }, edge: { belowZero($0) }).map {
-            EdgeLine(key: "bottom\($0.id)", color: EnergyColor.focus, points: $0.points)
+            EdgeLine(key: "bottom\($0.id)", color: comp.color, points: $0.points)
         }
     }
 
