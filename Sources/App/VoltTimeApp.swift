@@ -295,12 +295,6 @@ struct HomeAssistantPage: View {
                     resultRow("Tailscale", awayOK, last: true)
                 }
 
-                TCaption(text: "How tonight's charge works")
-                howRow("bell", "Plug in after 7pm, Sat–Wed", "You're asked where you're going tomorrow")
-                howRow("mappin.and.ellipse", "GPS 73% · TSET 63% · Others", "No answer by 10pm means GPS 73%")
-                howRow("clock", "The car's schedule is set for you", "Starts at the planned time, never before 10:15pm")
-                howRow("slider.horizontal.3", "Routine mode only", "Change it on the Charging page", last: true)
-
                 Spacer(minLength: 40)
             }
         }
@@ -336,10 +330,6 @@ struct HomeAssistantPage: View {
             }
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func howRow(_ icon: String, _ title: String, _ detail: String, last: Bool = false) -> some View {
-        TRow(title, icon: icon, subtitle: detail, last: last) { EmptyView() }
     }
 
     private func addressRow(_ title: String, icon: String, text: Binding<String>, prompt: String, key: String,

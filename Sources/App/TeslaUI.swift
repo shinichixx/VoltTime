@@ -16,12 +16,26 @@ enum TSurface {
 struct TCaption: View {
     let text: String
     var trailing: String = ""
+    var info: (() -> Void)? = nil   // shows an (i) after the trailing text
 
     var body: some View {
         HStack {
             Text(text.uppercased()).kerning(0.8)
             Spacer()
             if !trailing.isEmpty { Text(trailing) }
+            if let info {
+                Button(action: info) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)     // comfortable tap target…
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, -9)                   // …without making the caption row taller
+                .padding(.trailing, -7)
+                .accessibilityLabel("How it works")
+            }
         }
         .font(.app(size: 11, weight: .medium))
         .foregroundStyle(TeslaDark.rowLabel)

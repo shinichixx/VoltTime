@@ -231,6 +231,50 @@ struct ModeRow: View {
     }
 }
 
+// MARK: - How tonight's charge works (the (i) beside Sat–Wed)
+
+private struct ChargeHowSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("How tonight's charge works").font(.app(size: 17, weight: .semibold)).foregroundStyle(.white)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(Color(white: 0.24)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+            .padding(.bottom, 14)
+            ScrollView {
+                VStack(spacing: 0) {
+                    row("bell", "Plugged in after 7pm, Sat–Wed", "Asked at your reminder times and when you plug in")
+                    row("mappin.and.ellipse", "GPS 73% · TSET 63% · Others", "No answer by 10pm means GPS 73%")
+                    row("clock", "The car's schedule is set for you", "Mon–Wed never before 10:15pm. Backup start after 5 min")
+                    row("slider.horizontal.3", "Routine mode only", "Change it with the mode buttons above", last: true)
+                }
+                .padding(.bottom, 20)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationBackground(Color(red: 0.133, green: 0.137, blue: 0.149))
+        .preferredColorScheme(.dark)
+    }
+
+    private func row(_ icon: String, _ title: String, _ detail: String, last: Bool = false) -> some View {
+        TRow(title, icon: icon, subtitle: detail, last: last) { EmptyView() }
+    }
+}
+
 // MARK: - Settings (level 1)
 
 struct SettingsPage: View {
@@ -239,6 +283,7 @@ struct SettingsPage: View {
     @ObservedObject var energy: EnergyStore
     @ObservedObject var car: CarModel
     @Binding var path: [Route]
+    @State private var showHow = false
     private var routine: Bool { (myHome.mode ?? "Routine") == "Routine" }
 
     var body: some View {
@@ -263,7 +308,7 @@ struct SettingsPage: View {
 
                 // Tonight's charge only in Routine; other modes just keep Charge details (charger settings apply to all).
                 if routine {
-                    TCaption(text: "Tonight's charge", trailing: "Sat–Wed")
+                    TCaption(text: "Tonight's charge", trailing: "Sat–Wed", info: { showHow = true })
                     tonight
                 } else {
                     Rectangle().fill(Color.clear).frame(height: 20)
@@ -277,6 +322,11 @@ struct SettingsPage: View {
             }
         }
         .teslaPage("Settings", black: true)
+        .sheet(isPresented: $showHow) {
+            ChargeHowSheet()
+                .presentationDetents([.height(390), .large])
+                .presentationDragIndicator(.visible)
+        }
         .task {
             await home.refresh()
             await myHome.refresh()
