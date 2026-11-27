@@ -212,7 +212,11 @@ struct CarSnapshot: Codable, Equatable {
     /// Highest amps VoltTime offers: what the charger offers (or the car's own maximum, if lower).
     /// A charger offering 13 A or less is the 3-pin portable charger: stop at 10 A to go easy on the socket.
     var ampsCap: Int {
-        let offered = [pilotAmps, chargeAmpsMax].compactMap { $0 }.filter { $0 >= 5 }.min() ?? 32
+        // The charger's offer only counts when it is below what's requested (it really is limiting); some chargers
+        // report an offer that just follows the current setting, which would stop the right arrow early.
+        let req = chargeAmps ?? 0
+        let pilot = pilotAmps.flatMap { $0 < req - 0.5 ? $0 : nil }
+        let offered = [pilot, chargeAmpsMax].compactMap { $0 }.filter { $0 >= 5 }.min() ?? 32
         let cap = offered <= 13 ? min(offered, 10) : offered
         return max(5, Int(cap))
     }

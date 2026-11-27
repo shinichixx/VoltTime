@@ -161,7 +161,7 @@ struct EnergyView: View {
                             .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
                                                     removal: .move(edge: forward ? .leading : .trailing)))
                     }
-                    .frame(height: comp == .vehicle && !showUsed ? 200 : 270)
+                    .frame(height: 270)
                     .clipShape(OpenTopClip())   // the slide stays inside the graph; the reading box may rise above it
                     .padding(.top, 18)
                 if let note = cover.note(day: period == .day, loading: store.loading), cover.have > 0 {
