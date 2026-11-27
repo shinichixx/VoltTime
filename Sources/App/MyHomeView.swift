@@ -294,6 +294,8 @@ struct MyHomeView: View {
             switch layer {
             case .backdrop:
                 backdrop(width: w, height: height).compositingGroup()
+                    .onAppear { fx.homePhotoTop = geo.frame(in: .global).minY }
+                    .onChange(of: geo.frame(in: .global).minY) { _, v in fx.homePhotoTop = v }
             case .labels:
                 labels(width: w).compositingGroup()
             case .page:
@@ -315,7 +317,7 @@ struct MyHomeView: View {
                         Color.clear.preference(key: ScrollY.self, value: -g.frame(in: .named("home")).minY)
                     }
                     .frame(height: 0)
-                    Color.clear.frame(height: height)
+                    photoTapAreas(width: w, height: height)
                     rows
                 }
                 // Exactly one screen tall: the rows only bounce, and always spring back to where they were.
@@ -344,6 +346,39 @@ struct MyHomeView: View {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
+    }
+
+    // MARK: Opening Energy / Impact
+
+    /// Every way into Energy and Impact from My Home starts on Day / Today, whatever was last picked there.
+    /// (The pages are new each time, so their date is already today.)
+    private func openEnergy(_ c: EnergyComponent? = nil) {
+        UserDefaults.standard.set(ImpactPeriod.day.rawValue, forKey: "energy.period")
+        path.append(c.map { Route.energyView($0) } ?? .energy)
+    }
+
+    private func openImpact() {
+        UserDefaults.standard.set(ImpactPeriod.day.rawValue, forKey: "impact.period")
+        path.append(.impact)
+    }
+
+    /// The empty space over the house: a tap on the car, a solar roof, a window or the grid wire opens that
+    /// Energy view. It's part of the scrolling page (under the figures), so swiping across it still changes page.
+    private func photoTapAreas(width w: CGFloat, height: CGFloat) -> some View {
+        Color.clear
+            .frame(height: height)
+            .overlay {
+                GeometryReader { g in
+                    // The photo is drawn behind the pager and doesn't move, so place the areas by screen position.
+                    let top = (fx.homePhotoTop ?? g.frame(in: .global).minY) + Self.photoY - g.frame(in: .global).minY
+                    let areas = HouseTapAreas(photo: model.photoNumber, width: w, top: top)
+                    Color.clear
+                        .contentShape(areas.shape)
+                        .onTapGesture(coordinateSpace: .local) { p in
+                            if let c = areas.component(at: p) { openEnergy(c) }
+                        }
+                }
+            }
     }
 
     // MARK: Picture with live labels
@@ -424,7 +459,7 @@ struct MyHomeView: View {
             Color.clear
             anchored(x: w * 0.2901, y: labelY, bottom: true) {
                 // Each figure opens its own graph on the Energy page (Tesla app).
-                Button { path.append(.energyView(.vehicle)) } label: {
+                Button { openEnergy(.vehicle) } label: {
                     carLabel
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
@@ -434,7 +469,7 @@ struct MyHomeView: View {
                 .padding(.bottom, -8)
             }
             anchored(x: w * 0.5064 + 12, y: labelY, bottom: true) {
-                Button { path.append(.energyView(.solar)) } label: {
+                Button { openEnergy(.solar) } label: {
                     FlowLabel(title: "SOLAR", value: Text("\(MyHomeModel.kw(model.solarW)) kW"))
                         .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
                 }
@@ -442,7 +477,7 @@ struct MyHomeView: View {
                 .padding(.vertical, -8)
             }
             anchored(x: w * 0.7863, y: labelY, bottom: true) {
-                Button { path.append(.energyView(.home)) } label: {
+                Button { openEnergy(.home) } label: {
                     FlowLabel(title: "HOME", value: Text("\(MyHomeModel.kw(model.homeW)) kW"))
                         .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
                 }
@@ -450,7 +485,7 @@ struct MyHomeView: View {
                 .padding(.vertical, -8)
             }
             anchored(x: w * 0.7947, y: Self.photoY + w * 1.20, bottom: false) {
-                Button { path.append(.energyView(.grid)) } label: {
+                Button { openEnergy(.grid) } label: {
                     FlowLabel(title: "GRID", value: Text("\(MyHomeModel.kw(model.gridW)) kW"))
                         .padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
                 }
@@ -523,11 +558,11 @@ struct MyHomeView: View {
         VStack(spacing: 0) {
             TeslaRow(icon: AnyView(EnergyGlyph(size: 24)), name: "Energy",
                      label: model.dailyYield.map { String(format: "%.1f kWh Generated Today", $0) } ?? "Generated Today") {
-                path.append(.energy)
+                openEnergy()
             }
             TeslaRow(icon: AnyView(ImpactGlyph(size: 24)), name: "Impact",
                      label: model.selfPowered.map { "\(Int($0.rounded()))% Self-Powered Today" } ?? "Self-Powered Today") {
-                path.append(.impact)
+                openImpact()
             }
             TeslaRow(icon: AnyView(GearGlyph(size: 24)), name: "Settings", label: nil) {
                 path.append(.settings)

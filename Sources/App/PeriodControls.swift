@@ -241,6 +241,8 @@ final class PagerFX: ObservableObject {
     @Published var carScroll: CGFloat = 0
     @Published var homeX: CGFloat? = nil
     @Published var homeScroll: CGFloat = 0
+    /// Screen y of the top of the house backdrop (for the photo's tap areas).
+    @Published var homePhotoTop: CGFloat? = nil
     /// iOS 18+: the pager's own scroll offset sets carX / homeX (build 102). The pages' screen positions
     /// go stale when the pager jumps behind the Menu, which left the house showing on the car page.
     var pagerDriven = false

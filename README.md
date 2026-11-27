@@ -17,6 +17,8 @@ Dark, Tesla-app style. Three pages, swiped left and right (no tab bar):
     sunshine), CO₂ avoided (0.740 kg/kWh, Peninsular 2024) and tomorrow's solar forecast. Energy is kept on the phone in one
     file (energy.plist, ~280 KB a year: one curve per day, 15-minute for recent days, hourly before) shared with the
     Energy page; each refresh only fetches today, yesterday and anything missing.
+  - Energy and Impact always open on **Day / Today** from My Home. Tapping the house photo opens Energy too:
+    car → Vehicle (only when the photo shows the car), solar roofs → Solar, windows → Home, grid wire → Grid.
   - **Settings** – *Charging mode* (Off / Routine / Excess Solar / Fast, sets `input_select.tesla_charging_mode`;
     the HA "Tesla Charging – Controller" automation still does the work), *Charging start time* (Routine only:
     location tomorrow GPS 73% / TSET 63% / Others, ready time, start time) → *Charge details* (duration, energy,
