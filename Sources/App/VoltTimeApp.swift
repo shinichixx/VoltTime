@@ -125,6 +125,7 @@ struct ContentView: View {
                 case .energy: EnergyView(store: energy)
                 case .energyView(let c): EnergyView(store: energy, start: c)
                 case .settings: SettingsPage(energy: energy, path: $path)
+                case .energyGraph: EnergyGraphPage()
                 case .ratePlan: UtilityRatePlanPage(firstDay: energy.firstDay)
                 case .vehicleCharging: VehicleChargingPage(home: home, myHome: myHome, energy: energy, car: car, path: $path)
                 case .chargeDetails: ChargeDetailsPage(model: home)

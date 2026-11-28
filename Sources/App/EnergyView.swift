@@ -111,7 +111,7 @@ struct EnergyView: View {
     @State private var look = EnergyLook()
     @State private var folded = false
     @ObservedObject private var vehicle = VehicleHistory.shared
-    /// Menu › home › Energy Graph: the Day graph's step (5 or 15 minutes).
+    /// Settings › Energy Graph: the Day graph's step (5 minutes to 1 hour).
     @AppStorage(EnergyGraphSetting.key) private var dayStep = 5
     /// Vehicle: the car's use graph below zero. Off each time the page opens (charging only).
     @State private var showUsed = false

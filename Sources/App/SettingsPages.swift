@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Pages pushed from My Home.
 enum Route: Hashable {
-    case energy, settings, vehicleCharging, ratePlan, chargeDetails, homeAssistant, charge, impact
+    case energy, settings, vehicleCharging, ratePlan, chargeDetails, homeAssistant, charge, impact, energyGraph
     case menu, carDetail(CarDetail), energyView(EnergyComponent)
 }
 
@@ -150,6 +150,7 @@ struct SettingsPage: View {
     @ObservedObject var energy: EnergyStore
     @Binding var path: [Route]
     @AppStorage(Tariff.revKey) private var tariffRev = 0
+    @AppStorage(EnergyGraphSetting.key) private var graphStep = 5
 
     private var rateSubtitle: String {
         Tariff.recordedAFA(Date()) != nil ? "TOU" : "TOU · Record \(Date().formatted(.dateTime.month(.wide).locale(Num.en))) AFA"
@@ -162,6 +163,10 @@ struct SettingsPage: View {
                 caption("HOME SETTINGS").padding(.top, 38.7)
                 SettingsRow(title: "Utility Rate Plan", icon: AnyView(PylonGlyph()), subtitle: rateSubtitle) { path.append(.ratePlan) }
                     .padding(.top, 11.3)
+                SettingsRow(title: "Energy Graph",
+                            icon: AnyView(Image(systemName: "chart.xyaxis.line").font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(SettingsRow.grey)),
+                            subtitle: EnergyGraphSetting.label(graphStep)) { path.append(.energyGraph) }
                 caption("YOUR PRODUCTS").padding(.top, 30.3)
                 SettingsRow(title: "Vehicle Charging", icon: AnyView(VehicleFrontGlyph())) { path.append(.vehicleCharging) }
                     .padding(.top, 10.7)

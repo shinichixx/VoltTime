@@ -379,9 +379,6 @@ struct ProductPage: View {
                     NavigationLink { AutogatePage(car: car) } label: {
                         MenuRow(title: "Autogate", compact: true, product: true) { GateGlyph(size: 22, color: TeslaDark.rowIcon) }
                     }.buttonStyle(.plain)
-                    NavigationLink { EnergyGraphPage() } label: {
-                        MenuRow(title: "Energy Graph", compact: true, product: true) { MenuSymbol(name: "chart.xyaxis.line", size: 19) }
-                    }.buttonStyle(.plain)
                 }
             }
         }
@@ -404,20 +401,36 @@ struct ProductPage: View {
     }
 }
 
-enum EnergyGraphSetting { static let key = "energy.dayStep" }
+enum EnergyGraphSetting {
+    static let key = "energy.dayStep"
+    static let steps = [5, 10, 15, 30, 60]
+    static func label(_ minutes: Int) -> String { minutes == 60 ? "1 hour" : "\(minutes) minutes" }
+}
 
-/// Home › Energy Graph: the Day graph's interval.
+/// My Home › Settings › Energy Graph: the Day graph's interval.
 struct EnergyGraphPage: View {
     @AppStorage(EnergyGraphSetting.key) private var step = 5
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                TRow("Interval", icon: "clock", last: true) {
-                    TSegment(items: ["5 min", "15 min"], selected: step == 15 ? 1 : 0) { step = $0 == 1 ? 15 : 5 }
-                        .frame(width: 170)
+                TRow("Graph Interval", icon: "clock", last: true) {
+                    Menu {
+                        Picker("Graph Interval", selection: $step) {
+                            ForEach(EnergyGraphSetting.steps, id: \.self) { Text(EnergyGraphSetting.label($0)).tag($0) }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(EnergyGraphSetting.label(step)).font(.app(size: 14))
+                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(TeslaDark.rowLabel)
+                        .fixedSize()
+                        .frame(minHeight: 32)
+                        .contentShape(Rectangle())
+                    }
                 }
-                TFootnote(text: "Used by the Day graph in every Energy view. 15 min shows the average of each 15 minutes; kWh totals stay the same. Days saved hourly stay hourly.")
+                TFootnote(text: "Used by the Day graph in every Energy view. Longer intervals show the average of each block; kWh totals stay the same. Days saved coarser stay as saved.")
             }
         }
         .teslaPage("Energy Graph", black: true)
