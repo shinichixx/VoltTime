@@ -323,37 +323,39 @@ struct UtilityBillSection: View {
     private struct Item {
         let name: String
         let amount: Double
-        var rate: Double? = nil   // RM per kWh
+        var note: String? = nil   // rate beside the name
     }
 
     /// Rates come from the whole bill, so a Home or Vehicle share shows the same ones.
     private func breakdown(_ s: BillSummary, _ b: Bill) -> [Item] {
-        func per(_ rm: Double, _ kWh: Double) -> Double? { kWh > 0.001 ? rm / kWh : nil }
+        func per(_ rm: Double, _ kWh: Double) -> String? {
+            guard kWh > 0.001 else { return nil }
+            let sen = rm / kWh * 100
+            return (sen < 0 ? "−" : "") + abs(sen).formatted(.number.locale(Num.en).precision(.fractionLength(2))) + " sen/kWh"
+        }
         func pct(_ v: Double) -> String { v.formatted(.number.locale(Num.en).precision(.fractionLength(0...2))) + "%" }
         let w = s.bill, n = s.units, r = Tariff.billRates
         let all = [
-            Item(name: "Energy (peak)", amount: b.energyPeak, rate: per(w.energyPeak, n.peak)),
-            Item(name: "Energy (off-peak)", amount: b.energyOff, rate: per(w.energyOff, n.off)),
-            Item(name: "AFA", amount: b.afa, rate: per(w.afa, n.imp)),
-            Item(name: "Capacity", amount: b.capacity, rate: per(w.capacity, n.imp)),
-            Item(name: "Network", amount: b.network, rate: per(w.network, n.imp)),
-            Item(name: "Retail", amount: b.retail),
-            Item(name: "Energy efficiency incentive", amount: b.incentive, rate: per(w.incentive, n.imp)),
-            Item(name: "Service tax (\(pct(r.servicePct)))", amount: b.serviceTax),
-            Item(name: "KWTBB (\(pct(r.kwtbbPct)))", amount: b.kwtbb),
-            Item(name: "NEM credit", amount: -b.credit, rate: per(w.credit, n.exp))]
+            Item(name: "Energy (peak)", amount: b.energyPeak, note: per(w.energyPeak, n.peak)),
+            Item(name: "Energy (off-peak)", amount: b.energyOff, note: per(w.energyOff, n.off)),
+            Item(name: "AFA", amount: b.afa, note: per(w.afa, n.imp)),
+            Item(name: "Capacity", amount: b.capacity, note: per(w.capacity, n.imp)),
+            Item(name: "Network", amount: b.network, note: per(w.network, n.imp)),
+            Item(name: "Retail", amount: b.retail, note: "RM 10/month"),
+            Item(name: "Energy efficiency incentive", amount: b.incentive, note: per(w.incentive, n.imp)),
+            Item(name: "Service tax", amount: b.serviceTax, note: pct(r.servicePct)),
+            Item(name: "KWTBB", amount: b.kwtbb, note: pct(r.kwtbbPct)),
+            Item(name: "NEM credit", amount: -b.credit, note: per(w.credit, n.exp).map { "average " + $0 })]
         return all.filter { abs($0.amount) >= 0.005 }
     }
 
     private func breakdownRow(_ item: Item) -> some View {
         let credit = item.name == "NEM credit"
-        let rate = item.rate.map {
-            ($0 < 0 ? "−" : "") + "RM " + abs($0).formatted(.number.locale(Num.en).precision(.fractionLength(4)))
-        }
         return HStack(spacing: 8) {
-            (Text(item.name).font(.app(size: 13.5))
-                + Text(rate.map { " (\($0)/kWh)" } ?? "").font(.app(size: 11)))
-                .foregroundStyle(TeslaDark.rowLabel).lineLimit(1).minimumScaleFactor(0.75)
+            (Text(item.name).font(.app(size: 13.5)).foregroundColor(TeslaDark.rowLabel)
+                + Text(item.note.map { " · \($0)" } ?? "").font(.app(size: 11))
+                    .foregroundColor(Color(red: 0.75, green: 0.61, blue: 0.30)))
+                .lineLimit(1).minimumScaleFactor(0.75)
             Spacer(minLength: 0)
             Text(credit ? "(" + money(abs(item.amount), rm: true) + ")" : money(item.amount, rm: true))
                 .font(.app(size: 13.5)).foregroundStyle(credit ? Color.green : Color.white)
@@ -373,7 +375,7 @@ struct UtilityBillSection: View {
         box {
             iconRow(glyph(.grid, EnergyColor.grid), "Import charges", none ? "–" : money(b.total + b.credit, rm: true))
             line
-            iconRow(glyph(.solar, EnergyColor.solar), "NEM credit", none ? "–" : money(-b.credit, rm: true),
+            iconRow(glyph(.solar, EnergyColor.solar), "NEM credit", none ? "–" : b.credit >= 0.005 ? "(" + money(b.credit, rm: true) + ")" : money(0, rm: true),
                     green: !none && b.credit >= 0.005)
             line
             iconRow(symbol("doc.text"), period == .month && current ? "Current bill" : "Bill",
