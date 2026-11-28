@@ -56,7 +56,8 @@ enum EnergyColor {
     static let standby = Color(red: 0.55, green: 0.45, blue: 0.72)
     /// Row border and the eye filter's lines (Tesla app).
     static let focus = Color(red: 58 / 255, green: 86 / 255, blue: 226 / 255)
-    static let muted = Color(white: 0.45)
+    /// Layers not tapped: barely there.
+    static let muted = Color(white: 0.15)
 }
 
 /// How the graph is filtered: tapped table rows (each tapped layer keeps colour and fill, the rest go grey lines)
@@ -192,8 +193,11 @@ struct EnergyView: View {
                                 HStack(spacing: 18) {
                                     Text("Energy Flow").font(.app(size: 14, weight: .semibold))
                                     Spacer()
-                                    Button { look.outline.toggle(); if !look.outline { look.focus = [] } } label: {
-                                        Image(systemName: look.outline ? "eye.slash" : "eye").font(.system(size: 15, weight: .medium))
+                                    // Crossed while the eye or any row filter is on; tapping it then shows everything again.
+                                    Button {
+                                        if look.outline || !look.focus.isEmpty { look = EnergyLook() } else { look.outline = true }
+                                    } label: {
+                                        Image(systemName: look.outline || !look.focus.isEmpty ? "eye.slash" : "eye").font(.system(size: 15, weight: .medium))
                                             .frame(width: 26, height: 26)
                                     }
                                     Button { withAnimation(.easeInOut(duration: 0.3)) { folded.toggle() } } label: {
@@ -472,7 +476,10 @@ struct EnergyView: View {
                         }
                     }
                     // Tap: add this layer to the ones keeping their colour on the graph; tap again to remove it.
-                    .onTapGesture { look.focus.formSymmetricDifference([p.layer]) }
+                    .onTapGesture {
+                        look.outline = false   // a row filter replaces the eye's total outline
+                        look.focus.formSymmetricDifference([p.layer])
+                    }
                 }
             }
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(border, lineWidth: 1))
@@ -747,7 +754,7 @@ private struct EnergyChartView: View {
                 }
                 // Edge lines from the top layer down, so a lower layer's line wins where they meet
                 // (a 0 kW layer never paints over the one beneath it).
-                ForEach(Array(template.enumerated()).reversed(), id: \.offset) { i, t in
+                ForEach(Array(template.enumerated()).reversed().sorted { !look.focus.contains($0.element.0) && look.focus.contains($1.element.0) }, id: \.offset) { i, t in
                     ForEach(Self.runs(pts, has: { (!look.outline || look.focus.contains(t.0)) && abs(parts($0)[i].2) > 0.001 },
                                       edge: { let b = bounds($0, i); return negative(i) ? b.lo : b.hi })) { run in
                         ForEach(run.points, id: \.0) { q in
@@ -1160,7 +1167,9 @@ private struct EnergyChartView: View {
         add("solar", look.style("solar", EnergyColor.solar).line, has: { $0.flow.solar > 0.001 }, edge: { $0.flow.solar * $0.k })
         add("export", look.style("export", EnergyColor.grid).line, has: { $0.flow.exp > 0.001 }, edge: { -$0.flow.exp * $0.k })
         add("home", look.style("home", EnergyColor.home).line, has: { $0.flow.house > 0.001 }, edge: { $0.flow.house * $0.k })
-        return out
+        // Tapped layers' lines go last, over the faint ones.
+        let tapped = { (l: EdgeLine) in look.focus.contains { l.key.hasPrefix($0) } }
+        return out.filter { !tapped($0) } + out.filter(tapped)
     }
 
     // MARK: Reading the graph (tap and hold)
