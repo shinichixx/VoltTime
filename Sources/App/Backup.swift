@@ -339,7 +339,7 @@ final class BackupManager: ObservableObject {
         status = "Packing…"
         Task {
             let out = FileManager.default.temporaryDirectory
-                .appendingPathComponent("Teslar_" + VoltArchive.stamp() + "." + VoltArchive.ext)
+                .appendingPathComponent("Teslar-backup-" + VoltArchive.stamp() + "." + VoltArchive.ext)
             let made: Result<Int64, Error> = await Task.detached(priority: .userInitiated) {
                 do {
                     try VoltArchive.make(at: out)
