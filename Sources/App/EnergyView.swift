@@ -220,11 +220,9 @@ struct EnergyView: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .clipped()
-                                if comp == .grid || comp == .home || comp == .vehicle {
-                                    let _ = tariffRev   // redraw when a rate or holiday changes
-                                    UtilityBillSection(store: store, period: period, range: range,
-                                                       showBreakdown: $showBreakdown, folded: $billFolded, share: comp)
-                                }
+                                let _ = tariffRev   // redraw when a rate or holiday changes
+                                UtilityBillSection(store: store, period: period, range: range,
+                                                   showBreakdown: $showBreakdown, folded: $billFolded, share: comp)
                             }
                             if let msg = store.message {
                                 Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)

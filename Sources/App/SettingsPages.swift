@@ -438,7 +438,7 @@ struct UtilityRatePlanPage: View {
                     }
                 }
                 .buttonStyle(.plain)
-                TFootnote(text: "Solar used is valued at the import rate. Export offsets the month's off-peak import at the off-peak export rate, then the rest at the peak export rate. Impact leaves out the energy efficiency incentive; Utility Bill (Energy › Grid, Home and Vehicle) includes it.",
+                TFootnote(text: "Solar used is valued at the import rate. Export offsets the month's off-peak import at the off-peak export rate, then the rest at the peak export rate. Impact leaves out the energy efficiency incentive; Utility Bill (Energy page) includes it.",
                           color: TeslaDark.dim)
                 Spacer(minLength: 40)
             }

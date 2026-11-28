@@ -1,17 +1,33 @@
 import SwiftUI
 
-// Energy › Grid / Home / Vehicle › Utility Bill: the TNB bill from the meter's import and export (maths in Core's
-// `Bill`). Home and Vehicle show their share of it, by the grid energy each took.
+// Energy › Utility Bill: the TNB bill from the meter's import and export (maths in Core's `Bill`). Home and Vehicle
+// show their share of it by the grid energy each took; Solar and All also show what solar saved.
 
 /// kWh that matter to the bill.
 struct BillUse {
     var peak = 0.0, off = 0.0, exp = 0.0
-    var carPeak = 0.0, carOff = 0.0   // the part of the import that went into the car
+    var carPeak = 0.0, carOff = 0.0           // the part of the import that went into the car
+    var homeGrid = 0.0, carGrid = 0.0         // grid use as in Energy Flow
+    var homeSP = 0.0, homeSO = 0.0            // solar the home used directly, peak / off-peak
+    var carSP = 0.0, carSO = 0.0              // the same for the car
     var imp: Double { peak + off }
     var carImp: Double { carPeak + carOff }
+    var homeSolar: Double { homeSP + homeSO }
+    var carSolar: Double { carSP + carSO }
+    /// The same use had the solar energy come from the grid, with nothing exported.
+    var withoutSolar: BillUse { BillUse(peak: peak + homeSP + carSP, off: off + homeSO + carSO) }
+
+    private static let fields: [WritableKeyPath<BillUse, Double>] = [
+        \.peak, \.off, \.exp, \.carPeak, \.carOff, \.homeGrid, \.carGrid, \.homeSP, \.homeSO, \.carSP, \.carSO]
     static func + (a: BillUse, b: BillUse) -> BillUse {
-        BillUse(peak: a.peak + b.peak, off: a.off + b.off, exp: a.exp + b.exp,
-                carPeak: a.carPeak + b.carPeak, carOff: a.carOff + b.carOff)
+        var o = a
+        for f in fields { o[keyPath: f] += b[keyPath: f] }
+        return o
+    }
+    func times(_ k: Double) -> BillUse {
+        var o = self
+        for f in Self.fields { o[keyPath: f] *= k }
+        return o
     }
     /// A bill is read in whole kWh.
     var bill: (Date) -> Bill {
@@ -29,14 +45,30 @@ struct BillSummary {
     var have = 0
     var car = Bill()                // the car's share of `bill`; the home has the rest
     var carEstimate: Double?
-    var imp = 0.0, carImp = 0.0     // grid kWh over the days counted
+    var without = Bill()            // the bill had there been no solar
+    var homeGrid = 0.0, carGrid = 0.0, homeSolar = 0.0, carSolar = 0.0, exported = 0.0   // kWh over the days counted
+    private var homeWorth = 0.0, carWorth = 0.0
 
-    mutating func add(_ b: Bill, _ use: BillUse) {
+    mutating func add(_ b: Bill, _ use: BillUse, without w: Bill) {
         bill = bill + b
         car = car + b.carShare(use)
-        imp += use.imp
-        carImp += use.carImp
+        without = without + w
+        homeGrid += use.homeGrid
+        carGrid += use.carGrid
+        homeSolar += use.homeSolar
+        carSolar += use.carSolar
+        exported += use.exp
+        // Peak solar is worth more than off-peak: weigh each by its energy, capacity and network rates.
+        let r = Tariff.billRates
+        let p = r.energyPeak + r.capacity + r.network, o = r.energyOff + r.capacity + r.network
+        homeWorth += use.homeSP * p + use.homeSO * o
+        carWorth += use.carSP * p + use.carSO * o
     }
+
+    /// RM saved by using solar directly (the export credit is `bill.credit`).
+    private var directSaved: Double { max(without.total - bill.total - bill.credit, 0) }
+    var homeSaved: Double { homeWorth + carWorth > 0 ? directSaved * homeWorth / (homeWorth + carWorth) : 0 }
+    var carSaved: Double { homeWorth + carWorth > 0 ? directSaved * carWorth / (homeWorth + carWorth) : 0 }
 }
 
 extension EnergyStore {
@@ -50,10 +82,17 @@ extension EnergyStore {
         let flows = c.flows
         for i in 0..<c.count {
             let im = Double(c.imp[i])
+            let f = flows[i]
             // The slot's import is split between car and home as their grid use in it.
-            let grid = flows[i].carGrid + flows[i].homeGrid
-            let car = grid > 0 ? im * flows[i].carGrid / grid : 0
-            if Tariff.isPeak(minute: i * c.minutes, weekend: offDay) { u.peak += im; u.carPeak += car } else { u.off += im; u.carOff += car }
+            let grid = f.carGrid + f.homeGrid
+            let car = grid > 0 ? im * f.carGrid / grid : 0
+            u.homeGrid += f.homeGrid
+            u.carGrid += f.carGrid
+            if Tariff.isPeak(minute: i * c.minutes, weekend: offDay) {
+                u.peak += im; u.carPeak += car; u.homeSP += f.homeSolar; u.carSP += f.carSolar
+            } else {
+                u.off += im; u.carOff += car; u.homeSO += f.homeSolar; u.carSO += f.carSolar
+            }
             u.exp += Double(c.exp[i])
         }
         if !today { billCache[k] = u }
@@ -79,7 +118,7 @@ extension EnergyStore {
         let days = Double(cal.range(of: .day, in: .month, for: iv.start)?.count ?? 30)
         let elapsed = Date().timeIntervalSince(iv.start) / 86400 - Double(missing)
         let k = max(days / max(elapsed, 1), 1)
-        return BillUse(peak: use.peak * k, off: use.off * k, exp: use.exp * k, carPeak: use.carPeak * k, carOff: use.carOff * k)
+        return use.times(k)
     }
 
     func billSummary(_ period: ImpactPeriod, _ r: PeriodRange) -> BillSummary {
@@ -92,7 +131,7 @@ extension EnergyStore {
             let current = iv.contains(Date())
             switch period {
             case .month:
-                out.add(u.use.bill(m), u.use)
+                out.add(u.use.bill(m), u.use, without: u.use.withoutSolar.bill(m))
                 out.have = u.have; out.missing = u.missing
                 if current, u.have > 0 {
                     let p = projected(u.use, iv, missing: u.missing)
@@ -102,17 +141,22 @@ extension EnergyStore {
                 }
             case .year, .lifetime:
                 // Months before the first record don't count as missing.
-                if u.have > 0 { out.add(u.use.bill(m), u.use); out.have += u.have; out.missing += u.missing }
+                if u.have > 0 { out.add(u.use.bill(m), u.use, without: u.use.withoutSolar.bill(m)); out.have += u.have; out.missing += u.missing }
             default:
                 // Day / Week / Custom: each day's share of its month's bill (the expected one while the month runs).
                 let ref = current ? projected(u.use, iv, missing: u.missing) : u.use
                 let b = ref.bill(m)
+                let refNo = ref.withoutSolar
+                let bNo = refNo.bill(m)
                 let days = Double(cal.range(of: .day, in: .month, for: m)?.count ?? 30)
                 var d = max(iv.start, r.start)
                 while d < min(iv.end, r.end), d <= Date() {
                     if let x = billUse(d) {
+                        let n = x.withoutSolar
                         out.add(b.share(peak: part(x.peak, ref.peak), off: part(x.off, ref.off),
-                                        imp: part(x.imp, ref.imp), exp: part(x.exp, ref.exp), day: 1 / days), x)
+                                        imp: part(x.imp, ref.imp), exp: part(x.exp, ref.exp), day: 1 / days), x,
+                                without: bNo.share(peak: part(n.peak, refNo.peak), off: part(n.off, refNo.off),
+                                                   imp: part(n.imp, refNo.imp), exp: 0, day: 1 / days))
                         out.have += 1
                     } else { out.missing += 1 }
                     guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
@@ -169,14 +213,14 @@ struct UtilityBillSection: View {
     let range: PeriodRange
     @Binding var showBreakdown: Bool
     @Binding var folded: Bool
-    var share: EnergyComponent = .grid   // .home or .vehicle: that share of the bill
+    var share: EnergyComponent = .grid   // which Energy view this is
 
     private let border = Color(white: 0.24)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5)
-                .padding(.horizontal, -20).padding(.top, 16)   // edge to edge
+                .padding(.horizontal, -20).padding(.top, 23)   // edge to edge, same gap above and below
             HStack(spacing: 18) {
                 Text("Utility Bill").font(.app(size: 14, weight: .semibold))
                 Spacer()
@@ -193,7 +237,7 @@ struct UtilityBillSection: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
-            .padding(.top, 22)
+            .padding(.top, 15)
             if !folded { content.transition(.opacity) }
         }
     }
@@ -201,7 +245,7 @@ struct UtilityBillSection: View {
     private var current: Bool { range.start <= Date() && Date() < range.end }
 
     private var caption: String {
-        if share != .grid {
+        if share == .home || share == .vehicle {
             let who = share == .vehicle ? "Vehicle share" : "Home share"
             switch period {
             case .day: return "\(current ? "Today" : range.label) · \(who) · estimate"
@@ -220,49 +264,131 @@ struct UtilityBillSection: View {
         }
     }
 
+    /// Captions of the All and Solar boxes.
+    private func titled(_ name: String) -> String {
+        switch period {
+        case .day, .week, .custom: return "\(name) · estimate"
+        case .month: return current ? "\(name) · month so far" : name
+        case .year, .lifetime: return name
+        }
+    }
+
     private var content: some View {
         let s = store.billSummary(period, range)
-        let b = share == .vehicle ? s.car : share == .home ? s.bill.minus(s.car) : s.bill
-        let estimate = share == .grid ? s.estimate
-            : s.estimate.flatMap { e in s.carEstimate.map { share == .vehicle ? $0 : e - $0 } }
-        let used = share == .vehicle ? s.carImp : s.imp - s.carImp
         let none = s.have == 0
+        let b = share == .vehicle ? s.car : share == .home ? s.bill.minus(s.car) : s.bill
         return VStack(alignment: .leading, spacing: 8) {
-            Text(caption).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-            box {
-                row(period == .month && current ? "Current bill" : "Bill", none ? "–" : money(b.total, rm: true), strong: true)
-                if let e = estimate {
-                    line
-                    row("Estimated full month", money(e, rm: true), strong: true)
-                }
-                if share != .grid && !none {
-                    line
-                    row("Grid energy used", "\(used.formatted(.number.locale(Num.en).precision(.fractionLength(period == .day ? 1 : 0)))) kWh")
-                    line
-                    row("Share of grid import", s.imp > 0 ? "\(Int((used / s.imp * 100).rounded()))%" : "–")
-                }
+            if share == .all {
+                importBox(s, none: none)
+                savingsBox(s, none: none).padding(.top, 6)
+            } else if share == .solar {
+                savingsBox(s, none: none)
+            } else {
+                billBox(s, b, none: none)
             }
             if s.missing > 0 && !none {
                 Text("\(s.missing) day\(s.missing == 1 ? "" : "s") without data, not counted.")
                     .font(.app(size: 11.5)).foregroundStyle(TeslaDark.rowLabel)
             }
             if showBreakdown && !none {
-                let items: [(String, Double)] = [
-                    ("Energy (peak)", b.energyPeak), ("Energy (off-peak)", b.energyOff), ("AFA", b.afa),
-                    ("Capacity", b.capacity), ("Network", b.network), ("Retail", b.retail),
-                    ("Energy efficiency incentive", b.incentive), ("Service tax", b.serviceTax), ("KWTBB", b.kwtbb),
-                    ("NEM credit", -b.credit)
-                ].filter { abs($0.1) >= 0.005 }
-                Text("Breakdown").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 4)
+                let items = breakdown(s, b)
+                heading("Breakdown").padding(.top, 4)
                 box {
                     ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                         if i > 0 { line }
-                        row(item.0, money(item.1), tint: item.0 == "NEM credit" ? EnergyColor.solar : .white)
+                        row(item.0, money(item.1, rm: share == .solar), tint: item.0 == "NEM credit" ? EnergyColor.solar : .white)
                     }
                 }
             }
         }
         .padding(.top, 14)
+    }
+
+    private func breakdown(_ s: BillSummary, _ b: Bill) -> [(String, Double)] {
+        if share == .solar { return [("Bill without solar", s.without.total), ("Bill with solar", s.bill.total)] }
+        let all: [(String, Double)] = [
+            ("Energy (peak)", b.energyPeak), ("Energy (off-peak)", b.energyOff), ("AFA", b.afa),
+            ("Capacity", b.capacity), ("Network", b.network), ("Retail", b.retail),
+            ("Energy efficiency incentive", b.incentive), ("Service tax", b.serviceTax), ("KWTBB", b.kwtbb),
+            ("NEM credit", -b.credit)]
+        return all.filter { abs($0.1) >= 0.005 }
+    }
+
+    private func heading(_ text: String) -> some View {
+        Text(text).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+    }
+
+    /// Grid, Home and Vehicle: the bill, and for Home / Vehicle its share of the grid import.
+    @ViewBuilder private func billBox(_ s: BillSummary, _ b: Bill, none: Bool) -> some View {
+        let estimate = share == .grid ? s.estimate
+            : s.estimate.flatMap { e in s.carEstimate.map { share == .vehicle ? $0 : e - $0 } }
+        heading(caption)
+        box {
+            row(period == .month && current ? "Current bill" : "Bill", none ? "–" : money(b.total, rm: true), strong: true)
+            if let e = estimate {
+                line
+                row("Estimated full month", money(e, rm: true), strong: true)
+            }
+            if share != .grid && !none {
+                line
+                row("\(share == .vehicle ? "Vehicle" : "Home")’s share of grid import",
+                    percent(share == .vehicle ? s.carGrid : s.homeGrid, s.homeGrid + s.carGrid))
+            }
+        }
+    }
+
+    /// All: what the grid import costs, by who took it.
+    @ViewBuilder private func importBox(_ s: BillSummary, none: Bool) -> some View {
+        let grid = s.homeGrid + s.carGrid
+        heading(titled("Import from grid"))
+        box {
+            shareRow(.home, EnergyColor.home, none ? "–" : percent(s.homeGrid, grid), "Home",
+                     Text(none ? "–" : money(s.bill.minus(s.car).total, rm: true)))
+            line
+            shareRow(.car, EnergyColor.vehicle, none ? "–" : percent(s.carGrid, grid), "Vehicle",
+                     Text(none ? "–" : money(s.car.total, rm: true)))
+            if let e = s.estimate {
+                line
+                row("Estimated full month", money(e, rm: true), strong: true)
+            }
+        }
+    }
+
+    /// All and Solar: where the solar energy went and what each part saved.
+    @ViewBuilder private func savingsBox(_ s: BillSummary, none: Bool) -> some View {
+        let total = s.homeSolar + s.carSolar + s.exported
+        heading(titled("Savings from solar"))
+        box {
+            shareRow(.home, EnergyColor.home, none ? "–" : percent(s.homeSolar, total), "Home",
+                     none ? Text("–") : savingText(s.homeSolar, s.homeSaved))
+            line
+            shareRow(.car, EnergyColor.vehicle, none ? "–" : percent(s.carSolar, total), "Vehicle",
+                     none ? Text("–") : savingText(s.carSolar, s.carSaved))
+            line
+            shareRow(.grid, EnergyColor.grid, none ? "–" : percent(s.exported, total), "Grid Export",
+                     none ? Text("–") : savingText(s.exported, s.bill.credit))
+        }
+    }
+
+    private func percent(_ part: Double, _ of: Double) -> String { of > 0 ? "\(Int((part / of * 100).rounded()))%" : "–" }
+
+    private func savingText(_ kWh: Double, _ rm: Double) -> Text {
+        Text(Num.kwh(kWh, whole: period == .year || period == .lifetime) + " kWh · ")
+            + Text((rm >= 0.005 ? "−" : "") + money(abs(rm), rm: true))
+                .font(.app(size: 13.5, weight: .semibold)).foregroundColor(.green)
+    }
+
+    /// Same row as the Energy Flow tables: icon, percentage, name, value.
+    private func shareRow(_ glyph: FlowGlyph.Kind, _ color: Color, _ share: String, _ name: String, _ value: Text) -> some View {
+        HStack(spacing: 0) {
+            FlowGlyph(kind: glyph, color: color, height: 15, maxWidth: 18).frame(width: 34, alignment: .center)
+            Text(share).font(.app(size: 14, weight: .semibold)).frame(width: 48, alignment: .leading)
+            Text(name).font(.app(size: 13.5)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+            Spacer(minLength: 8)
+            value.font(.app(size: 13.5)).lineLimit(1).minimumScaleFactor(0.75)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 44)
     }
 
     private var line: some View { Rectangle().fill(border).frame(height: 1) }
