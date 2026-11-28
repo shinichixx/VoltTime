@@ -162,7 +162,7 @@ struct RainOverlay: View {
 struct HouseGuideLines: View {
     let width: CGFloat
     // Photo pixels: x, from y, to y (Wall Connector, Solar, Home, Grid).
-    private static let lines: [(CGFloat, CGFloat, CGFloat)] = [(342, 344, 1100), (596.5, 344, 996), (926, 344, 1208), (936.5, 1213, 1411)]
+    private static let lines: [(CGFloat, CGFloat, CGFloat)] = [(342, 344, 966), (596.5, 344, 829), (926, 344, 979), (936.5, 1232, 1412)]
 
     var body: some View {
         Canvas { ctx, _ in
@@ -172,8 +172,8 @@ struct HouseGuideLines: View {
                 p.move(to: CGPoint(x: x * k, y: a * k))
                 p.addLine(to: CGPoint(x: x * k, y: b * k))
                 ctx.stroke(p, with: .linearGradient(Gradient(stops: [.init(color: .white.opacity(0), location: 0),
-                                                                       .init(color: .white.opacity(0.3), location: 0.04),
-                                                                       .init(color: .white.opacity(0.3), location: 1)]),
+                                                                       .init(color: .white.opacity(0.25), location: 0.04),
+                                                                       .init(color: .white.opacity(0.25), location: 1)]),
                                                     startPoint: CGPoint(x: x * k, y: a * k), endPoint: CGPoint(x: x * k, y: b * k)),
                            lineWidth: 1)
             }
