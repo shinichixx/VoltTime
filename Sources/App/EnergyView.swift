@@ -110,6 +110,10 @@ struct EnergyView: View {
     /// Table-row filter and the eye (reset each time Energy opens).
     @State private var look = EnergyLook()
     @State private var folded = false
+    /// Grid › Utility Bill: the breakdown stays hidden (eye crossed) until asked for.
+    @State private var showBreakdown = false
+    @State private var billFolded = false
+    @AppStorage(Tariff.revKey) private var tariffRev = 0
     @ObservedObject private var vehicle = VehicleHistory.shared
     /// Settings › Energy Graph: the Day graph's step (5 minutes to 1 hour).
     @AppStorage(EnergyGraphSetting.key) private var dayStep = 5
@@ -216,6 +220,11 @@ struct EnergyView: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .clipped()
+                                if comp == .grid {
+                                    let _ = tariffRev   // redraw when a rate or holiday changes
+                                    UtilityBillSection(store: store, period: period, range: range,
+                                                       showBreakdown: $showBreakdown, folded: $billFolded)
+                                }
                             }
                             if let msg = store.message {
                                 Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
@@ -249,7 +258,7 @@ struct EnergyView: View {
                 .padding(.bottom, 6)
         }
         .teslaPage(comp.pageTitle)
-        .onChange(of: compRaw) { _, _ in look.focus = []; showUsed = false }   // back to charging only from another view
+        .onChange(of: compRaw) { _, _ in look.focus = []; showUsed = false; showBreakdown = false }   // back to charging only from another view
         .onChange(of: periodRaw) { _, _ in look.focus = [] }
         .onChange(of: offset) { _, _ in look.focus = [] }
         .task(id: "\(periodRaw)|\(offset)") {

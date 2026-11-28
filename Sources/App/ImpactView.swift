@@ -266,8 +266,8 @@ struct ImpactView: View {
             }
             if showTouInfo {
                 Text(touPeak
-                     ? "Peak: Monday to Friday, 2pm to 10pm · RM\(String(format: "%.4f", Tariff.rates(rateDay).importPeak))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid."
-                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday and Sunday · RM\(String(format: "%.4f", Tariff.rates(rateDay).importOff))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid.")
+                     ? "Peak: Monday to Friday, 2pm to 10pm, except public holidays · RM\(String(format: "%.4f", Tariff.rates(rateDay).importPeak))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid."
+                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday, Sunday and public holidays · RM\(String(format: "%.4f", Tariff.rates(rateDay).importOff))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 14)
             }

@@ -184,3 +184,68 @@ enum Fmt {
         return "\(h12):" + String(format: "%02d", m) + (h >= 12 ? " PM" : " AM")
     }
 }
+
+// MARK: - TNB Domestic ToU bill (NEM 3.0), rounded line by line like the real bill.
+
+struct BillRates {
+    var energyPeak = 0.2852, energyOff = 0.2443, capacity = 0.0455, network = 0.1285
+    var servicePct = 8.0, kwtbbPct = 1.6
+}
+
+struct Bill {
+    var energyPeak = 0.0, energyOff = 0.0, afa = 0.0, capacity = 0.0, network = 0.0
+    var retail = 0.0, incentive = 0.0, serviceTax = 0.0, kwtbb = 0.0
+    var credit = 0.0      // NEM, a positive figure taken off
+    var total = 0.0
+
+    static func + (a: Bill, b: Bill) -> Bill {
+        Bill(energyPeak: a.energyPeak + b.energyPeak, energyOff: a.energyOff + b.energyOff, afa: a.afa + b.afa,
+             capacity: a.capacity + b.capacity, network: a.network + b.network, retail: a.retail + b.retail,
+             incentive: a.incentive + b.incentive, serviceTax: a.serviceTax + b.serviceTax, kwtbb: a.kwtbb + b.kwtbb,
+             credit: a.credit + b.credit, total: a.total + b.total)
+    }
+
+    private static func sen(_ v: Double) -> Double { (v * 100 + (v < 0 ? -1e-7 : 1e-7)).rounded() / 100 }
+
+    /// Energy efficiency incentive (RM/kWh, negative) by the month's total import.
+    static func incentiveRate(_ kWh: Double) -> Double {
+        let bands: [(Double, Double)] = [(200, -25), (250, -24.5), (300, -22.5), (350, -21), (400, -17), (450, -14.5), (500, -12),
+                                         (550, -10.5), (600, -9), (650, -7.5), (700, -5.5), (750, -4.5), (800, -4), (850, -2.5),
+                                         (900, -1), (1000, -0.5)]
+        return (bands.first { kWh <= $0.0 }?.1 ?? 0) / 100
+    }
+
+    /// One month. At or below `threshold` kWh: no AFA, retail charge or service tax; above it, service tax is on the
+    /// part over the threshold only. No credit is carried to the next month.
+    static func month(peak: Double, off: Double, export: Double, afaSen: Double, threshold: Double,
+                      rates r: BillRates = BillRates()) -> Bill {
+        let total = peak + off
+        guard total > 0 else { return Bill() }
+        let high = total > 1500 ? 0.10 : 0.0
+        let rp = r.energyPeak + high, ro = r.energyOff + high, afa = afaSen / 100, inc = incentiveRate(total)
+        let a = min(peak, threshold), b = min(off, max(threshold - a, 0))   // the part free of service tax
+        let low = a + b, rest = total - low, over = total > threshold
+        var out = Bill()
+        out.energyPeak = sen(rp * a) + sen(rp * (peak - a))
+        out.energyOff = sen(ro * b) + sen(ro * (off - b))
+        out.capacity = sen(r.capacity * low) + sen(r.capacity * rest)
+        out.network = sen(r.network * low) + sen(r.network * rest)
+        out.incentive = sen(inc * low) + sen(inc * rest)
+        if over {
+            out.afa = sen(afa * low) + sen(afa * rest)
+            out.retail = 10
+            let taxed = sen(rp * (peak - a)) + sen(ro * (off - b)) + sen(afa * rest) + sen(r.capacity * rest)
+                + sen(r.network * rest) + sen(inc * rest) + out.retail
+            out.serviceTax = sen(max(taxed, 0) * r.servicePct / 100)
+        }
+        if total > 300 {
+            out.kwtbb = sen(max(out.energyPeak + out.energyOff + out.capacity + out.network + out.incentive, 0) * r.kwtbbPct / 100)
+        }
+        // NEM: peak import is offset first, then off-peak; never more than was imported.
+        let xp = min(export, peak), xo = min(export - xp, off), x = xp + xo
+        out.credit = sen(rp * xp) + sen(ro * xo) + sen(r.capacity * x) + sen(r.network * x) - sen(-inc * x)
+        out.total = max(0, sen(out.energyPeak + out.energyOff + out.afa + out.capacity + out.network + out.retail
+                               + out.incentive + out.serviceTax + out.kwtbb - out.credit))
+        return out
+    }
+}

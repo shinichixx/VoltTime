@@ -78,13 +78,14 @@ struct StoreFile: Codable {
 final class EnergyStore: ObservableObject {
     /// Past days (saved) plus today (memory only, refreshed).
     @Published private(set) var curves: [String: DayCurve] = [:] {
-        didSet { numberCache = [:]; forecastCache = [:]; liveDays = [:]; liveMonths = [:] }
+        didSet { numberCache = [:]; forecastCache = [:]; liveDays = [:]; liveMonths = [:]; billCache = [:] }
     }
     // Worked-out figures, kept only until the saved energy changes.
     var numberCache: [String: ImpactNumbers] = [:]
     var forecastCache: [String: ForecastNumbers] = [:]
     var liveDays: [String: DayValue] = [:]       // today
     var liveMonths: [String: Double] = [:]       // this month's RM per exported kWh
+    var billCache: [String: BillUse] = [:]       // a day's peak / off-peak import and export
     @Published private(set) var firstDay: Date?
     @Published var loading = false
     @Published var message: String?

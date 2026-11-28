@@ -272,6 +272,7 @@ struct UtilityRatePlanPage: View {
     @AppStorage(Tariff.revKey) private var tariffRev = 0
     @State private var editing: Date?
     @State private var text = ""
+    @State private var limit = ""
 
     /// This month back to the first month with energy data (or the earliest AFA seed).
     private var months: [Date] {
@@ -304,19 +305,21 @@ struct UtilityRatePlanPage: View {
                 .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
                 .padding(.horizontal, 20).padding(.vertical, 8)
                 rateRow("Peak", "Mon–Fri 2pm–10pm", r.importPeak, r.exportPeak)
-                rateRow("Off-peak", "Mon–Fri 10pm–2pm, Sat & Sun all day", r.importOff, r.exportOff)
+                rateRow("Off-peak", "Other hours, weekends and public holidays", r.importOff, r.exportOff)
 
-                TCaption(text: "Monthly AFA (sen/kWh)")
+                TCaption(text: "Monthly AFA and threshold")
                 ForEach(months, id: \.self) { m in
                     let saved = Tariff.recordedAFA(m)
                     Button {
                         text = saved.map(two) ?? ""
+                        limit = String(Int(Tariff.threshold(m)))
                         editing = m
                     } label: {
-                        TRow(name(m), subtitle: saved == nil ? "Not recorded · using \(two(Tariff.afa(m)))" : nil) {
+                        TRow(name(m), subtitle: "Threshold \(Int(Tariff.threshold(m))) kWh"
+                             + (saved == nil ? " · AFA using \(two(Tariff.afa(m)))" : "")) {
                             HStack(spacing: 8) {
                                 if let saved {
-                                    Text(two(saved)).font(.app(size: 15)).foregroundStyle(.white)
+                                    Text("\(two(saved)) sen").font(.app(size: 15)).foregroundStyle(.white)
                                 } else {
                                     Text("Record").font(.app(size: 14)).foregroundStyle(Color(red: 0.24, green: 0.55, blue: 1))
                                 }
@@ -327,6 +330,19 @@ struct UtilityRatePlanPage: View {
                     .buttonStyle(.plain)
                 }
 
+                TCaption(text: "Calendar")
+                NavigationLink { PublicHolidaysPage() } label: {
+                    TRow("Public holidays", last: true) {
+                        HStack(spacing: 8) {
+                            let y = Calendar(identifier: .gregorian).component(.year, from: Date())
+                            Text("\(Holiday.allCases.filter { Tariff.holidayDate($0, y) != nil }.count) of \(Holiday.allCases.count)")
+                                .font(.app(size: 15)).foregroundStyle(.white)
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+
                 TCaption(text: "Rates")
                 NavigationLink { RateComponentsPage() } label: {
                     TRow("Rate components", last: true) {
@@ -334,22 +350,27 @@ struct UtilityRatePlanPage: View {
                     }
                 }
                 .buttonStyle(.plain)
-                TFootnote(text: "Solar used is valued at the import rate. Export offsets the month's off-peak import at the off-peak export rate, then the rest at the peak export rate. The energy efficiency incentive isn't included.",
+                TFootnote(text: "Solar used is valued at the import rate. Export offsets the month's off-peak import at the off-peak export rate, then the rest at the peak export rate. Impact leaves out the energy efficiency incentive; Utility Bill (Energy › Grid) includes it.",
                           color: TeslaDark.dim)
                 Spacer(minLength: 40)
             }
         }
         .teslaPage("Utility Rate Plan", black: true)
-        .alert(editing.map { "\(name($0)) AFA" } ?? "AFA", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
-            TextField("sen/kWh", text: $text).keyboardType(.numbersAndPunctuation)
+        .alert(editing.map { name($0) } ?? "AFA", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+            TextField("AFA (sen/kWh)", text: $text).keyboardType(.numbersAndPunctuation)
+            TextField("AFA threshold (kWh)", text: $limit).keyboardType(.numberPad)
             Button("Cancel", role: .cancel) {}
             Button("Save") {
                 if let m = editing, let v = Double(text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)) {
                     Tariff.setAFA(v, m)
                 }
+                if let m = editing {
+                    let kWh = Double(limit.trimmingCharacters(in: .whitespaces))
+                    Tariff.setThreshold(kWh == Tariff.standardThreshold ? nil : kWh, m)
+                }
             }
         } message: {
-            Text("In sen/kWh. Use a minus sign for a rebate.")
+            Text("AFA in sen/kWh (minus for a rebate), then the threshold in kWh (default 600). At or below it: no AFA, retail charge or service tax.")
         }
     }
 
@@ -367,6 +388,84 @@ struct UtilityRatePlanPage: View {
         }
         .padding(.horizontal, 20).padding(.vertical, 10)
         .overlay(alignment: .top) { Rectangle().fill(TSurface.line).frame(height: 0.5).padding(.horizontal, 20) }
+    }
+}
+
+/// Utility Rate Plan → Public holidays: off-peak all day. Five are fixed; the rest are set each year.
+struct PublicHolidaysPage: View {
+    @AppStorage(Tariff.revKey) private var tariffRev = 0
+    @State private var year = Calendar(identifier: .gregorian).component(.year, from: Date())
+    @State private var editing: Holiday?
+    @State private var picked = Date()
+    private let cal = Calendar(identifier: .gregorian)
+    private let blue = Color(red: 0.24, green: 0.55, blue: 1)
+
+    private func short(_ d: Date) -> String { d.formatted(.dateTime.day().month(.abbreviated).locale(Num.en)) }
+    private func bounds(_ y: Int) -> ClosedRange<Date> {
+        let a = cal.date(from: DateComponents(year: y, month: 1, day: 1)) ?? Date()
+        let b = cal.date(from: DateComponents(year: y, month: 12, day: 31)) ?? a
+        return a...b
+    }
+
+    var body: some View {
+        let _ = tariffRev
+        let set = Holiday.allCases.filter { Tariff.holidayDate($0, year) != nil }.count
+        ScrollView {
+            VStack(spacing: 0) {
+                HStack {
+                    Button { year -= 1 } label: { Image(systemName: "chevron.left").frame(width: 44, height: 32) }
+                    Spacer()
+                    Text(String(year)).font(.app(size: 16, weight: .semibold))
+                    Spacer()
+                    Button { year += 1 } label: { Image(systemName: "chevron.right").frame(width: 44, height: 32) }
+                }
+                .buttonStyle(.plain).foregroundStyle(.white).padding(.horizontal, 8)
+                TFootnote(text: "\(set) of \(Holiday.allCases.count) dates set · off-peak all day", color: TeslaDark.rowLabel)
+                ForEach(Holiday.allCases) { h in
+                    let d = Tariff.holidayDate(h, year)
+                    Button {
+                        picked = d ?? (cal.component(.year, from: Date()) == year ? Date() : bounds(year).lowerBound)
+                        editing = h
+                    } label: {
+                        TRow(h.name, last: h == .christmas) {
+                            if h.fixed != nil, let d {
+                                Text("\(short(d)) · Fixed").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+                            } else {
+                                HStack(spacing: 8) {
+                                    Text(d.map(short) ?? "Set date").font(.app(size: 15)).foregroundStyle(d == nil ? blue : .white)
+                                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                                }
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(h.fixed != nil)
+                }
+                Spacer(minLength: 40)
+            }
+        }
+        .teslaPage("Public Holidays", black: true)
+        .sheet(item: $editing) { h in
+            VStack(spacing: 14) {
+                Text("\(h.name) \(String(year))").font(.app(size: 17, weight: .semibold))
+                DatePicker("Date", selection: $picked, in: bounds(year), displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                HStack(spacing: 12) {
+                    if Tariff.holidayDate(h, year) != nil {
+                        Button("Remove") { Tariff.setHoliday(h, year, nil); editing = nil }.foregroundStyle(Theme.rouge)
+                    } else {
+                        Button("Cancel") { editing = nil }.foregroundStyle(.white)
+                    }
+                    Spacer()
+                    Button("Save") { Tariff.setHoliday(h, year, picked); editing = nil }.foregroundStyle(blue)
+                }
+                .font(.app(size: 16, weight: .semibold))
+                .padding(.horizontal, 8)
+            }
+            .padding(20)
+            .presentationDetents([.height(520)])
+            .preferredColorScheme(.dark)
+        }
     }
 }
 

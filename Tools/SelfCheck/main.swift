@@ -65,5 +65,15 @@ for (d, h, m, want) in [(26, 18, 59, false), (26, 19, 0, true), (27, 6, 59, true
     check("no night charge \(d) \(h):\(m)", "\(HomeMath.isNoChargeNight(date(2026, 11, d, h, m), calendar: cal))", "\(want)")
 }
 
+
+// TNB bill, October 2026 (the real bill): 160 peak, 1108 off-peak, 829 export, AFA 3.61 sen, threshold 800.
+let oct = Bill.month(peak: 160, off: 1108, export: 829, afaSen: 3.61, threshold: 800)
+check("bill charges", String(format: "%.2f", oct.total + oct.credit), "619.11")
+check("bill service tax", String(format: "%.2f", oct.serviceTax), "17.81")
+check("bill kwtbb", String(format: "%.2f", oct.kwtbb), "8.59")
+check("bill total", String(format: "%.2f", oct.total), "265.79")
+let low = Bill.month(peak: 100, off: 400, export: 600, afaSen: 3.61, threshold: 600)
+check("bill under threshold", String(format: "%.2f %.2f %.2f %.2f", low.afa, low.retail, low.serviceTax, low.total), "0.00 0.00 0.00 2.45")
+
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
 print("All checks passed")

@@ -10,6 +10,15 @@ import SwiftUI
 enum Tariff {
     static let afaKey = "tariff.afa"     // ["yyyy-MM": sen/kWh]
     static let partsKey = "tariff.parts"
+    static let thresholdKey = "tariff.threshold"   // ["yyyy-MM": kWh]
+    static let holidayKey = "tariff.holidays"      // ["yyyy-<holiday>": "yyyy-MM-dd"]
+    static let standardThreshold = 600.0
+    static let dayKey: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
     static let revKey = "tariff.rev"     // bumped on every change so open pages redraw
     static let seed = ["2026-11": 3.6]
 
@@ -33,12 +42,20 @@ enum Tariff {
     private struct Book {
         let afa: [String: Double]
         let parts: [String: Double]
+        let thresholds: [String: Double]
+        let holidays: [String: String]
+        let offDays: Set<String>
         let stamp: String
         init() {
             let d = UserDefaults.standard
             afa = Tariff.seed.merging(d.dictionary(forKey: Tariff.afaKey) as? [String: Double] ?? [:]) { $1 }
             parts = d.dictionary(forKey: Tariff.partsKey) as? [String: Double] ?? [:]
-            stamp = afa.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+            thresholds = d.dictionary(forKey: Tariff.thresholdKey) as? [String: Double] ?? [:]
+            holidays = d.dictionary(forKey: Tariff.holidayKey) as? [String: String] ?? [:]
+            offDays = Set(holidays.values)
+            let extra = thresholds.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+                + "|" + offDays.sorted().joined(separator: ",")
+            stamp = extra + "|" + afa.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
                 + "|" + Part.allCases.map { [parts] p in "\(parts[p.rawValue] ?? p.standard)" }.joined(separator: ",")
         }
     }
@@ -76,6 +93,39 @@ enum Tariff {
         reload()
     }
 
+    static func threshold(_ day: Date) -> Double { book.thresholds[month(day)] ?? standardThreshold }
+
+    static func setThreshold(_ kWh: Double?, _ day: Date) {
+        var all = book.thresholds
+        all[month(day)] = kWh
+        UserDefaults.standard.set(all, forKey: thresholdKey)
+        reload()
+    }
+
+    static func holidayDate(_ h: Holiday, _ year: Int) -> Date? {
+        let cal = Calendar(identifier: .gregorian)
+        if let f = h.fixed { return cal.date(from: DateComponents(year: year, month: f.month, day: f.day)) }
+        return book.holidays["\(year)-\(h.rawValue)"].flatMap { Tariff.dayKey.date(from: $0) }
+    }
+
+    static func setHoliday(_ h: Holiday, _ year: Int, _ date: Date?) {
+        var all = book.holidays
+        all["\(year)-\(h.rawValue)"] = date.map { dayKey.string(from: $0) }
+        UserDefaults.standard.set(all, forKey: holidayKey)
+        reload()
+    }
+
+    static func isHoliday(_ day: Date) -> Bool {
+        let c = Calendar(identifier: .gregorian).dateComponents([.month, .day], from: day)
+        if Holiday.allCases.contains(where: { $0.fixed?.month == c.month && $0.fixed?.day == c.day }) { return true }
+        return book.offDays.contains(dayKey.string(from: day))
+    }
+
+    static var billRates: BillRates {
+        BillRates(energyPeak: part(.energyPeak), energyOff: part(.energyOff), capacity: part(.capacity),
+                  network: part(.network), servicePct: part(.st), kwtbbPct: part(.kwtbb))
+    }
+
     static func resetParts() {
         UserDefaults.standard.removeObject(forKey: partsKey)
         reload()
@@ -90,15 +140,50 @@ enum Tariff {
                      exportPeak: peak, exportOff: off)
     }
 
-    /// Saturday and Sunday, whatever the phone's region calls the weekend.
+    /// Off-peak all day: Saturday, Sunday (whatever the phone's region calls the weekend) and public holidays.
     static func isWeekend(_ day: Date) -> Bool {
         let wd = Calendar.current.component(.weekday, from: day)
-        return wd == 1 || wd == 7
+        return wd == 1 || wd == 7 || isHoliday(day)
     }
 
     /// Peak is Mon–Fri 14:00–22:00; `minute` counts from midnight.
     static func isPeak(minute: Int, weekend: Bool) -> Bool {
         !weekend && minute >= 14 * 60 && minute < 22 * 60
+    }
+}
+
+/// The 15 public holidays TNB charges as off-peak. Five fall on the same date every year.
+enum Holiday: String, CaseIterable, Identifiable {
+    case newYear, cny1, cny2, raya1, raya2, labour, wesak, agong, haji, muharram, merdeka, malaysia, maulid, deepavali, christmas
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .newYear: return "New Year’s Day"
+        case .cny1: return "Chinese New Year (day 1)"
+        case .cny2: return "Chinese New Year (day 2)"
+        case .raya1: return "Hari Raya Aidilfitri (day 1)"
+        case .raya2: return "Hari Raya Aidilfitri (day 2)"
+        case .labour: return "Labour Day"
+        case .wesak: return "Wesak Day"
+        case .agong: return "Agong’s Birthday"
+        case .haji: return "Hari Raya Aidiladha"
+        case .muharram: return "Awal Muharram"
+        case .merdeka: return "Hari Merdeka"
+        case .malaysia: return "Hari Malaysia"
+        case .maulid: return "Maulidur Rasul"
+        case .deepavali: return "Deepavali"
+        case .christmas: return "Christmas"
+        }
+    }
+    var fixed: (month: Int, day: Int)? {
+        switch self {
+        case .newYear: return (1, 1)
+        case .labour: return (5, 1)
+        case .merdeka: return (8, 31)
+        case .malaysia: return (9, 16)
+        case .christmas: return (12, 25)
+        default: return nil
+        }
     }
 }
 
