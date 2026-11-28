@@ -81,7 +81,7 @@ struct ImpactView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
-            .padding(.bottom, 40)   // the last card can scroll clear of the bottom fade
+            .padding(.bottom, 42)   // the last card stops clear of the home indicator
         }
         .scrollIndicators(.hidden)
         .pinnedTop {
@@ -94,18 +94,7 @@ struct ImpactView: View {
             .padding(.horizontal, 20)
             .padding(.top, 6)
         }
-        // Fade to black at the bottom edge, like the Energy page but lower (there's no tab bar here).
-        .overlay {
-            LinearGradient(stops: [.init(color: TeslaDark.bg.opacity(0), location: 0),
-                                   .init(color: TeslaDark.bg.opacity(0.55), location: 0.34),
-                                   .init(color: TeslaDark.bg, location: 0.68),
-                                   .init(color: TeslaDark.bg, location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: 64)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .ignoresSafeArea(edges: .bottom)
-                .allowsHitTesting(false)
-        }
+        .ignoresSafeArea(.container, edges: .bottom)   // cards scroll right to the screen edge (no cut-off strip)
         .teslaPage("Impact")
         .task { await model.refresh() }
     }
