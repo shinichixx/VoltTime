@@ -52,9 +52,10 @@ extension EnergyStore {
         let start = cal.startOfDay(for: day)
         let peak = Tariff.peak, off = Tariff.offPeak
         let weekend = Tariff.isWeekend(start)
+        let fs = c.flows
         for i in 0..<c.count {
             let isPeak = Tariff.isPeak(minute: i * c.minutes, weekend: weekend)
-            let f = c.flow(i)
+            let f = fs[i]
             let h = min(23, i * c.minutes / 60)
             v.selfRM[h] += (f.carSolar + f.homeSolar) * (isPeak ? peak : off)
             v.exp[h] += f.exp
@@ -301,8 +302,9 @@ extension EnergyStore {
         while d < end {
             if let c = curve(d) {
                 let weekend = Tariff.isWeekend(d)
+                let fs = c.flows
                 for i in 0..<c.count {
-                    if Tariff.isPeak(minute: i * c.minutes, weekend: weekend) { out.peak = out.peak + c.flow(i) } else { out.off = out.off + c.flow(i) }
+                    if Tariff.isPeak(minute: i * c.minutes, weekend: weekend) { out.peak = out.peak + fs[i] } else { out.off = out.off + fs[i] }
                 }
             }
             guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }

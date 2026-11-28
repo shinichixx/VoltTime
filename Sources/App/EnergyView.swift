@@ -606,10 +606,11 @@ private struct EnergyChartView: View {
             var last = c.count
             if cal.isDateInToday(range.start) { last = min(c.count, max(0, Int(Date().timeIntervalSince(range.start) / step))) }
             let k = 60.0 / Double(c.minutes)
+            let fs = c.flows
             return (0..<last).map { i in
                 let t = range.start.addingTimeInterval(Double(i) * step)
                 let u = comp == .vehicle ? vehicle.used(from: t, to: t.addingTimeInterval(step)) : (drive: 0.0, idle: 0.0)
-                return FlowPoint(date: t.addingTimeInterval(step / 2), flow: c.flow(i), k: k, drive: u.drive, idle: u.idle)
+                return FlowPoint(date: t.addingTimeInterval(step / 2), flow: fs[i], k: k, drive: u.drive, idle: u.idle)
             }
         }
         var out: [FlowPoint] = []
