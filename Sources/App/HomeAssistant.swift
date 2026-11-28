@@ -40,6 +40,8 @@ enum Entity {
     static let selfPowered = "sensor.self_powered_today"
     static let importToday = "sensor.grid_import_today"
     static let exportToday = "sensor.grid_export_today"
+    static let sun = "sun.sun"                          // sky on My Home: sun height
+    static let weather = "weather.forecast_home"        // sky on My Home: rain / clouds (met.no)
 }
 
 enum Keychain {

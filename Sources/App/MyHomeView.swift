@@ -144,6 +144,10 @@ final class MyHomeModel: ObservableObject {
     @Published var message: String?
     @Published var photo: UIImage?
     @Published var photoNumber = -1
+    /// Which picture is up (sky × car state), so a weather change cross-fades too.
+    @Published var photoKey = -1
+    @Published var sky: HomeSky?
+    @Published var raining = false
     /// The photo being faded out, kept fully visible underneath so the cross-fade never dips to dark.
     @Published var previousPhoto: UIImage?
     static let fadeSeconds = 1.0
@@ -160,7 +164,7 @@ final class MyHomeModel: ObservableObject {
         let s = await ha.states([Entity.solarPower, Entity.gridPower, Entity.carPower, Entity.battery, Entity.plugged,
                                  Entity.wallConnectorStatus, Entity.wallConnectorAmps, Entity.scenario, Entity.dailyYield,
                                  Entity.selfPowered, Entity.importToday, Entity.exportToday, Entity.chargingMode,
-                                 Entity.chargeCurrent, Entity.limit])
+                                 Entity.chargeCurrent, Entity.limit, Entity.sun, Entity.weather])
         if s.isEmpty {
             liveCarW = nil
             message = "Can't reach Home Assistant. Check Tailscale, or the URL and token in Settings."
@@ -187,6 +191,14 @@ final class MyHomeModel: ObservableObject {
         }
         let n = Int(s[Entity.scenario]?.number ?? 0)
         scenario = ScenarioPhotos.numbers.contains(n) ? n : localScenario(amps: s[Entity.wallConnectorAmps]?.number ?? 0)
+        let sun = s[Entity.sun], weather = s[Entity.weather].flatMap { $0.isAvailable ? $0 : nil }
+        let reading = HomeSky.Reading(elevation: sun?.attribute("elevation"),
+                                      aboveHorizon: sun.map { $0.state == "above_horizon" },
+                                      rising: sun?.flag("rising"),
+                                      weather: weather?.state, cloud: weather?.attribute("cloud_coverage"),
+                                      solarW: solarW)
+        sky = HomeSky.pick(reading, previous: sky)
+        raining = HomeSky.raining(reading)
         loaded = true
         await showPhoto(scenario, ha: ha)
     }
@@ -207,7 +219,10 @@ final class MyHomeModel: ObservableObject {
     }
 
     private func showPhoto(_ n: Int, ha: HAClient) async {
-        if n != photoNumber || photo == nil {
+        let k = HomeSky.carState(scenario: n)
+        if let sky, (sky.rawValue * 10 + k) != photoKey || photo == nil, let img = sky.photo(carState: k) {
+            crossFade(to: img, number: n, key: sky.rawValue * 10 + k)
+        } else if sky == nil, n != photoNumber || photo == nil {
             if let img = ScenarioPhotos.load(n) {
                 crossFade(to: img, number: n)
             } else if !downloading.contains(n) {
@@ -225,21 +240,24 @@ final class MyHomeModel: ObservableObject {
     }
 
     /// New photo fades in on top of the old one, then the old one is dropped.
-    private func crossFade(to img: UIImage, number n: Int) {
+    private func crossFade(to img: UIImage, number n: Int, key: Int? = nil) {
+        let key = key ?? (1000 + n)
         previousPhoto = photo
         withAnimation(.easeInOut(duration: Self.fadeSeconds)) {
             photo = img
             photoNumber = n
+            photoKey = key
         }
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64((Self.fadeSeconds + 0.3) * 1_000_000_000))
-            guard let self, self.photoNumber == n else { return }
+            guard let self, self.photoKey == key else { return }
             self.previousPhoto = nil
         }
     }
 
     func reloadPhoto() {
         photoNumber = -1
+        photoKey = -1
         photo = nil
         prefetched = false
     }
@@ -404,6 +422,11 @@ struct MyHomeView: View {
                 .offset(y: Self.photoY)
             PowerFlowOverlay(model: model, width: w)   // moving pulses along the wires
                 .offset(y: Self.photoY)
+            if model.raining {
+                RainOverlay(width: w)   // over the flow; the labels and their lines stay on top
+                    .offset(y: Self.photoY)
+                    .transition(.opacity)
+            }
             // Fade under the title (0–250 pt), then fade the bottom into the rows.
             LinearGradient(stops: [
                 .init(color: bg, location: 0),
@@ -465,6 +488,9 @@ struct MyHomeView: View {
         let labelY = Self.photoY + w * 0.2812
         return ZStack(alignment: .topLeading) {
             Color.clear
+            if model.sky != nil, (0..<1000).contains(model.photoKey) {   // the sky photos have no lines of their own
+                HouseGuideLines(width: w).offset(y: Self.photoY)
+            }
             anchored(x: w * 0.2901, y: labelY, bottom: true) {
                 // Each figure opens its own graph on the Energy page (Tesla app).
                 Button { openEnergy(.vehicle) } label: {
@@ -518,7 +544,7 @@ struct MyHomeView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: w)
-                    .id(model.photoNumber)
+                    .id(model.photoKey)
                     .transition(.opacity)
             }
         } else {
