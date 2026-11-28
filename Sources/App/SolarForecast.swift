@@ -203,6 +203,7 @@ struct SolarForecastCard: View {
     let range: PeriodRange
     @ObservedObject private var log = SolarForecastLog.shared
     @State private var picked: Int?
+    @State private var showInfo = false
 
     private let cal = Calendar.current
     private static let yellow = Color(red: 1, green: 0.8, blue: 0.2)
@@ -230,10 +231,19 @@ struct SolarForecastCard: View {
                     .padding(.horizontal, 9).padding(.vertical, 3)
                     .background(Capsule().fill(Color(white: 0.22)))
                 Spacer(minLength: 0)
+                Button { withAnimation { showInfo.toggle() } } label: {
+                    Image(systemName: "info.circle").font(.system(size: 16))
+                }
+                .buttonStyle(.plain).foregroundStyle(TeslaDark.labelGrey)
             }
             if isToday { today }
             else if singleDay { pastDay(range.start) }
             else { longer }
+            if showInfo {
+                Text("Forecast from Solcast (older days: Forecast.Solar).\nActual = solar your inverter generated.\n% = (actual − forecast) ÷ forecast.")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
+                    .padding(.top, 12)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

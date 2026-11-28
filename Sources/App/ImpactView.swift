@@ -27,6 +27,8 @@ struct ImpactView: View {
     @State private var showValueInfo = false
     @State private var showCarbonInfo = false
     @State private var showTouInfo = false
+    @State private var showOffsetInfo = false
+    @State private var showCarInfo = false
     @AppStorage("impact.touPeak") private var touPeak = true
     @State private var forward = false
 
@@ -198,7 +200,7 @@ struct ImpactView: View {
             }
             .padding(.top, 14)
             if showInfo {
-                Text("Used = solar generated + bought from TNB − exported. Solar exported to TNB doesn't count here; it shows in Solar Offset and CO₂ Avoided.")
+                Text("Share of your use not bought from TNB.\n= 1 − TNB import ÷ Used\nUsed = solar + import − export.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 12)
             }
@@ -271,8 +273,8 @@ struct ImpactView: View {
             }
             if showTouInfo {
                 Text(touPeak
-                     ? "Peak: Monday to Friday, 2pm to 10pm · RM\(String(format: "%.4f", Tariff.peak))/kWh. Home use includes the vehicle."
-                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday and Sunday · RM\(String(format: "%.4f", Tariff.offPeak))/kWh. Home use includes the vehicle.")
+                     ? "Peak: Monday to Friday, 2pm to 10pm · RM\(String(format: "%.4f", Tariff.peak))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid."
+                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday and Sunday · RM\(String(format: "%.4f", Tariff.offPeak))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 14)
             }
@@ -292,7 +294,7 @@ struct ImpactView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 14)
             if showValueInfo {
-                Text("Solar you used is valued at the TNB ToU rate for the time it was used. Exported solar is credited under NEM 3.0: off-peak import first at the off-peak rate, then peak import at the peak rate.")
+                Text("= solar used × ToU rate at the time it was used\n+ exported solar × the month's NEM 3.0 credit rate.\nExport offsets off-peak import first, then the rest at peak rate.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 12)
             }
@@ -318,7 +320,7 @@ struct ImpactView: View {
     private func offsetCard(_ t: DaySummary) -> some View {
         let solar = t.solar, used = t.used
         let pct = used > 0 ? solar / used : nil
-        return card("Solar Offset") {
+        return card("Solar Offset", info: { withAnimation { showOffsetInfo.toggle() } }) {
             GeometryReader { g in
                 let mx = max(solar, used, 0.001)
                 let H = g.size.height
@@ -350,6 +352,9 @@ struct ImpactView: View {
                 label(kwh(used), "Used", Self.offsetBlue).frame(maxWidth: .infinity)
             }
             .padding(.top, 10)
+            if showOffsetInfo {
+                infoText("Energy Offset = solar generated ÷ Used\nUsed = solar + TNB import − export (house + car).\nSolar includes what you exported, so it can exceed 100%.")
+            }
         }
     }
 
@@ -361,7 +366,7 @@ struct ImpactView: View {
     // Vehicle on Solar: the Model 3 fills yellow from the front by the solar share.
     private func carCard(_ t: DaySummary) -> some View {
         let share = t.carSolarShare
-        return card("Vehicle on Solar") {
+        return card("Vehicle on Solar", info: { withAnimation { showCarInfo.toggle() } }) {
             HStack(alignment: .center, spacing: 8) {
                 SolarCarView(fraction: share ?? 0)
                     .frame(maxWidth: .infinity)
@@ -389,7 +394,16 @@ struct ImpactView: View {
                 statColumn(dot: nil, km.map { "\(Num.whole($0)) km" } ?? "—", "Driven on sunshine", valueColor: Self.solarColor)
             }
             .padding(.top, 14)
+            if showCarInfo {
+                infoText("% = solar into the car ÷ all home charging.\nChecked every 5 minutes (hourly for older days): solar serves the house first, the car gets what's left. Grid = the rest.\nkm = solar kWh × 93% charging efficiency ÷ the car's lifetime kWh per km.")
+            }
         }
+    }
+
+    private func infoText(_ s: String) -> some View {
+        Text(s).font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 12)
     }
 
     private func statColumn(dot: Color?, _ value: String, _ name: String, valueColor: Color = .white) -> some View {
@@ -434,7 +448,7 @@ struct ImpactView: View {
             }
             .padding(.top, 8)
             if showCarbonInfo {
-                Text("Solar generated × the Peninsular Malaysia grid emission factor (Energy Commission 2024). One tree grown for 10 years takes up about 60 kg CO₂ (US EPA).")
+                Text("CO₂ = solar generated × 0.740 kg/kWh (Energy Commission 2024, Peninsular Malaysia).\nTrees = CO₂ ÷ 60 kg per tree over 10 years (US EPA).")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 12)
             }
