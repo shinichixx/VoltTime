@@ -11,14 +11,14 @@ enum Route: Hashable {
 extension View {
     /// Dark page with our own slim top bar (Tesla app): thin grey back arrow, small centred title, optional
     /// item on the right. Replaces the system bar, which is much taller on iOS 26.
-    func teslaPage(_ title: String, subtitle: String? = nil, black: Bool = false, lowered: Bool = false, product: Bool = false, trailing: AnyView? = nil, drop: CGFloat? = nil) -> some View {
+    func teslaPage(_ title: String, subtitle: String? = nil, black: Bool = false, lowered: Bool = false, product: Bool = false, trailing: AnyView? = nil, drop: CGFloat? = nil, tesla: Bool = false) -> some View {
         let bg = black ? TSurface.page : TeslaDark.bg
         return self
             .background(bg.ignoresSafeArea())
             .navigationTitle(title)
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                TeslaTopBar(title: title, subtitle: subtitle, trailing: trailing, background: bg, lowered: lowered, product: product, drop: drop)
+                TeslaTopBar(title: title, subtitle: subtitle, trailing: trailing, background: bg, lowered: lowered, product: product, drop: drop, tesla: tesla)
             }
     }
 
@@ -33,11 +33,12 @@ struct TeslaTopBar: View {
     var lowered = false   // Menu and My Products: title 22 pt lower, back arrow 11 pt further in (Tesla app)
     var product = false   // a product's page: the Tesla app's smaller header
     var drop: CGFloat? = nil   // Connection: title and arrow placed as on the Tesla app's User Access page
+    var tesla = false   // Settings: lower, larger title and a white back arrow (Tesla app)
 
     var body: some View {
         ZStack {
             VStack(spacing: product ? 6 : 4) {
-                Text(title).font(.app(size: product || drop != nil ? 14.5 : 15, weight: .semibold)).foregroundStyle(.white)
+                Text(title).font(.app(size: tesla ? 15.5 : product || drop != nil ? 14.5 : 15, weight: .semibold)).foregroundStyle(.white)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle).font(.app(size: product ? 10.4 : 11, weight: product ? .semibold : .medium)).foregroundStyle(TeslaDark.rowLabel)
                 }
@@ -45,13 +46,13 @@ struct TeslaTopBar: View {
             .lineLimit(1).minimumScaleFactor(0.8)
             .padding(.horizontal, 64)
             HStack(spacing: 0) {
-                PlainBackButton(small: product).padding(.leading, product ? 26 : lowered || drop != nil ? 25 : 14)
+                PlainBackButton(small: product, tesla: tesla).padding(.leading, tesla ? 30 : product ? 26 : lowered || drop != nil ? 25 : 14)
                 Spacer()
                 if let trailing { trailing.padding(.trailing, product ? 9 : 18) }
             }
         }
         .frame(height: 32)
-        .padding(.top, drop ?? (lowered ? 22 : 0))
+        .padding(.top, drop ?? (lowered || tesla ? 22 : 0))
         .frame(maxWidth: .infinity)
         .background(background.ignoresSafeArea(edges: .top))
     }
@@ -60,13 +61,14 @@ struct TeslaTopBar: View {
 /// 7 × 13 pt chevron in mid grey, like the Tesla app; the tap area stays 44 pt.
 struct PlainBackButton: View {
     var small = false
+    var tesla = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Button { dismiss() } label: {
             BackChevron()
-                .stroke(Color(white: 0.54), style: StrokeStyle(lineWidth: small ? 1.5 : 1.8, lineCap: .round, lineJoin: .round))
-                .frame(width: small ? 6 : 7.5, height: small ? 11 : 13.5)
+                .stroke(tesla ? Color(white: 0.95) : Color(white: 0.54), style: StrokeStyle(lineWidth: tesla ? 2.3 : small ? 1.5 : 1.8, lineCap: .round, lineJoin: .round))
+                .frame(width: tesla || small ? 6 : 7.5, height: tesla ? 12 : small ? 11 : 13.5)
                 .frame(width: 44, height: 44, alignment: .leading)
                 .contentShape(Rectangle())
         }
@@ -157,18 +159,28 @@ struct SettingsPage: View {
         let _ = tariffRev   // redraw when a rate changes
         ScrollView {
             VStack(spacing: 0) {
-                TCaption(text: "Home settings")
-                TRowButton(title: "Utility Rate Plan", icon: AnyView(PylonGlyph()), subtitle: rateSubtitle) { path.append(.ratePlan) }
-                TCaption(text: "Your products")
-                TRowButton(title: "Vehicle Charging", icon: AnyView(Image(systemName: "car.fill")
-                    .font(.system(size: 18)).foregroundStyle(TSurface.icon))) { path.append(.vehicleCharging) }
+                caption("HOME SETTINGS").padding(.top, 38.7)
+                SettingsRow(title: "Utility Rate Plan", icon: AnyView(PylonGlyph()), subtitle: rateSubtitle) { path.append(.ratePlan) }
+                    .padding(.top, 11.3)
+                caption("YOUR PRODUCTS").padding(.top, 30.3)
+                SettingsRow(title: "Vehicle Charging", icon: AnyView(VehicleFrontGlyph())) { path.append(.vehicleCharging) }
+                    .padding(.top, 10.7)
             }
         }
-        .teslaPage("Settings", black: true)
+        .teslaPage("Settings", black: true, tesla: true)
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text).font(.app(size: 12.5, weight: .semibold)).foregroundStyle(SettingsRow.grey)
+            .frame(maxWidth: .infinity, minHeight: 20, maxHeight: 20, alignment: .leading)
+            .padding(.leading, 20.3)
     }
 }
 
-private struct TRowButton: View {
+/// A Settings row placed as in the Tesla app: no lines, icon centred at 34 pt, text from 63 pt.
+private struct SettingsRow: View {
+    static let grey = Color(red: 138 / 255, green: 140 / 255, blue: 140 / 255)
+
     let title: String
     let icon: AnyView
     var subtitle: String? = nil
@@ -176,30 +188,76 @@ private struct TRowButton: View {
 
     var body: some View {
         Button(action: action) {
-            TRow(title, iconView: icon, subtitle: subtitle, last: true) {
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+            HStack(spacing: 0) {
+                icon.frame(width: 28).padding(.leading, 20)
+                ZStack(alignment: .leading) {
+                    Text(title).font(.app(size: 15.0, weight: .semibold)).foregroundStyle(Color(white: 0.95))
+                        .offset(y: subtitle == nil ? 0 : -9.3)
+                    if let subtitle {
+                        Text(subtitle).font(.app(size: 12.0, weight: .semibold)).foregroundStyle(Self.grey)
+                            .offset(y: 10.7)
+                    }
+                }
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .padding(.leading, 15)
+                Spacer(minLength: 12)
+                BackChevron()
+                    .stroke(Color(white: 0.23), style: StrokeStyle(lineWidth: 2.3, lineCap: .round, lineJoin: .round))
+                    .frame(width: 6.7, height: 12.7)
+                    .scaleEffect(x: -1)
+                    .padding(.trailing, 34.3)
             }
+            .frame(height: 60)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 }
 
-/// Transmission tower.
+/// Front of a vehicle (drawn on a 76 × 56 px grid taken from the mockup).
+struct VehicleFrontGlyph: View {
+    var body: some View {
+        Canvas { c, s in
+            let k = s.width / 76
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: (x - 62) * k, y: (y - 973) * k) }
+            func box(_ a: CGFloat, _ b: CGFloat, _ d: CGFloat, _ e: CGFloat, _ r: CGFloat) -> Path {
+                Path(roundedRect: CGRect(origin: pt(a, b), size: CGSize(width: (d - a) * k, height: (e - b) * k)), cornerRadius: r * k)
+            }
+            let grey = GraphicsContext.Shading.color(SettingsRow.grey)
+            let hole = GraphicsContext.Shading.color(TSurface.page)
+            var roof = Path()
+            roof.addLines([pt(72, 998), pt(80, 979), pt(88, 975), pt(113, 975), pt(121, 979), pt(129, 998)])
+            c.stroke(roof, with: grey, style: StrokeStyle(lineWidth: 4 * k, lineJoin: .round))
+            for p in [box(66, 992, 135, 1017, 10), box(66, 1010, 76, 1027, 3), box(125, 1010, 135, 1027, 3),
+                      box(63, 986, 74, 992, 3), box(127, 986, 138, 992, 3)] { c.fill(p, with: grey) }
+            for (x, d) in [(CGFloat(70), CGFloat(1)), (131, -1)] {
+                var lamp = Path()
+                lamp.addLines([pt(x, 996), pt(x + d * 14, 1000), pt(x + d * 12, 1005), pt(x + d * 2, 1002)])
+                lamp.closeSubpath()
+                c.fill(lamp, with: hole)
+            }
+            c.fill(box(84, 1012, 117, 1015, 1), with: hole)
+        }
+        .frame(width: 25.3, height: 18.7)
+    }
+}
+
+/// Transmission tower (drawn on a 60 × 72 px grid taken from the mockup).
 struct PylonGlyph: View {
     var body: some View {
         Canvas { c, s in
-            let w = s.width, h = s.height
-            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * w, y: y * h) }
+            let k = s.width / 60
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: (x - 72) * k, y: (y - 601) * k) }
             var p = Path()
-            for line in [[pt(0.38, 0.06), pt(0.62, 0.06)], [pt(0.38, 0.06), pt(0.38, 0.5), pt(0.14, 0.95)],
-                         [pt(0.62, 0.06), pt(0.62, 0.5), pt(0.86, 0.95)], [pt(0.08, 0.36), pt(0.08, 0.24), pt(0.92, 0.24), pt(0.92, 0.36)],
-                         [pt(0.08, 0.62), pt(0.08, 0.5), pt(0.92, 0.5), pt(0.92, 0.62)],
-                         [pt(0.38, 0.5), pt(0.76, 0.78)], [pt(0.62, 0.5), pt(0.24, 0.78)]] {
+            for line in [[pt(94, 605), pt(110, 605)], [pt(94, 605), pt(94, 635), pt(75, 669)], [pt(110, 605), pt(110, 635), pt(129, 669)],
+                         [pt(76, 626), pt(76, 616), pt(128, 616), pt(128, 626)], [pt(76, 647), pt(76, 637), pt(128, 637), pt(128, 647)],
+                         [pt(94, 637), pt(122, 659)], [pt(110, 637), pt(82, 659)]] {
                 p.addLines(line)
             }
-            c.stroke(p, with: .color(TSurface.icon), style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
+            c.stroke(p, with: .color(Color(red: 138 / 255, green: 140 / 255, blue: 140 / 255)),
+                     style: StrokeStyle(lineWidth: 7 * k, lineCap: .round, lineJoin: .round))
         }
-        .frame(width: 22, height: 22)
+        .frame(width: 20, height: 24)
     }
 }
 
