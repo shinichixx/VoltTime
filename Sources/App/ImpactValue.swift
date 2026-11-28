@@ -16,12 +16,15 @@ enum Tariff {
     static var offPeak: Double { let v = UserDefaults.standard.double(forKey: offPeakKey); return v > 0 ? v : offPeakDefault }
     static var stamp: String { "\(peak)-\(offPeak)" }
 
-    static func isPeak(_ t: Date) -> Bool {
-        let c = Calendar.current
-        let wd = c.component(.weekday, from: t)
-        guard wd != 1 && wd != 7 else { return false }   // Sat & Sun: off-peak all day
-        let h = c.component(.hour, from: t)
-        return h >= 14 && h < 22
+    /// Saturday and Sunday, whatever the phone's region calls the weekend.
+    static func isWeekend(_ day: Date) -> Bool {
+        let wd = Calendar.current.component(.weekday, from: day)
+        return wd == 1 || wd == 7
+    }
+
+    /// Peak is Mon–Fri 14:00–22:00; `minute` counts from midnight.
+    static func isPeak(minute: Int, weekend: Bool) -> Bool {
+        !weekend && minute >= 14 * 60 && minute < 22 * 60
     }
 }
 
@@ -44,20 +47,20 @@ extension EnergyStore {
         let cal = Calendar.current
         let today = cal.isDateInToday(day)
         let ck = "\(Self.keyFormatter.string(from: day))|\(c.minutes)|\(Tariff.stamp)"
-        if !today, let v = ValueBook.days[ck] { return v }
+        if let v = today ? liveDays[ck] : ValueBook.days[ck] { return v }
         var v = DayValue()
         let start = cal.startOfDay(for: day)
         let peak = Tariff.peak, off = Tariff.offPeak
+        let weekend = Tariff.isWeekend(start)
         for i in 0..<c.count {
-            let t = start.addingTimeInterval(Double(i * c.minutes) * 60)
-            let isPeak = Tariff.isPeak(t)
+            let isPeak = Tariff.isPeak(minute: i * c.minutes, weekend: weekend)
             let f = c.flow(i)
             let h = min(23, i * c.minutes / 60)
             v.selfRM[h] += (f.carSolar + f.homeSolar) * (isPeak ? peak : off)
             v.exp[h] += f.exp
             if !isPeak { v.offImp += f.imp }
         }
-        if !today { ValueBook.days[ck] = v }
+        if today { liveDays[ck] = v } else { ValueBook.days[ck] = v }
         return v
     }
 
@@ -67,7 +70,7 @@ extension EnergyStore {
         guard let iv = cal.dateInterval(of: .month, for: day) else { return Tariff.offPeak }
         let current = iv.contains(Date())
         let ck = "\(Self.keyFormatter.string(from: iv.start))|\(Tariff.stamp)"
-        if !current, let r = ValueBook.months[ck] { return r }
+        if let r = current ? liveMonths[ck] : ValueBook.months[ck] { return r }
         var exp = 0.0, offImp = 0.0
         var d = iv.start
         while d < iv.end {
@@ -77,7 +80,7 @@ extension EnergyStore {
         }
         let credit = min(exp, offImp) * Tariff.offPeak + max(exp - offImp, 0) * Tariff.peak
         let r = exp > 0 ? credit / exp : Tariff.offPeak
-        if !current { ValueBook.months[ck] = r }
+        if current { liveMonths[ck] = r } else { ValueBook.months[ck] = r }
         return r
     }
 
@@ -297,14 +300,35 @@ extension EnergyStore {
         var d = cal.startOfDay(for: start)
         while d < end {
             if let c = curve(d) {
+                let weekend = Tariff.isWeekend(d)
                 for i in 0..<c.count {
-                    let t = d.addingTimeInterval(Double(i * c.minutes) * 60)
-                    if Tariff.isPeak(t) { out.peak = out.peak + c.flow(i) } else { out.off = out.off + c.flow(i) }
+                    if Tariff.isPeak(minute: i * c.minutes, weekend: weekend) { out.peak = out.peak + c.flow(i) } else { out.off = out.off + c.flow(i) }
                 }
             }
             guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
             d = n
         }
         return out
+    }
+}
+
+/// Everything the Impact cards add up for one period.
+struct ImpactNumbers {
+    let total: DaySummary
+    let coverage: Coverage
+    let tou: TouSplit
+    let bars: (values: [Double], labels: [String?])
+}
+
+extension EnergyStore {
+    /// Added up once per period; redrawing the page (scrolling to a card, a tab, an (i)) reuses it.
+    func impactNumbers(_ period: ImpactPeriod, _ r: PeriodRange) -> ImpactNumbers {
+        let today = Self.keyFormatter.string(from: Date())
+        let k = "\(period.rawValue)|\(r.start.timeIntervalSince1970)|\(r.end.timeIntervalSince1970)|\(Tariff.stamp)|\(today)"
+        if let n = numberCache[k] { return n }
+        let n = ImpactNumbers(total: total(from: r.start, to: r.end), coverage: coverage(r),
+                              tou: touSplit(from: r.start, to: r.end), bars: valueBars(period, r))
+        numberCache[k] = n
+        return n
     }
 }

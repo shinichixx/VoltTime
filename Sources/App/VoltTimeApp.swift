@@ -128,7 +128,7 @@ struct ContentView: View {
                 case .chargeDetails: ChargeDetailsPage(model: home)
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
-                case .impact: ImpactView(model: energy, home: myHome)
+                case .impact: ImpactView(model: energy)
                 case .menu: MenuPage(car: car, energy: energy, home: home) { i in
                     // My Products: put the pager on that page at once, behind the menu, then close the
                     // menu, so no sliding across the other pages is ever seen (build 100).

@@ -77,7 +77,13 @@ struct StoreFile: Codable {
 @MainActor
 final class EnergyStore: ObservableObject {
     /// Past days (saved) plus today (memory only, refreshed).
-    @Published private(set) var curves: [String: DayCurve] = [:]
+    @Published private(set) var curves: [String: DayCurve] = [:] {
+        didSet { numberCache = [:]; liveDays = [:]; liveMonths = [:] }
+    }
+    // Worked-out figures, kept only until the saved energy changes.
+    var numberCache: [String: ImpactNumbers] = [:]
+    var liveDays: [String: DayValue] = [:]       // today
+    var liveMonths: [String: Double] = [:]       // this month's RM per exported kWh
     @Published private(set) var firstDay: Date?
     @Published var loading = false
     @Published var message: String?
@@ -248,12 +254,14 @@ final class EnergyStore: ObservableObject {
             }
             for (k, c) in try await fetch(ws, max(from, recent), Date(), period: "5minute") { fresh[k] = c }
 
+            var updated = curves   // changed in one go, so the pages redraw once
             for (k, c) in fresh {
                 // Keep an existing day that has more detail than the new copy.
-                if let old = curves[k], old.minutes < c.minutes { continue }
-                curves[k] = c
+                if let old = updated[k], old.minutes < c.minutes { continue }
+                updated[k] = c
                 flowCache[k] = nil
             }
+            curves = updated
             lastRefresh = Date()
             message = nil
             save()

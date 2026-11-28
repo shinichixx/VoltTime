@@ -21,7 +21,6 @@ enum ImpactPeriod: String, CaseIterable, Identifiable {
 /// Opened from the Impact row on My Home. Tesla-app style: period menu top right, cards below.
 struct ImpactView: View {
     @ObservedObject var model: EnergyStore
-    @ObservedObject var home: MyHomeModel
     @AppStorage("impact.period") private var periodRaw = ImpactPeriod.month.rawValue
     @State private var offset = 0
     @State private var showInfo = false
@@ -38,8 +37,8 @@ struct ImpactView: View {
 
     var body: some View {
         let r = PeriodRange.make(period, offset: offset, firstDay: model.firstDay, stored: periodRaw)
-        let t = model.total(from: r.start, to: r.end)
-        let cover = model.coverage(r)
+        let n = model.impactNumbers(period, r)   // worked out once, kept until the data or rates change
+        let t = n.total, cover = n.coverage
         let empty = cover.have == 0 && !model.loading
         ScrollView {
             VStack(spacing: 10) {
@@ -56,10 +55,10 @@ struct ImpactView: View {
                             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
                     }
                     ZStack {
-                        VStack(spacing: 10) {
+                        LazyVStack(spacing: 10) {
                             selfPoweredCard(t)
-                            if !empty { touCard(r) }
-                            if !empty { valueCard(r) }
+                            if !empty { touCard(n.tou) }
+                            if !empty { valueCard(r, n.bars) }
                             if !empty {   // nothing recorded: no zeros that look like readings
                                 offsetCard(t)
                                 carCard(t)
@@ -72,11 +71,7 @@ struct ImpactView: View {
                     }
                     .clipped()
                     .contentShape(Rectangle())
-                    .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { d in
-                        let w = d.translation.width
-                        guard abs(w) > 50, abs(w) > abs(d.translation.height) * 1.4 else { return }
-                        step(w < 0 ? 1 : -1, r)
-                    })
+                    .sidewaysSwipe { step($0, r) }
                 }
                 NavigationLink { ForecastVsActualView(model: model) } label: { forecastCard }
                     .buttonStyle(.plain)
@@ -220,8 +215,7 @@ struct ImpactView: View {
     }
 
     // Time-of-Use: sources of home use (house + car) at peak and off-peak.
-    private func touCard(_ r: PeriodRange) -> some View {
-        let split = model.touSplit(from: r.start, to: r.end)
+    private func touCard(_ split: TouSplit) -> some View {
         func used(_ f: EnergyFlow) -> (solar: Double, grid: Double) { (f.homeSolar + f.carSolar, f.homeGrid + f.carGrid) }
         let p = used(split.peak), o = used(split.off)
         let pTotal = p.solar + p.grid, oTotal = o.solar + o.grid
@@ -286,8 +280,7 @@ struct ImpactView: View {
     }
 
     // Energy Value: RM saved, bars per hour / day / month.
-    private func valueCard(_ r: PeriodRange) -> some View {
-        let bars = model.valueBars(period, r)
+    private func valueCard(_ r: PeriodRange, _ bars: (values: [Double], labels: [String?])) -> some View {
         let total = bars.values.reduce(0, +)
         return card("Energy Value", info: { withAnimation { showValueInfo.toggle() } }) {
             Text("Estimated Value").font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 2)
