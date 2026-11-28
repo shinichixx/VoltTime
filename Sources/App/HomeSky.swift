@@ -147,7 +147,10 @@ struct RainOverlay: View {
     }()
     private static let splashes: [Splash] = {
         var g = SeededRandom(seed: 11)
-        return (0..<70).map { _ in Splash(x: g.next(in: 40...1140), y: g.next(in: 1217...1377), phase: g.next(in: 0...1)) }
+        let front = (0..<70).map { _ in Splash(x: g.next(in: 40...1140), y: g.next(in: 1217...1377), phase: g.next(in: 0...1)) }
+        // The ground on both sides of the house.
+        let sides: [(Double, Double)] = [(34, 1155), (133, 1156), (108, 1110), (173, 1123), (105, 1085), (189, 1146), (64, 1035), (214, 1057), (127, 1191), (166, 1214), (43, 1078), (232, 1094), (181, 1198), (81, 1070), (128, 1124), (68, 1194), (101, 1227), (39, 1060), (1048, 1160), (1049, 1210), (1086, 1202), (1076, 1098), (1056, 1222), (1126, 1249), (1107, 1273), (1104, 1179), (960, 1138), (1040, 1128), (1158, 1289), (1018, 1211), (1128, 1310), (1036, 1249), (991, 1159)]
+        return front + sides.map { Splash(x: $0.0, y: $0.1, phase: g.next(in: 0...1)) }
     }()
     private static let colour = Color(red: 205 / 255, green: 220 / 255, blue: 235 / 255)
 
