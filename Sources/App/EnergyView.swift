@@ -427,7 +427,7 @@ struct EnergyView: View {
         case .solar:
             let s = store.billSummary(period, range)
             let priced = s.have > 0
-            table("Used By · (savings)", arrow: nil, [
+            table("Used By · (Savings)", arrow: nil, [
                 EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.homeSolar, glyph: .home,
                            saved: priced ? s.homeSaved : nil),
                 EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.carSolar, glyph: .car,

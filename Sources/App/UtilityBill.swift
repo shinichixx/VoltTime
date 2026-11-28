@@ -246,7 +246,7 @@ struct UtilityBillSection: View {
 
     private var caption: String {
         switch period {
-        case .day: return current ? "Today · estimate" : "\(range.label) · estimate"
+        case .day: return "Estimate"
         case .week: return current ? "This week so far · estimate" : "Week · estimate"
         case .month: return current ? "Month so far" : "Full month"
         case .year, .lifetime: return "Monthly bills added up"
@@ -406,16 +406,16 @@ struct UtilityBillSection: View {
             shareRow(.car, EnergyColor.vehicle, none ? "–" : percent(s.carSolar, total), "Vehicle",
                      none ? Text("–") : savingText(s.carSolar, s.carSaved))
             line
-            shareRow(.grid, EnergyColor.grid, none ? "–" : percent(s.exported, total), "Grid Export",
-                     none ? Text("–") : savingText(s.exported, s.bill.credit))
+            shareRow(.grid, EnergyColor.grid, none ? "–" : percent(s.exported, total), "Grid",
+                     none ? Text("–") : savingText(s.exported, s.bill.credit, exported: true))
         }
     }
 
     private func percent(_ part: Double, _ of: Double) -> String { of > 0 ? "\(Int((part / of * 100).rounded()))%" : "–" }
 
-    private func savingText(_ kWh: Double, _ rm: Double) -> Text {
-        Text(Num.kwh(kWh, whole: period == .year || period == .lifetime) + " kWh · ")
-            + Text((rm >= 0.005 ? "−" : "") + money(abs(rm), rm: true))
+    private func savingText(_ kWh: Double, _ rm: Double, exported: Bool = false) -> Text {
+        Text((exported && kWh >= 0.05 ? "- " : "") + Num.kwh(kWh, whole: period == .year || period == .lifetime) + " kWh · ")
+            + Text("(" + money(abs(rm), rm: true) + ")")
                 .font(.app(size: 13.5, weight: .semibold)).foregroundColor(.green)
     }
 
