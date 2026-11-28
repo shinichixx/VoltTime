@@ -1,20 +1,94 @@
 import SwiftUI
 
 // Energy Value (Impact): what the solar saved on the TNB bill, an estimate.
-// - Solar used at home or by the car: priced at the ToU rate of the time it was used
+// - Solar used at home or by the car: priced at the import rate of the time it was used
 //   (peak Mon–Fri 14:00–22:00, off-peak the rest of the week).
 // - Solar exported: NEM 3.0 offsets it against the month's import, off-peak kWh first (off-peak rate),
 //   then peak kWh (peak rate). Each day gets the month's credit in proportion to what it exported.
 
+/// TNB Domestic ToU: rates worked out from the monthly AFA (same maths as the Home Charging TOU Excel).
 enum Tariff {
-    static let peakKey = "tariff.peak"
-    static let offPeakKey = "tariff.offPeak"
-    static let peakDefault = 0.5429
-    static let offPeakDefault = 0.4981
+    static let afaKey = "tariff.afa"     // ["yyyy-MM": sen/kWh]
+    static let partsKey = "tariff.parts"
+    static let revKey = "tariff.rev"     // bumped on every change so open pages redraw
+    static let seed = ["2026-11": 3.6]
 
-    static var peak: Double { let v = UserDefaults.standard.double(forKey: peakKey); return v > 0 ? v : peakDefault }
-    static var offPeak: Double { let v = UserDefaults.standard.double(forKey: offPeakKey); return v > 0 ? v : offPeakDefault }
-    static var stamp: String { "\(peak)-\(offPeak)" }
+    /// Components other than AFA, RM/kWh (taxes in %).
+    enum Part: String, CaseIterable {
+        case energyPeak, energyOff, capacity, network, st, kwtbb
+        var standard: Double {
+            switch self {
+            case .energyPeak: return 0.2852
+            case .energyOff: return 0.2443
+            case .capacity: return 0.0455
+            case .network: return 0.1285
+            case .st: return 8
+            case .kwtbb: return 1.6
+            }
+        }
+    }
+
+    struct Rates { let importPeak, importOff, exportPeak, exportOff: Double }
+
+    private struct Book {
+        let afa: [String: Double]
+        let parts: [String: Double]
+        let stamp: String
+        init() {
+            let d = UserDefaults.standard
+            afa = Tariff.seed.merging(d.dictionary(forKey: Tariff.afaKey) as? [String: Double] ?? [:]) { $1 }
+            parts = d.dictionary(forKey: Tariff.partsKey) as? [String: Double] ?? [:]
+            stamp = afa.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+                + "|" + Part.allCases.map { [parts] p in "\(parts[p.rawValue] ?? p.standard)" }.joined(separator: ",")
+        }
+    }
+
+    private static var book = Book()
+    static var stamp: String { book.stamp }
+
+    static func reload() {
+        book = Book()
+        let d = UserDefaults.standard
+        d.set(d.integer(forKey: revKey) + 1, forKey: revKey)
+    }
+
+    static func month(_ day: Date) -> String {
+        let c = Calendar(identifier: .gregorian).dateComponents([.year, .month], from: day)
+        return String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
+    }
+
+    static func recordedAFA(_ day: Date) -> Double? { book.afa[month(day)] }
+    /// The month's own AFA, else the latest recorded one.
+    static func afa(_ day: Date) -> Double { recordedAFA(day) ?? book.afa.max { $0.key < $1.key }?.value ?? 0 }
+    static func part(_ p: Part) -> Double { book.parts[p.rawValue] ?? p.standard }
+
+    static func setAFA(_ sen: Double, _ day: Date) {
+        var a = book.afa
+        a[month(day)] = sen
+        UserDefaults.standard.set(a, forKey: afaKey)
+        reload()
+    }
+
+    static func setPart(_ p: Part, _ v: Double) {
+        var all = book.parts
+        all[p.rawValue] = v
+        UserDefaults.standard.set(all, forKey: partsKey)
+        reload()
+    }
+
+    static func resetParts() {
+        UserDefaults.standard.removeObject(forKey: partsKey)
+        reload()
+    }
+
+    /// Import: (energy + AFA + capacity + network) + ST, plus KWTBB on everything but AFA. Export: no AFA, no taxes.
+    static func rates(_ day: Date = Date()) -> Rates {
+        let base = part(.capacity) + part(.network)
+        let peak = part(.energyPeak) + base, off = part(.energyOff) + base
+        let a = afa(day) / 100, st = part(.st) / 100, k = part(.kwtbb) / 100
+        return Rates(importPeak: (peak + a) * (1 + st) + peak * k, importOff: (off + a) * (1 + st) + off * k,
+                     exportPeak: peak, exportOff: off)
+    }
 
     /// Saturday and Sunday, whatever the phone's region calls the weekend.
     static func isWeekend(_ day: Date) -> Bool {
@@ -50,14 +124,14 @@ extension EnergyStore {
         if let v = today ? liveDays[ck] : ValueBook.days[ck] { return v }
         var v = DayValue()
         let start = cal.startOfDay(for: day)
-        let peak = Tariff.peak, off = Tariff.offPeak
+        let rate = Tariff.rates(start)
         let weekend = Tariff.isWeekend(start)
         let fs = c.flows
         for i in 0..<c.count {
             let isPeak = Tariff.isPeak(minute: i * c.minutes, weekend: weekend)
             let f = fs[i]
             let h = min(23, i * c.minutes / 60)
-            v.selfRM[h] += (f.carSolar + f.homeSolar) * (isPeak ? peak : off)
+            v.selfRM[h] += (f.carSolar + f.homeSolar) * (isPeak ? rate.importPeak : rate.importOff)
             v.exp[h] += f.exp
             if !isPeak { v.offImp += f.imp }
         }
@@ -68,7 +142,7 @@ extension EnergyStore {
     /// RM per exported kWh in the month holding `day`.
     func exportRate(_ day: Date) -> Double {
         let cal = Calendar.current
-        guard let iv = cal.dateInterval(of: .month, for: day) else { return Tariff.offPeak }
+        guard let iv = cal.dateInterval(of: .month, for: day) else { return Tariff.rates(day).exportOff }
         let current = iv.contains(Date())
         let ck = "\(Self.keyFormatter.string(from: iv.start))|\(Tariff.stamp)"
         if let r = current ? liveMonths[ck] : ValueBook.months[ck] { return r }
@@ -79,8 +153,9 @@ extension EnergyStore {
             guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
             d = n
         }
-        let credit = min(exp, offImp) * Tariff.offPeak + max(exp - offImp, 0) * Tariff.peak
-        let r = exp > 0 ? credit / exp : Tariff.offPeak
+        let rate = Tariff.rates(iv.start)
+        let credit = min(exp, offImp) * rate.exportOff + max(exp - offImp, 0) * rate.exportPeak
+        let r = exp > 0 ? credit / exp : rate.exportOff
         if current { liveMonths[ck] = r } else { ValueBook.months[ck] = r }
         return r
     }
@@ -173,66 +248,6 @@ extension EnergyStore {
 enum RM {
     static func text(_ v: Double) -> String {
         v < 100 ? "RM " + v.formatted(.number.locale(Num.en).precision(.fractionLength(2))) : "RM " + Num.whole(v)
-    }
-}
-
-/// Explains Energy Value, with the two TNB rates editable.
-struct EnergyValueInfoView: View {
-    @AppStorage(Tariff.peakKey) private var peak = Tariff.peakDefault
-    @AppStorage(Tariff.offPeakKey) private var offPeak = Tariff.offPeakDefault
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                section("Rates", [
-                    AnyView(rateRow("Peak", "Mon–Fri 2pm–10pm", $peak)),
-                    AnyView(rateRow("Off-peak", "Mon–Fri 10pm–2pm, Sat & Sun all day", $offPeak)),
-                ])
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("How it's worked out").font(.app(size: 14, weight: .semibold))
-                    Text("Solar used by the house or the Model 3 is valued at the rate for the time it was used.")
-                    Text("Solar exported is credited each month under NEM 3.0: it offsets that month's off-peak import at the off-peak rate first, then peak import at the peak rate.")
-                    Text("AFA, the incentive tier and the capacity and network charges aren't included, so this is an estimate, not your bill.")
-                }
-                .font(.app(size: 13)).foregroundStyle(TeslaDark.labelGrey)
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(TeslaDark.card, in: RoundedRectangle(cornerRadius: 16))
-            }
-            .padding(16)
-        }
-        .teslaPage("Energy Value")
-    }
-
-    private func section(_ title: String, _ rows: [AnyView]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel).padding(.leading, 4)
-            VStack(spacing: 0) {
-                ForEach(rows.indices, id: \.self) { i in
-                    rows[i]
-                    if i < rows.count - 1 { Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.leading, 16) }
-                }
-            }
-            .background(TeslaDark.card, in: RoundedRectangle(cornerRadius: 16))
-        }
-    }
-
-    private func rateRow(_ name: String, _ hours: String, _ v: Binding<Double>) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.app(size: 14))
-                Text(hours).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-            }
-            Spacer()
-            Text("RM").font(.app(size: 14)).foregroundStyle(TeslaDark.rowLabel)
-            TextField("", value: v, format: .number.precision(.fractionLength(4)))
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .font(.app(size: 14, weight: .semibold))
-                .frame(width: 80)
-            Text("/kWh").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
     }
 }
 

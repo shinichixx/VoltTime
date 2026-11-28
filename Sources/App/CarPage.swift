@@ -532,7 +532,7 @@ struct CarView2: View {
             row("car.side", "Controls", nil) { path.append(.carDetail(.controls)) }
             row(c.climateOn ? "fanblades.fill" : "fanblades", "Climate", climateSub) { path.append(.carDetail(.climate)) }
             row(c.charging ? "bolt.fill" : "bolt", "Charging", chargingSub, rich: chargingNow,
-                iconColor: c.charging ? TSurface.green : nil) { path.append(.settings) }
+                iconColor: c.charging ? TSurface.green : nil) { path.append(.vehicleCharging) }
             row("minus.plus.batteryblock", "Battery", health.isEmpty ? "—" : health.joined(separator: " · "), rich: batteryLine) { path.append(.carDetail(.battery)) }
             row("circle.circle", "Tyres", tyres, rich: tyreLine) { path.append(.carDetail(.tyres)) }
             row("lock.shield", "Security", [c.locked == true ? "Locked" : "Unlocked", c.anyWindowOpen ? "Window open" : "Windows closed",

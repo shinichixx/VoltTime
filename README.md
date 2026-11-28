@@ -21,7 +21,8 @@ Dark, Tesla-app style. Three pages, swiped left and right (no tab bar):
     Energy page; each refresh only fetches today, yesterday and anything missing.
   - Energy and Impact always open on **Day / Today** from My Home. Tapping the house photo opens Energy too:
     car → Vehicle (only when the photo shows the car), solar roofs → Solar, windows → Home, grid wire → Grid.
-  - **Settings** – *Charging mode* (Off / Routine / Excess Solar / Fast, sets `input_select.tesla_charging_mode`;
+  - **Settings** – *Utility Rate Plan* (TNB ToU import / export rates from each month's AFA, rate components)
+    and *Vehicle Charging*: *Charging mode* (Off / Routine / Excess Solar / Fast, sets `input_select.tesla_charging_mode`;
     the HA "Tesla Charging – Controller" automation still does the work), *Charging start time* (Routine only:
     location tomorrow GPS 73% / TSET 63% / Others, ready time, start time) → *Charge details* (duration, energy,
     safety buffer, start %, cost, charger and battery parameters), and the Home Assistant connection

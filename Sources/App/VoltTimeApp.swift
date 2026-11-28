@@ -124,7 +124,9 @@ struct ContentView: View {
                 switch route {
                 case .energy: EnergyView(store: energy)
                 case .energyView(let c): EnergyView(store: energy, start: c)
-                case .settings: SettingsPage(home: home, myHome: myHome, energy: energy, car: car, path: $path)
+                case .settings: SettingsPage(energy: energy, path: $path)
+                case .ratePlan: UtilityRatePlanPage(firstDay: energy.firstDay)
+                case .vehicleCharging: VehicleChargingPage(home: home, myHome: myHome, energy: energy, car: car, path: $path)
                 case .chargeDetails: ChargeDetailsPage(model: home)
                 case .homeAssistant: HomeAssistantPage()
                 case .charge: ChargePage(model: myHome)
@@ -171,7 +173,7 @@ struct ContentView: View {
         .onOpenURL { url in
             // volttime://limit (notification "Others…") or volttime://home -> My Home → Charging
             page = 1   // My Home behind Charging
-            path = [.settings]
+            path = [.settings, .vehicleCharging]
             if url.host == "limit" { home.showLimitSheet = true }
             Task { await home.refresh() }
         }

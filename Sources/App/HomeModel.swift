@@ -13,7 +13,8 @@ final class HomeModel: ObservableObject {
     @Published var volts: Double { didSet { save(); userEdited() } }
     @Published var efficiency: Double { didSet { save(); userEdited() } }
     @Published var capacity: Double { didSet { save(); userEdited() } }
-    @Published var tariff: Double { didSet { save() } }
+    /// Home charging is costed at this month's off-peak import rate.
+    var tariff: Double { Tariff.rates().importOff }
 
     // Live from Home Assistant
     @Published var liveSoc: Double?
@@ -63,7 +64,6 @@ final class HomeModel: ObservableObject {
         volts = num("home.volts", 240)
         efficiency = num("home.eff", 93)
         capacity = num("home.cap", 79)
-        tariff = num("home.tariff", 0.4981)
     }
 
     /// Picks up planner values put back by a restore.
@@ -77,12 +77,11 @@ final class HomeModel: ObservableObject {
         if volts != fresh.volts { volts = fresh.volts }
         if efficiency != fresh.eff { efficiency = fresh.eff }
         if capacity != fresh.cap { capacity = fresh.cap }
-        if tariff != fresh.tariff { tariff = fresh.tariff }
     }
 
     private struct Saved {
         let ready: Int, buffer: Int
-        let startSoc: Double, limit: Double, amps: Double, volts: Double, eff: Double, cap: Double, tariff: Double
+        let startSoc: Double, limit: Double, amps: Double, volts: Double, eff: Double, cap: Double
         init() {
             let d = UserDefaults.standard
             func num(_ k: String, _ def: Double) -> Double { d.object(forKey: k) == nil ? def : d.double(forKey: k) }
@@ -94,7 +93,6 @@ final class HomeModel: ObservableObject {
             volts = num("home.volts", 240)
             eff = num("home.eff", 93)
             cap = num("home.cap", 79)
-            tariff = num("home.tariff", 0.4981)
         }
     }
 
@@ -107,7 +105,6 @@ final class HomeModel: ObservableObject {
         d.set(volts, forKey: "home.volts")
         d.set(efficiency, forKey: "home.eff")
         d.set(capacity, forKey: "home.cap")
-        d.set(tariff, forKey: "home.tariff")
     }
 
     func resetDefaults() {
@@ -117,7 +114,6 @@ final class HomeModel: ObservableObject {
         volts = 240
         efficiency = 93
         capacity = 79
-        tariff = 0.4981
         if let liveSoc { startSoc = liveSoc }
     }
 

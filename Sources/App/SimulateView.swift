@@ -5,6 +5,7 @@ import SwiftUI
 /// Laid out like Public charging: answer + cost on top, battery bar, quick picks, a few rows, Charger ›.
 struct SimulateView: View {
     @ObservedObject var model: HomeModel
+    @AppStorage(Tariff.revKey) private var tariffRev = 0
     @AppStorage("sim.leave") private var leaveMinutes = 7 * 60
     @AppStorage("sim.target") private var target = 100.0
     @AppStorage("sim.buffer") private var bufferMinutes = 15
@@ -19,6 +20,7 @@ struct SimulateView: View {
     }
 
     var body: some View {
+        let _ = tariffRev   // redraw when a rate changes
         let r = Self.result(model, start: startSoc, target: target)
         let sim = HomeMath.simulatedStart(leaveMinutes: leaveMinutes, chargeMinutes: r.minutes, bufferMinutes: bufferMinutes)
         ScrollView {

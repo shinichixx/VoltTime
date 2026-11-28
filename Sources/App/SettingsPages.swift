@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Pages pushed from My Home.
 enum Route: Hashable {
-    case energy, settings, chargeDetails, homeAssistant, charge, impact
+    case energy, settings, vehicleCharging, ratePlan, chargeDetails, homeAssistant, charge, impact
     case menu, carDetail(CarDetail), energyView(EnergyComponent)
 }
 
@@ -143,7 +143,214 @@ private struct ChargeHowSheet: View {
 
 // MARK: - Settings (level 1)
 
+/// My Home → Settings, laid out like the Tesla app.
 struct SettingsPage: View {
+    @ObservedObject var energy: EnergyStore
+    @Binding var path: [Route]
+    @AppStorage(Tariff.revKey) private var tariffRev = 0
+
+    private var rateSubtitle: String {
+        Tariff.recordedAFA(Date()) != nil ? "TOU" : "TOU · Record \(Date().formatted(.dateTime.month(.wide).locale(Num.en))) AFA"
+    }
+
+    var body: some View {
+        let _ = tariffRev   // redraw when a rate changes
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "Home settings")
+                TRowButton(title: "Utility Rate Plan", icon: AnyView(PylonGlyph()), subtitle: rateSubtitle) { path.append(.ratePlan) }
+                TCaption(text: "Your products")
+                TRowButton(title: "Vehicle Charging", icon: AnyView(Image(systemName: "car.fill")
+                    .font(.system(size: 18)).foregroundStyle(TSurface.icon))) { path.append(.vehicleCharging) }
+            }
+        }
+        .teslaPage("Settings", black: true)
+    }
+}
+
+private struct TRowButton: View {
+    let title: String
+    let icon: AnyView
+    var subtitle: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            TRow(title, iconView: icon, subtitle: subtitle, last: true) {
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Transmission tower.
+struct PylonGlyph: View {
+    var body: some View {
+        Canvas { c, s in
+            let w = s.width, h = s.height
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * w, y: y * h) }
+            var p = Path()
+            for line in [[pt(0.38, 0.06), pt(0.62, 0.06)], [pt(0.38, 0.06), pt(0.38, 0.5), pt(0.14, 0.95)],
+                         [pt(0.62, 0.06), pt(0.62, 0.5), pt(0.86, 0.95)], [pt(0.08, 0.36), pt(0.08, 0.24), pt(0.92, 0.24), pt(0.92, 0.36)],
+                         [pt(0.08, 0.62), pt(0.08, 0.5), pt(0.92, 0.5), pt(0.92, 0.62)],
+                         [pt(0.38, 0.5), pt(0.76, 0.78)], [pt(0.62, 0.5), pt(0.24, 0.78)]] {
+                p.addLines(line)
+            }
+            c.stroke(p, with: .color(TSurface.icon), style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
+        }
+        .frame(width: 22, height: 22)
+    }
+}
+
+/// Settings → Utility Rate Plan: this month's rates and each month's AFA.
+struct UtilityRatePlanPage: View {
+    let firstDay: Date?
+    @AppStorage(Tariff.revKey) private var tariffRev = 0
+    @State private var editing: Date?
+    @State private var text = ""
+
+    /// This month back to the first month with energy data (or the earliest AFA seed).
+    private var months: [Date] {
+        let cal = Calendar.current
+        let now = cal.dateInterval(of: .month, for: Date())?.start ?? Date()
+        let first = firstDay.flatMap { cal.dateInterval(of: .month, for: $0)?.start } ?? now
+        var out: [Date] = [], m = now
+        while m >= first, out.count < 240 {
+            out.append(m)
+            guard let p = cal.date(byAdding: .month, value: -1, to: m) else { break }
+            m = p
+        }
+        return out.isEmpty ? [now] : out
+    }
+
+    private func name(_ d: Date) -> String { d.formatted(.dateTime.month(.wide).year().locale(Num.en)) }
+    private func two(_ v: Double) -> String { String(format: "%.2f", v) }
+
+    var body: some View {
+        let _ = tariffRev   // redraw when a rate changes
+        let r = Tariff.rates()
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "TNB Domestic ToU · NEM 3.0", trailing: name(Date()))
+                HStack {
+                    Text("RM/kWh").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Import").frame(width: 72, alignment: .trailing)
+                    Text("Export").frame(width: 72, alignment: .trailing)
+                }
+                .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                .padding(.horizontal, 20).padding(.vertical, 8)
+                rateRow("Peak", "Mon–Fri 2pm–10pm", r.importPeak, r.exportPeak)
+                rateRow("Off-peak", "Mon–Fri 10pm–2pm, Sat & Sun all day", r.importOff, r.exportOff)
+
+                TCaption(text: "Monthly AFA (sen/kWh)")
+                ForEach(months, id: \.self) { m in
+                    let saved = Tariff.recordedAFA(m)
+                    Button {
+                        text = saved.map(two) ?? ""
+                        editing = m
+                    } label: {
+                        TRow(name(m), subtitle: saved == nil ? "Not recorded · using \(two(Tariff.afa(m)))" : nil) {
+                            HStack(spacing: 8) {
+                                if let saved {
+                                    Text(two(saved)).font(.app(size: 15)).foregroundStyle(.white)
+                                } else {
+                                    Text("Record").font(.app(size: 14)).foregroundStyle(Color(red: 0.24, green: 0.55, blue: 1))
+                                }
+                                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                TCaption(text: "Rates")
+                NavigationLink { RateComponentsPage() } label: {
+                    TRow("Rate components", last: true) {
+                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
+                    }
+                }
+                .buttonStyle(.plain)
+                TFootnote(text: "Solar used is valued at the import rate. Export offsets the month's off-peak import at the off-peak export rate, then the rest at the peak export rate. The energy efficiency incentive isn't included.",
+                          color: TeslaDark.dim)
+                Spacer(minLength: 40)
+            }
+        }
+        .teslaPage("Utility Rate Plan", black: true)
+        .alert(editing.map { "\(name($0)) AFA" } ?? "AFA", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+            TextField("sen/kWh", text: $text).keyboardType(.numbersAndPunctuation)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                if let m = editing, let v = Double(text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)) {
+                    Tariff.setAFA(v, m)
+                }
+            }
+        } message: {
+            Text("In sen/kWh. Use a minus sign for a rebate.")
+        }
+    }
+
+    private func rateRow(_ title: String, _ hours: String, _ imp: Double, _ exp: Double) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.app(size: 15)).foregroundStyle(.white)
+                Text(hours).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach([imp, exp].indices, id: \.self) { i in
+                Text(String(format: "%.4f", i == 0 ? imp : exp)).font(.app(size: 14, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 72, alignment: .trailing)
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 10)
+        .overlay(alignment: .top) { Rectangle().fill(TSurface.line).frame(height: 0.5).padding(.horizontal, 20) }
+    }
+}
+
+/// Utility Rate Plan → Rate components.
+struct RateComponentsPage: View {
+    @FocusState private var focus: String?
+    @AppStorage(Tariff.revKey) private var tariffRev = 0
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                TCaption(text: "Energy (RM/kWh)")
+                row("Peak", .energyPeak, "RM")
+                row("Off-peak", .energyOff, "RM", last: true)
+                TCaption(text: "Other charges (RM/kWh)")
+                row("Capacity", .capacity, "RM")
+                row("Network", .network, "RM", last: true)
+                TCaption(text: "Taxes on import")
+                row("Service tax", .st, "%")
+                row("KWTBB", .kwtbb, "%", last: true)
+                Button("Reset to defaults") { focus = nil; Tariff.resetParts() }
+                    .font(.app(size: 14)).foregroundStyle(Theme.rouge)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 20)
+                Spacer(minLength: 40)
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .teslaPage("Rate components", black: true)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focus = nil }
+            }
+        }
+    }
+
+    private func row(_ title: String, _ part: Tariff.Part, _ unit: String, last: Bool = false) -> some View {
+        let value = Binding<Double>(get: { _ = tariffRev; return Tariff.part(part) },
+                                    set: { if $0 != Tariff.part(part) { Tariff.setPart(part, $0) } })
+        return TRow(title, last: last) { TValueField(value: value, unit: unit, focus: $focus, key: part.rawValue) }
+    }
+}
+
+// MARK: - Vehicle Charging
+
+struct VehicleChargingPage: View {
     @ObservedObject var home: HomeModel
     @ObservedObject var myHome: MyHomeModel
     @ObservedObject var energy: EnergyStore
@@ -187,7 +394,7 @@ struct SettingsPage: View {
                 Spacer(minLength: 12)
             }
         }
-        .teslaPage("Settings", black: true)
+        .teslaPage("Vehicle Charging", black: true)
         .sheet(isPresented: $showHow) {
             ChargeHowSheet()
                 .presentationDetents([.height(390), .large])
@@ -570,7 +777,9 @@ struct ChargerBatteryPage: View {
                 TRow("Voltage") { TValueField(value: $model.volts, unit: "V", focus: $focus, key: "volts") }
                 TRow("Efficiency") { TValueField(value: $model.efficiency, unit: "%", focus: $focus, key: "eff") }
                 TRow("Capacity") { TValueField(value: $model.capacity, unit: "kWh", focus: $focus, key: "cap") }
-                TRow("Tariff", last: true) { TValueField(value: $model.tariff, unit: "RM", focus: $focus, key: "tariff") }
+                TRow("Tariff", subtitle: "Off-peak, from Utility Rate Plan", last: true) {
+                    TValue(value: String(format: "%.4f", model.tariff), unit: "RM/kWh")
+                }
 
                 TCaption(text: "Numbers")
                 TRow("From the wall") { TValue(value: String(format: "%.2f", r.wallKWh), unit: "kWh") }

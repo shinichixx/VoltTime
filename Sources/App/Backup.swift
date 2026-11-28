@@ -19,7 +19,7 @@ enum AppData {
     static var energy: URL { support.appendingPathComponent("energy.plist") }
 
     /// Settings that go into a backup (the Home Assistant token stays in the Keychain, never in a file).
-    private static let settingPrefixes = ["home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", "car.", "profile.", HAClient.urlKey, HARoute.homeKey, HARoute.autoKey]
+    private static let settingPrefixes = ["tariff.", "home.", "sim.", "pub.", "energy.period", "impact.period", "backupReminder", "car.", "profile.", HAClient.urlKey, HARoute.homeKey, HARoute.autoKey]
 
     static func settingsData() -> Data? {
         let all = UserDefaults.standard.dictionaryRepresentation()
@@ -587,6 +587,7 @@ struct BackupPage: View {
             parts.append("\(r.added) days added, \(r.improved) improved")
         }
         if let s = p.contents.settings, AppData.applySettings(s) > 0 {
+            Tariff.reload()
             home.reloadSettings()
             parts.append("settings back")
         }

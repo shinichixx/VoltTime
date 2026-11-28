@@ -23,6 +23,8 @@ struct ImpactView: View {
     @ObservedObject var model: EnergyStore
     @AppStorage("impact.period") private var periodRaw = ImpactPeriod.month.rawValue
     @State private var offset = 0
+    @AppStorage(Tariff.revKey) private var tariffRev = 0
+    @State private var rateDay = Date()   // month whose rates the Time-of-Use footer shows
     @State private var showInfo = false
     @State private var showValueInfo = false
     @State private var showCarbonInfo = false
@@ -38,6 +40,7 @@ struct ImpactView: View {
     static let gridColor = Color(red: 142 / 255, green: 142 / 255, blue: 147 / 255)
 
     var body: some View {
+        let _ = tariffRev   // redraw when a rate changes
         let r = PeriodRange.make(period, offset: offset, firstDay: model.firstDay, stored: periodRaw)
         let n = model.impactNumbers(period, r)   // worked out once, kept until the data or rates change
         let t = n.total, cover = n.coverage
@@ -59,7 +62,7 @@ struct ImpactView: View {
                     ZStack {
                         LazyVStack(spacing: 10) {
                             selfPoweredCard(t)
-                            if !empty { touCard(n.tou) }
+                            if !empty { touCard(n.tou).onAppear { rateDay = min(r.end.addingTimeInterval(-1), Date()) }.onChange(of: r.end) { _, end in rateDay = min(end.addingTimeInterval(-1), Date()) } }
                             if !empty { valueCard(r, n.bars) }
                             if !empty {   // nothing recorded: no zeros that look like readings
                                 offsetCard(t)
@@ -263,8 +266,8 @@ struct ImpactView: View {
             }
             if showTouInfo {
                 Text(touPeak
-                     ? "Peak: Monday to Friday, 2pm to 10pm · RM\(String(format: "%.4f", Tariff.peak))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid."
-                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday and Sunday · RM\(String(format: "%.4f", Tariff.offPeak))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid.")
+                     ? "Peak: Monday to Friday, 2pm to 10pm · RM\(String(format: "%.4f", Tariff.rates(rateDay).importPeak))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid."
+                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday and Sunday · RM\(String(format: "%.4f", Tariff.rates(rateDay).importOff))/kWh.\nHouse + car use, split by source. Solar serves the house first, then the car; the rest is Grid.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 14)
             }
@@ -289,7 +292,7 @@ struct ImpactView: View {
                     .padding(.top, 12)
             }
             divider().padding(.top, 16)
-            NavigationLink { EnergyValueInfoView() } label: {
+            NavigationLink { UtilityRatePlanPage(firstDay: model.firstDay) } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Estimate based on")
