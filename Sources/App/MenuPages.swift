@@ -379,6 +379,9 @@ struct ProductPage: View {
                     NavigationLink { AutogatePage(car: car) } label: {
                         MenuRow(title: "Autogate", compact: true) { GateGlyph(size: 22, color: TeslaDark.rowIcon) }
                     }.buttonStyle(.plain)
+                    NavigationLink { EnergyGraphPage() } label: {
+                        MenuRow(title: "Energy Graph", compact: true) { MenuSymbol(name: "chart.xyaxis.line", size: 19) }
+                    }.buttonStyle(.plain)
                 }
             }
         }
@@ -398,6 +401,26 @@ struct ProductPage: View {
                 EditNamePage(key: ProductNames.homeKey, fallback: ProductNames.homeDefault)
             }
         }
+    }
+}
+
+enum EnergyGraphSetting { static let key = "energy.dayStep" }
+
+/// Home › Energy Graph: the Day graph's interval.
+struct EnergyGraphPage: View {
+    @AppStorage(EnergyGraphSetting.key) private var step = 5
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                TRow("Interval", icon: "clock", last: true) {
+                    TSegment(items: ["5 min", "15 min"], selected: step == 15 ? 1 : 0) { step = $0 == 1 ? 15 : 5 }
+                        .frame(width: 170)
+                }
+                TFootnote(text: "Used by the Day graph in every Energy view. 15 min shows the average of each 15 minutes; kWh totals stay the same. Days saved hourly stay hourly.")
+            }
+        }
+        .teslaPage("Energy Graph", black: true)
     }
 }
 

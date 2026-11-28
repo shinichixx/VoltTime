@@ -111,6 +111,8 @@ struct EnergyView: View {
     @State private var look = EnergyLook()
     @State private var folded = false
     @ObservedObject private var vehicle = VehicleHistory.shared
+    /// Menu › home › Energy Graph: the Day graph's step (5 or 15 minutes).
+    @AppStorage(EnergyGraphSetting.key) private var dayStep = 5
     /// Vehicle: the car's use graph below zero. Off each time the page opens (charging only).
     @State private var showUsed = false
     /// Tap and hold on Charge Level (the page doesn't scroll meanwhile).
@@ -360,8 +362,9 @@ struct EnergyView: View {
         switch period {
         case .day:
             // The point sits mid-slot; show the time the slot starts.
-            let half = Double(store.curve(range.start)?.minutes ?? 5) * 30
-            return range.label + " · " + sel.addingTimeInterval(-half).formatted(date: .omitted, time: .shortened)
+            let step = Double(max(store.curve(range.start)?.minutes ?? 5, dayStep)) * 60
+            let from = (sel.timeIntervalSince(range.start) / step).rounded(.down) * step
+            return range.label + " · " + range.start.addingTimeInterval(from).formatted(date: .omitted, time: .shortened)
         case .week, .month, .custom:
             return sel.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
         default:
@@ -545,6 +548,8 @@ private struct EnergyChartView: View {
     var canHold = true
     /// Vehicle view: draw the car's own use below zero (default: charging only).
     var showUsed = false
+    /// Day view step in minutes (days saved coarser stay as saved).
+    @AppStorage(EnergyGraphSetting.key) private var dayStep = 5
 
     private let cal = Calendar.current
     private var isDay: Bool { period == .day }
@@ -553,11 +558,26 @@ private struct EnergyChartView: View {
 
     /// Day: 5-minute steps where saved (kW). Week and Month: a bar per day; Year and Lifetime: a bar per month (kWh).
     private var points: [FlowPoint] {
-        let pts = basePoints
+        let pts = isDay ? merged(basePoints) : basePoints
         guard comp == .vehicle, showUsed else { return pts }
         // Use is drawn on the charging scale; anything beyond it runs off the edge.
         let cap = EnergyScale(lo: 0, hi: pts.map { $0.flow.car * $0.k }.max() ?? 0).domain.upperBound
         return pts.map { var q = $0; q.capKW = cap; return q }
+    }
+
+    /// Joins finer slots into `dayStep` blocks: energy adds up (kWh totals unchanged), kW is the block's average.
+    private func merged(_ pts: [FlowPoint]) -> [FlowPoint] {
+        guard let first = pts.first else { return pts }
+        let minutes = Int((60 / first.k).rounded())
+        let n = dayStep / max(minutes, 1)
+        guard n > 1 else { return pts }
+        return stride(from: 0, to: pts.count, by: n).map { i in
+            let g = pts[i..<min(i + n, pts.count)]
+            let hours = Double(g.count * minutes) / 60
+            let start = pts[i].date.addingTimeInterval(-Double(minutes) * 30)
+            return FlowPoint(date: start.addingTimeInterval(hours * 1800), flow: g.reduce(EnergyFlow()) { $0 + $1.flow },
+                             k: 1 / hours, drive: g.reduce(0) { $0 + $1.drive }, idle: g.reduce(0) { $0 + $1.idle })
+        }
     }
 
     private var basePoints: [FlowPoint] {

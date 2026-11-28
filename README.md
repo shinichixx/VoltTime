@@ -13,7 +13,7 @@ Dark, Tesla-app style. Three pages, swiped left and right (no tab bar):
   - Tap the **Model 3** figure – charging current slider (5–32 A) and Start / Stop charging, sent straight to the car.
   - **Energy** – opens on **All** (solar, home, Model 3 and grid lines together, with six numbers below). Tesla-style: Day / Week / Month / Year / Lifetime menu, Choose Date (Day / Month / Year / Custom up to 31 days), Home / Solar / Vehicle / Grid bar at the bottom,
     stacked areas for a day (tap and hold to scrub), bars for longer periods, Energy Flow rows. The eye shows one total in the view's colour, fading to black at 0. Day graphs use
-    5-minute steps where saved (older days 15-minute or hourly). Curves come from the same shared store as Impact.
+    5-minute or 15-minute steps (Menu › home › Energy Graph; older days 15-minute or hourly). Curves come from the same shared store as Impact.
   - **Impact** – Tesla-style cards for Day / Week / Month / Year / Lifetime: Self-Powered, Model 3 on solar (+ km on
     sunshine), CO₂ avoided (0.740 kg/kWh, Peninsular 2024) and Solar Forecast (follows the period: today's curve, a past day's forecast and
     actual bars, longer periods actual bars with forecast marks; touch and hold to read one). Energy is kept on the phone in one
