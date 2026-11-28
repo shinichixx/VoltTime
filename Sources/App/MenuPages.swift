@@ -79,16 +79,17 @@ struct MenuRow<Icon: View>: View {
     var subtitle: String? = nil
     var dot: Color? = nil
     var compact = false   // the Menu page: Tesla app sizes (15.5 pt title, 12 pt line, 64 pt row, smaller icon)
+    var product = false   // a product's page: the Tesla app's smaller text and chevron
     @ViewBuilder let icon: () -> Icon
 
     var body: some View {
         HStack(spacing: 0) {
             icon()
                 .frame(width: 26, height: 26)
-                .scaleEffect(compact ? 0.77 : 1, anchor: .leading)
+                .scaleEffect(product ? 0.83 : compact ? 0.77 : 1, anchor: .leading)
                 .frame(width: 49, alignment: .leading)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.app(size: compact ? 15 : 17, weight: .semibold)).foregroundStyle(.white)
+                Text(title).font(.app(size: product ? 11.8 : compact ? 15 : 17, weight: product ? .medium : .semibold)).foregroundStyle(.white)
                 if let subtitle {
                     HStack(spacing: 6) {
                         if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
@@ -99,7 +100,7 @@ struct MenuRow<Icon: View>: View {
             }
             Spacer(minLength: 8)
             if subtitle == nil, let dot { Circle().fill(dot).frame(width: 7, height: 7).padding(.trailing, 20) }
-            Image(systemName: "chevron.right").font(.system(size: 14, weight: .regular)).foregroundStyle(TeslaDark.dim)
+            Image(systemName: "chevron.right").font(.system(size: product ? 11 : 14, weight: .regular)).foregroundStyle(TeslaDark.dim)
         }
         .padding(.leading, 37)
         .padding(.trailing, 33)
@@ -359,35 +360,33 @@ struct ProductPage: View {
         ScrollView {
             VStack(spacing: 0) {
                 Group {
-                    if let img = UIImage(named: isCar ? "product_car.png" : "product_home.png") {
+                    if let img = UIImage(named: isCar ? "product_car_page.png" : "product_home_page.png") {
                         Image(uiImage: img).resizable().scaledToFit()
                     }
                 }
-                .frame(height: 175)
-                .padding(.horizontal, 40)
-                .padding(.top, 20)
-                .padding(.bottom, 15)
+                .frame(height: 210)
+                .padding(.top, 7)
 
                 Button { select(isCar ? 0 : 1) } label: {
-                    MenuRow(title: "Go To Product", compact: true) { MenuSymbol(name: "rectangle.portrait.and.arrow.right", size: 19) }
+                    MenuRow(title: "Go To Product", compact: true, product: true) { MenuSymbol(name: "rectangle.portrait.and.arrow.right", size: 19) }
                 }.buttonStyle(.plain)
                 if isCar {
                     NavigationLink { QuickControlsPage(car: car) } label: {
-                        MenuRow(title: "Quick Controls", compact: true) { MenuSymbol(name: "square.grid.2x2.fill", size: 19) }
+                        MenuRow(title: "Quick Controls", compact: true, product: true) { MenuSymbol(name: "square.grid.2x2.fill", size: 19) }
                     }.buttonStyle(.plain)
                 } else {
                     NavigationLink { AutogatePage(car: car) } label: {
-                        MenuRow(title: "Autogate", compact: true) { GateGlyph(size: 22, color: TeslaDark.rowIcon) }
+                        MenuRow(title: "Autogate", compact: true, product: true) { GateGlyph(size: 22, color: TeslaDark.rowIcon) }
                     }.buttonStyle(.plain)
                     NavigationLink { EnergyGraphPage() } label: {
-                        MenuRow(title: "Energy Graph", compact: true) { MenuSymbol(name: "chart.xyaxis.line", size: 19) }
+                        MenuRow(title: "Energy Graph", compact: true, product: true) { MenuSymbol(name: "chart.xyaxis.line", size: 19) }
                     }.buttonStyle(.plain)
                 }
             }
         }
-        .teslaPage(name, subtitle: detail, black: true, lowered: true, trailing: AnyView(
+        .teslaPage(name, subtitle: detail, black: true, lowered: true, product: true, trailing: AnyView(
             Button { editing = true } label: {
-                Text("Edit").font(.app(size: 13, weight: .semibold))
+                Text("Edit").font(.app(size: 12, weight: .semibold))
                     .foregroundStyle(Color(red: 0.2, green: 0.4, blue: 0.96))
                     .frame(minWidth: 44, minHeight: 32)
                     .contentShape(Rectangle())

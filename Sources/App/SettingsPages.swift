@@ -44,14 +44,14 @@ struct SystemTile: View {
 extension View {
     /// Dark page with our own slim top bar (Tesla app): thin grey back arrow, small centred title, optional
     /// item on the right. Replaces the system bar, which is much taller on iOS 26.
-    func teslaPage(_ title: String, subtitle: String? = nil, black: Bool = false, lowered: Bool = false, trailing: AnyView? = nil) -> some View {
+    func teslaPage(_ title: String, subtitle: String? = nil, black: Bool = false, lowered: Bool = false, product: Bool = false, trailing: AnyView? = nil) -> some View {
         let bg = black ? TSurface.page : TeslaDark.bg
         return self
             .background(bg.ignoresSafeArea())
             .navigationTitle(title)
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                TeslaTopBar(title: title, subtitle: subtitle, trailing: trailing, background: bg, lowered: lowered)
+                TeslaTopBar(title: title, subtitle: subtitle, trailing: trailing, background: bg, lowered: lowered, product: product)
             }
     }
 
@@ -74,21 +74,22 @@ struct TeslaTopBar: View {
     let trailing: AnyView?
     let background: Color
     var lowered = false   // Menu and My Products: title 22 pt lower, back arrow 11 pt further in (Tesla app)
+    var product = false   // a product's page: the Tesla app's smaller header
 
     var body: some View {
         ZStack {
-            VStack(spacing: 4) {
-                Text(title).font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
+            VStack(spacing: product ? 6 : 4) {
+                Text(title).font(.app(size: product ? 14.5 : 15, weight: .semibold)).foregroundStyle(.white)
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.app(size: 11, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
+                    Text(subtitle).font(.app(size: product ? 10.4 : 11, weight: product ? .semibold : .medium)).foregroundStyle(TeslaDark.rowLabel)
                 }
             }
             .lineLimit(1).minimumScaleFactor(0.8)
             .padding(.horizontal, 64)
             HStack(spacing: 0) {
-                PlainBackButton().padding(.leading, lowered ? 25 : 14)
+                PlainBackButton(small: product).padding(.leading, product ? 26 : lowered ? 25 : 14)
                 Spacer()
-                if let trailing { trailing.padding(.trailing, 18) }
+                if let trailing { trailing.padding(.trailing, product ? 9 : 18) }
             }
         }
         .frame(height: 32)
@@ -100,13 +101,14 @@ struct TeslaTopBar: View {
 
 /// 7 × 13 pt chevron in mid grey, like the Tesla app; the tap area stays 44 pt.
 struct PlainBackButton: View {
+    var small = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Button { dismiss() } label: {
             BackChevron()
-                .stroke(Color(white: 0.54), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
-                .frame(width: 7.5, height: 13.5)
+                .stroke(Color(white: 0.54), style: StrokeStyle(lineWidth: small ? 1.5 : 1.8, lineCap: .round, lineJoin: .round))
+                .frame(width: small ? 6 : 7.5, height: small ? 11 : 13.5)
                 .frame(width: 44, height: 44, alignment: .leading)
                 .contentShape(Rectangle())
         }
