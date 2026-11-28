@@ -36,7 +36,7 @@ enum HomeSky: Int, CaseIterable {
     }
 
     static func pick(_ r: Reading, previous: HomeSky?) -> HomeSky {
-        let hour = Calendar.current.component(.hour, from: r.now) + Double(Calendar.current.component(.minute, from: r.now)) / 60
+        let hour = Double(Calendar.current.component(.hour, from: r.now)) + Double(Calendar.current.component(.minute, from: r.now)) / 60
         // Sun: from Home Assistant, or a Kuantan-ish clock guess if sun.sun is missing.
         let up: Bool
         let low: Bool
