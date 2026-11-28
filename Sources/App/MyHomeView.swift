@@ -148,6 +148,13 @@ final class MyHomeModel: ObservableObject {
     @Published var photoKey = -1
     @Published var sky: HomeSky?
     @Published var raining = false
+    /// Solar readings for the 3-minute average, and when the sky / rain last changed.
+    private var solarSamples: [(Date, Double)] = []
+    private var lastSample: Date?
+    private var skyChanged = Date.distantPast
+    private var rainChanged = Date.distantPast
+    /// How long the next photo cross-fade takes.
+    private var nextFade = MyHomeModel.fadeSeconds
     /// The photo being faded out, kept fully visible underneath so the cross-fade never dips to dark.
     @Published var previousPhoto: UIImage?
     static let fadeSeconds = 1.0
@@ -197,8 +204,34 @@ final class MyHomeModel: ObservableObject {
                                       rising: sun?.flag("rising"),
                                       weather: weather?.state, cloud: weather?.attribute("cloud_coverage"),
                                       solarW: solarW)
-        sky = HomeSky.pick(reading, previous: sky)
-        raining = HomeSky.raining(reading)
+        // Fresh look (page just opened or back from the background): show the right sky straight away.
+        let now = Date()
+        let fresh = sky == nil || lastSample.map { now.timeIntervalSince($0) > 60 } ?? true
+        if fresh {
+            solarSamples = []
+            if let h = try? await ha.history([Entity.solarPower], since: now.addingTimeInterval(-HomeSky.window - 600)),
+               let pts = h[Entity.solarPower] { solarSamples = pts }
+        }
+        if let w = solarW { solarSamples.append((now, w)) }
+        solarSamples.removeAll { $0.0 < now.addingTimeInterval(-HomeSky.window - 600) }
+        lastSample = now
+        var averaged = reading
+        averaged.solarW = HomeSky.average(solarSamples, now: now) ?? solarW
+        let want = HomeSky.pick(averaged, previous: sky)
+        let wantRain = HomeSky.raining(averaged)
+        let nightSwitch = (want == .night) != (sky == .night)
+        if fresh || sky == nil {
+            sky = want; skyChanged = now; nextFade = Self.fadeSeconds
+            raining = wantRain; rainChanged = now
+        } else {
+            if want != sky, nightSwitch || now.timeIntervalSince(skyChanged) >= HomeSky.minimumShow {
+                sky = want; skyChanged = now; nextFade = HomeSky.weatherFade
+            }
+            if wantRain != raining, skyChanged == now || now.timeIntervalSince(rainChanged) >= HomeSky.minimumShow {
+                withAnimation(.easeInOut(duration: HomeSky.rainFade)) { raining = wantRain }
+                rainChanged = now
+            }
+        }
         loaded = true
         await showPhoto(scenario, ha: ha)
     }
@@ -221,7 +254,8 @@ final class MyHomeModel: ObservableObject {
     private func showPhoto(_ n: Int, ha: HAClient) async {
         let k = HomeSky.carState(scenario: n)
         if let sky, (sky.rawValue * 10 + k) != photoKey || photo == nil, let img = sky.photo(carState: k) {
-            crossFade(to: img, number: n, key: sky.rawValue * 10 + k)
+            let d = (sky.rawValue != photoKey / 10 && photo != nil) ? nextFade : Self.fadeSeconds
+            crossFade(to: img, number: n, key: sky.rawValue * 10 + k, seconds: d)
         } else if sky == nil, n != photoNumber || photo == nil {
             if let img = ScenarioPhotos.load(n) {
                 crossFade(to: img, number: n)
@@ -240,16 +274,16 @@ final class MyHomeModel: ObservableObject {
     }
 
     /// New photo fades in on top of the old one, then the old one is dropped.
-    private func crossFade(to img: UIImage, number n: Int, key: Int? = nil) {
+    private func crossFade(to img: UIImage, number n: Int, key: Int? = nil, seconds: Double = MyHomeModel.fadeSeconds) {
         let key = key ?? (1000 + n)
         previousPhoto = photo
-        withAnimation(.easeInOut(duration: Self.fadeSeconds)) {
+        withAnimation(.easeInOut(duration: seconds)) {
             photo = img
             photoNumber = n
             photoKey = key
         }
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64((Self.fadeSeconds + 0.3) * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64((seconds + 0.3) * 1_000_000_000))
             guard let self, self.photoKey == key else { return }
             self.previousPhoto = nil
         }

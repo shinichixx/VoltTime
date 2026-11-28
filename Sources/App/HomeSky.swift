@@ -5,9 +5,31 @@ import SwiftUI
 ///   1. Sun below the horizon → night.
 ///   2. Raining (and solar under 2 kW, so a wrong forecast can't rain on a sunny roof) → rain.
 ///   3. Sun under 15° → sunrise / sunset, or a cloudy low-sun sky when it's cloudy.
-///   4. Sun higher → solar kW sets the sky: ≤2 overcast, ≤3 mostly cloudy, ≤4 partly cloudy, ≤5 mostly sunny, above clear.
+///   4. Sun higher → solar kW (3-minute average, like the Excess Solar automation) sets the sky: ≤2 overcast, ≤3 mostly cloudy, ≤4 partly cloudy, ≤5 mostly sunny, above clear.
 /// Each sky has 3 photos (car charging / car plugged in / garage shut): Sources/Photos/home_skyN_K.jpg.
 enum HomeSky: Int, CaseIterable {
+    /// Solar averaging window and the least time a sky stays up, both 3 minutes like the Excess Solar automation.
+    static let window: TimeInterval = 180
+    static let minimumShow: TimeInterval = 180
+    /// Cross-fade when the weather changes while the page is open; opening the page uses the quick 1 s fade.
+    static let weatherFade = 3.0
+    static let rainFade = 2.0
+
+    /// Time-weighted average of power readings over the last `window` seconds (each reading holds until the next).
+    static func average(_ samples: [(Date, Double)], now: Date = Date()) -> Double? {
+        let start = now.addingTimeInterval(-window)
+        let pts = samples.sorted { $0.0 < $1.0 }
+        guard !pts.isEmpty else { return nil }
+        var total = 0.0, span = 0.0
+        for (i, p) in pts.enumerated() {
+            let a = max(p.0, start)
+            let b = i + 1 < pts.count ? pts[i + 1].0 : now
+            guard b > a else { continue }
+            total += p.1 * b.timeIntervalSince(a); span += b.timeIntervalSince(a)
+        }
+        return span > 0 ? total / span : pts.last?.1
+    }
+
     case night = 0, sunrise, sunset, lowSunCloudy, rain, overcast, mostlyCloudy, partlyCloudy, mostlySunny, clear
 
     static let rainStates: Set<String> = ["rainy", "pouring", "lightning", "lightning-rainy", "hail", "snowy-rainy"]
@@ -54,7 +76,9 @@ enum HomeSky: Int, CaseIterable {
         }
         if !up { return .night }
         if raining(r) { return .rain }
-        let cloudy = (r.weather.map { cloudyStates.contains($0) } ?? false) || (r.cloud ?? 0) >= 75
+        // Cloud cover with a buffer: cloudy from 80 %, clear again only below 65 %.
+        let cloudLimit = previous == .lowSunCloudy ? 65.0 : 80.0
+        let cloudy = (r.weather.map { cloudyStates.contains($0) } ?? false) || (r.cloud ?? 0) >= cloudLimit
         if low { return cloudy ? .lowSunCloudy : (morning ? .sunrise : .sunset) }
 
         let kw = max(r.solarW ?? 0, 0) / 1000
