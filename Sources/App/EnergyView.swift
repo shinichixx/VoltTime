@@ -50,7 +50,6 @@ enum EnergyColor {
     static let home = Color(red: 0.36, green: 0.61, blue: 1)
     static let vehicle = Color(red: 0.9, green: 0.22, blue: 0.23)
     static let grid = Color(red: 142 / 255, green: 142 / 255, blue: 147 / 255)
-    static let gridOut = Color(white: 0.42)
     /// The car's own use (below zero on the Vehicle view): purple, as blue is Home's.
     static let used = Color(red: 0.69, green: 0.49, blue: 1)
     static let standby = Color(red: 0.55, green: 0.45, blue: 0.72)
@@ -485,35 +484,6 @@ struct EnergyView: View {
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(border, lineWidth: 1))
         }
         .padding(.top, 14)
-    }
-
-    // MARK: All: legend and tiles
-
-    private static let allNames = ["Solar", "Home", "Model 3", "Grid"]
-    private static let allColors = [EnergyColor.solar, EnergyColor.home, EnergyColor.vehicle, EnergyColor.grid]
-
-    private var allLegend: some View {
-        HStack(spacing: 14) {
-            ForEach([1, 2, 0, 3], id: \.self) { i in
-                HStack(spacing: 5) {
-                    Circle().fill(Self.allColors[i]).frame(width: 8, height: 8)
-                    Text(Self.allNames[i]).font(.app(size: 12)).foregroundStyle(TeslaDark.labelGrey)
-                }
-            }
-        }
-    }
-
-    private func allTiles(_ f: EnergyFlow) -> some View {
-        let used = f.solar + f.imp - f.exp
-        let selfPowered = used > 0 ? "\(Int((max(0, min(1, 1 - f.imp / used)) * 100).rounded()))%" : "—"
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-            tile("sun.max.fill", EnergyColor.solar, "Solar", kwh(f.solar), "generated")
-            tile("house.fill", EnergyColor.home, "Home", kwh(f.house), "consumption without vehicle")
-            tile("car.side.fill", EnergyColor.vehicle, "Model 3", kwh(f.car), "charged at home")
-            tile("leaf.fill", TeslaDark.exporting, "Self-powered", selfPowered, "of home + vehicle")
-            tile("arrow.down.circle.fill", EnergyColor.grid, "Grid import", kwh(f.imp), "from TNB")
-            tile("arrow.up.circle.fill", EnergyColor.grid, "Grid export", kwh(f.exp), "to TNB")
-        }
     }
 
     private func kwh(_ v: Double) -> String { Num.kwh(v, whole: whole) + " kWh" }
@@ -1004,14 +974,6 @@ private struct EnergyChartView: View {
         }
     }
 
-    private var axisFormat: Date.FormatStyle {
-        switch period {
-        case .week: return .dateTime.weekday(.narrow)
-        case .month: return .dateTime.day()
-        default: return .dateTime.month(.narrow)
-        }
-    }
-
     /// All: Model 3 sits on Home (red top = everything used), grid sits on Solar (grey top = everything supplied),
     /// export below zero.
     /// All: Home (blue) with Model 3 (red) stacked on it = everything used; solar as a yellow line with a light
@@ -1432,74 +1394,5 @@ struct EnergyTabBar: View {
         }
         .frame(width: Self.width, height: Self.height)
         .animation(.easeOut(duration: 0.15), value: selected)
-    }
-}
-
-/// Small key under the All chart: mini drawings in the chart's own colours.
-private struct ChartKey: View {
-    let day: Bool
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 8) {
-                item(day ? "Red line" : "Left bar", day ? "Everything used" : "Used: Home + Model 3") {
-                    day ? AnyView(area(top: EnergyColor.vehicle, upper: EnergyColor.vehicle, lower: EnergyColor.home))
-                        : AnyView(stack(EnergyColor.home, EnergyColor.vehicle))
-                }
-                item(day ? "Grey line" : "Right bar", day ? "Everything supplied" : "Supplied: Solar + Grid") {
-                    day ? AnyView(area(top: EnergyColor.grid, upper: EnergyColor.grid, lower: EnergyColor.solar))
-                        : AnyView(stack(EnergyColor.solar, EnergyColor.grid))
-                }
-                item("Below 0", "Solar sent to TNB") { AnyView(below) }
-            }
-            if day {
-                Text("Model 3 sits on top of Home; Grid sits on top of Solar.")
-                    .font(.app(size: 10)).foregroundStyle(Color(white: 0.4))
-            }
-        }
-    }
-
-    private func item(_ t: String, _ sub: String, _ icon: () -> AnyView) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            icon().frame(width: 16, height: 26)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(t).font(.app(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.labelGrey)
-                Text(sub).font(.app(size: 9.5)).foregroundStyle(TeslaDark.rowLabel).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func stack(_ bottom: Color, _ top: Color) -> some View {
-        VStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 1.5).fill(top).frame(width: 8, height: 10)
-            RoundedRectangle(cornerRadius: 1.5).fill(bottom).frame(width: 8, height: 14)
-        }
-        .frame(width: 16, height: 26, alignment: .bottom)
-    }
-
-    private func area(top: Color, upper: Color, lower: Color) -> some View {
-        Canvas { ctx, sz in
-            func wave(_ y: CGFloat, _ a: CGFloat, _ ph: CGFloat) -> Path {
-                var p = Path(); p.move(to: CGPoint(x: 0, y: sz.height))
-                for i in stride(from: 0, through: sz.width, by: 1) { p.addLine(to: CGPoint(x: i, y: y + a * sin(i / 3 + ph))) }
-                p.addLine(to: CGPoint(x: sz.width, y: sz.height)); p.closeSubpath(); return p
-            }
-            ctx.fill(wave(sz.height * 0.35, 2, 0), with: .color(upper.opacity(0.4)))
-            ctx.fill(wave(sz.height * 0.65, 1.5, 1), with: .color(lower.opacity(0.45)))
-            var line = Path()
-            for i in stride(from: 0, through: sz.width, by: 1) {
-                let pt = CGPoint(x: i, y: sz.height * 0.35 + 2 * sin(i / 3))
-                if i == 0 { line.move(to: pt) } else { line.addLine(to: pt) }
-            }
-            ctx.stroke(line, with: .color(top), lineWidth: 1.5)
-        }
-    }
-
-    private var below: some View {
-        VStack(spacing: 1) {
-            Rectangle().fill(Color(white: 0.35)).frame(width: 16, height: 1)
-            RoundedRectangle(cornerRadius: 1.5).fill(EnergyColor.gridOut).frame(width: 8, height: 12)
-        }
-        .frame(width: 16, height: 26, alignment: .center)
     }
 }

@@ -28,7 +28,6 @@ struct VehicleDay {
 
     var driveTotal: Double { drive.reduce(0) { $0 + Double($1) } }
     var idleTotal: Double { idle.reduce(0) { $0 + Double($1) } }
-    var hasSoc: Bool { soc.contains { $0 >= 0 } }
 
     /// 1 byte slot length, then per slot: battery % × 2 (255 = none), driving Wh, standby Wh (UInt16 each).
     func packed() -> Data {

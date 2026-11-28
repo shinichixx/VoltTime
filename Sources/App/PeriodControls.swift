@@ -38,34 +38,6 @@ struct PeriodRange: Equatable {
     }
 }
 
-/// ‹ label › row under the navigation bar.
-struct PeriodBar: View {
-    let range: PeriodRange
-    let period: ImpactPeriod
-    let firstDay: Date?
-    @Binding var offset: Int
-
-    var body: some View {
-        let canBack = period.steps && (firstDay.map { range.start > $0 } ?? false)
-        let canForward = period.steps && offset < 0
-        HStack {
-            Button { offset -= 1 } label: { Image(systemName: "chevron.left").padding(10) }
-                .disabled(!canBack)
-                .foregroundStyle(canBack ? TeslaDark.rowLabel : Color(white: 0.23))
-                .opacity(period.steps ? 1 : 0)
-            Spacer()
-            Text(range.label).font(.app(size: 15, weight: .medium))
-            Spacer()
-            Button { offset += 1 } label: { Image(systemName: "chevron.right").padding(10) }
-                .disabled(!canForward)
-                .foregroundStyle(canForward ? TeslaDark.rowLabel : Color(white: 0.23))
-                .opacity(period.steps ? 1 : 0)
-        }
-        .font(.system(size: 15, weight: .semibold))
-        .buttonStyle(.plain)
-    }
-}
-
 /// "Day ⌄" timescale picker (Tesla app): tapping it drops a dark panel under it titled Timescale, with
 /// Day … Lifetime, a line, then Go to Today (only when you're not on the current period) and Choose Date…,
 /// which opens the Choose Date sheet (ChooseDate.swift).

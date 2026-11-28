@@ -32,7 +32,6 @@ enum Entity {
     static let solarPower = "sensor.inverter_active_power"
     static let gridPower = "sensor.grid_active_power"
     static let carPower = "sensor.tesla_wall_connector_tuya_meter_power"
-    static let carEnergy = "sensor.tesla_wall_connector_tuya_meter_energy"
     static let wallConnectorStatus = "sensor.tesla_wall_connector_status"
     static let wallConnectorAmps = "sensor.tesla_wall_connector_vehicle_current"
     static let scenario = "sensor.tesla_home_scenario"

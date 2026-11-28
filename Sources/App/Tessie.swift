@@ -113,23 +113,6 @@ struct TessieClient {
 
     func wake(_ vin: String) async throws { _ = try await get("/\(vin)/wake", timeout: 90) }
 
-    /// Nearest Supercharger to the car, through Tessie's Tesla Fleet API pass-through.
-    func nearestSupercharger(_ vin: String) async throws -> (name: String, lat: Double, lon: Double) {
-        let obj = json(try await get("/api/1/vehicles/\(vin)/nearby_charging_sites", timeout: 60))
-        let resp = obj["response"] as? [String: Any] ?? [:]
-        let sites = resp["superchargers"] as? [[String: Any]] ?? []
-        guard let s = sites.first, let loc = s["location"] as? [String: Any],
-              let lat = (loc["lat"] as? Double) ?? (loc["latitude"] as? Double),
-              let lon = (loc["long"] as? Double) ?? (loc["longitude"] as? Double) else {
-            throw APIError(message: "No Supercharger found near the vehicle")
-        }
-        return ((s["name"] as? String) ?? "Supercharger", lat, lon)
-    }
-
-    /// Sends a destination to the car's navigation; navigating to a Supercharger makes the car warm the battery.
-    func navigate(_ vin: String, lat: Double, lon: Double) async throws {
-        _ = try await post("/api/1/vehicles/\(vin)/command/navigation_gps_request", body: ["lat": lat, "lon": lon, "order": 1])
-    }
 }
 
 struct TessieVehicle: Identifiable, Hashable {
@@ -246,10 +229,6 @@ struct CarSnapshot: Codable, Equatable {
     func doorOpen(_ i: Int) -> Bool { doors?[i] ?? false }
     /// Battery preconditioning as VoltTime does it: A/C on and set to 19°C (or the car warming the pack).
     var preconditioning: Bool { batteryHeater || (climateOn && abs((setTempC ?? 0) - 19) < 0.3) }
-    var kmPerPercent: Double? {
-        guard let s = soc, s > 0, let r = rangeKm else { return nil }
-        return r / s
-    }
 
     mutating func apply(state j: [String: Any]) {
         func d(_ o: [String: Any]?, _ k: String) -> Double? {

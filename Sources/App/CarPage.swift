@@ -634,12 +634,6 @@ struct CarView2: View {
         }
     }
 
-    private var planLine: String {
-        let ready = "ready by " + Fmt.clock(minutes: home.readyMinutes)
-        let start = (home.active ? home.scheduledStart : nil) ?? home.plannedStart()
-        return "Starts " + Fmt.clock(start, calendar: .current) + " · " + ready
-    }
-
     /// "Health 99.5% · Max 615 km · 31 cycles · 12 mV": health amber below 80 %, red below 70 %;
     /// the cell gap amber or red only when the latest parked reading needs attention.
     private var batteryLine: Text? {

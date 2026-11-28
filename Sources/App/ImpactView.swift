@@ -147,16 +147,6 @@ struct ImpactView: View {
         }
     }
 
-    private func legendDot(_ c: Color, _ value: String, _ name: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Circle().fill(c).frame(width: 7, height: 7).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value).font(.app(size: 12, weight: .semibold))
-                Text(name).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
-            }
-        }
-    }
-
     private func kwh(_ v: Double) -> String {
         Num.kwh(v, whole: period == .year || period == .lifetime) + " kWh"
     }

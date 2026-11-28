@@ -8,39 +8,6 @@ enum Route: Hashable {
 
 // MARK: - Shared dark building blocks
 
-/// One of the three System tiles at the bottom of Settings (My Car, My Home, Backup).
-struct SystemTile: View {
-    let icon: String
-    let title: String
-    let status: String
-    let dot: Color?
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Image(systemName: icon).font(.system(size: 18, weight: .light)).foregroundStyle(TSurface.icon)
-                Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-            }
-            .frame(height: 22)
-            Text(title).font(.app(size: 15, weight: .medium)).foregroundStyle(.white)
-                .padding(.top, 8)
-            HStack(spacing: 4) {
-                if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
-                Text(status).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
-            }
-            .padding(.top, 3)
-            Text(detail).font(.app(size: 10)).foregroundStyle(TeslaDark.dim).lineLimit(1)
-                .padding(.top, 1)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 13).fill(TSurface.field))
-        .contentShape(Rectangle())
-    }
-}
-
 extension View {
     /// Dark page with our own slim top bar (Tesla app): thin grey back arrow, small centred title, optional
     /// item on the right. Replaces the system bar, which is much taller on iOS 26.
@@ -55,16 +22,6 @@ extension View {
             }
     }
 
-    /// Tesla app back button: a thin grey arrow, no circle behind it (iOS 26 would put the system one in glass).
-    @ViewBuilder func plainBackButton() -> some View {
-        if #available(iOS 26.0, *) {
-            self.navigationBarBackButtonHidden(true)
-                .toolbar { ToolbarItem(placement: .topBarLeading) { PlainBackButton() }.sharedBackgroundVisibility(.hidden) }
-        } else {
-            self.navigationBarBackButtonHidden(true)
-                .toolbar { ToolbarItem(placement: .topBarLeading) { PlainBackButton() } }
-        }
-    }
 }
 
 /// The slim top bar: 32 pt under the status bar; content starts right below it.
@@ -136,100 +93,6 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         viewControllers.count > 1
-    }
-}
-
-/// Label whose icon has its own colour.
-struct TintedIconLabel: LabelStyle {
-    let color: Color
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.foregroundStyle(color)
-            configuration.title
-        }
-    }
-}
-
-struct SectionCaption: View {
-    let text: String
-    var trailing: String = ""
-
-    var body: some View {
-        HStack {
-            Text(text.uppercased())
-            Spacer()
-            if !trailing.isEmpty { Text(trailing) }
-        }
-        .font(.app(size: 11, weight: .semibold))
-        .kerning(0.5)
-        .foregroundStyle(TeslaDark.dim)
-        .padding(.horizontal, 24)
-        .padding(.top, 24)
-        .padding(.bottom, 8)
-    }
-}
-
-/// Row that opens another page: icon, title over detail, chevron.
-struct NavRow: View {
-    let icon: String
-    let title: String
-    let detail: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 0) {
-                Image(systemName: icon)
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(TeslaDark.rowIcon)
-                    .frame(width: 40, alignment: .leading)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.app(size: 15, weight: .medium)).foregroundStyle(.white)
-                    if !detail.isEmpty {
-                        Text(detail).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-                    }
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(TeslaDark.dim)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Radio row for one charging mode.
-struct ModeRow: View {
-    @ObservedObject var model: MyHomeModel
-    let mode: ChargingMode
-    var inset: CGFloat = 24
-
-    var body: some View {
-        let selected = (model.pendingMode ?? model.mode) == mode.option
-        Button {
-            Task { await model.setMode(mode.option) }
-        } label: {
-            HStack(spacing: 0) {
-                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(selected ? Color.white : TeslaDark.dim)
-                    .frame(width: 40, alignment: .leading)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(mode.title).font(.app(size: 15, weight: .medium))
-                        .foregroundStyle(selected ? Color.white : TeslaDark.rowLabel)
-                    Text(mode.detail).font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
-                }
-                Spacer()
-                if model.pendingMode == mode.option { ProgressView().tint(.white).scaleEffect(0.8) }
-            }
-            .padding(.horizontal, inset)
-            .padding(.vertical, 9)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(model.pendingMode != nil)
     }
 }
 

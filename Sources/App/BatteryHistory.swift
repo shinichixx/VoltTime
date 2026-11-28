@@ -128,10 +128,6 @@ final class BatteryHistory: ObservableObject {
 
     // MARK: Backup
 
-    func backupData() -> Data? {
-        try? JSONEncoder().encode(Saved(parked: parked, road: road, health: health))
-    }
-
     /// Adds days from a backup that aren't here yet. Returns how many days were added.
     @discardableResult
     func merge(_ data: Data) -> Int {
@@ -172,7 +168,6 @@ final class S3XYLink: ObservableObject {
     /// Plain-words reason it isn't connected (nil while frames are arriving).
     @Published private(set) var problem: String?
     private var monitor: NWPathMonitor?
-    private var joinedCommander = false
 
     /// Supplied by the app: SoC and whether the car is parked, from Tessie (used when the car's own gear isn't on the feed).
     var context: () -> (soc: Double?, parked: Bool) = { (nil, true) }

@@ -297,19 +297,6 @@ final class EnergyStore: ObservableObject {
         return out
     }
 
-    /// Tomorrow's solar forecast only moves a few % during the day, so it's read once a day (the first time the app
-    /// opens that day) and kept just for that day. No history of it is saved.
-    private func loadForecastIfToday() {
-        let d = UserDefaults.standard
-        guard d.string(forKey: "impact.forecastDay") == Self.keyFormatter.string(from: Date()) else {
-            forecastTomorrow = nil   // a new day (or never fetched): read it again
-            peakTomorrow = nil
-            return
-        }
-        if d.object(forKey: "impact.forecastKWh") != nil { forecastTomorrow = d.double(forKey: "impact.forecastKWh") }
-        if d.object(forKey: "impact.forecastPeak") != nil { peakTomorrow = Date(timeIntervalSince1970: d.double(forKey: "impact.forecastPeak")) }
-    }
-
     private func refreshLive(_ ha: HAClient) async {
         await SolarSensors.resolve(ha)
         let needForecast = true   // Solcast refines tomorrow during the day: read it each time

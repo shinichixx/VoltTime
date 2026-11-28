@@ -360,7 +360,7 @@ struct ProductPage: View {
         ScrollView {
             VStack(spacing: 0) {
                 Group {
-                    if let img = UIImage(named: isCar ? "product_car_page.png" : "product_home_page.png") {
+                    if let img = UIImage(named: isCar ? "product_car_page.jpg" : "product_home_page.jpg") {
                         Image(uiImage: img).resizable().scaledToFit()
                     }
                 }

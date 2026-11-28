@@ -208,7 +208,6 @@ enum CarColors {
     static let ink = Color(red: 0.95, green: 0.95, blue: 0.96)
     static let muted = Color(red: 142 / 255, green: 142 / 255, blue: 147 / 255)
     static let faint = Color(red: 99 / 255, green: 99 / 255, blue: 102 / 255)
-    static let healthLost = Color(red: 90 / 255, green: 26 / 255, blue: 29 / 255)
 }
 
 @MainActor
@@ -263,7 +262,6 @@ final class CarModel: ObservableObject {
     private var limitTask: Task<Void, Never>?
 
     static let recommendedBar = 2.9
-    static let warnKey = "car.tyre.warn"
     static let unitKey = "car.tyre.unit"
 
     /// Tyre pressure bands (bar, read to one decimal): 2.9–3.3 normal, 2.0–2.8 low, 1.9 and below very low, 3.4 and above high.
@@ -683,14 +681,6 @@ final class CarModel: ObservableObject {
         }
     }
 
-    var statusColor: Color {
-        switch statusWord {
-        case "Awake", "Driving": return TSurface.green
-        case "Asleep": return CarColors.blue
-        default: return CarColors.muted
-        }
-    }
-
     var driving: Bool { ["D", "R", "N"].contains(car.gear) }
 
     /// At home: inside the Home-Outer zone from Home Assistant when known, otherwise Tessie's saved place.
@@ -722,39 +712,9 @@ final class CarModel: ObservableObject {
         return "Parked · " + placeWord
     }
 
-    var chargeWord: String {
-        switch car.chargingState {
-        case "Charging":
-            var t = "Charging · \(Int(car.chargeAmps ?? 0)) A"
-            if let m = car.minutesToLimit, m > 0 { t += " · " + Self.duration(m) + " left" }
-            return t
-        case "Complete": return "Complete"
-        case "Stopped": return car.cableConnected ? "Plugged in" : "Not charging"
-        case "Disconnected": return "Not charging"
-        case "NoPower": return "No power"
-        default: return car.cableConnected ? "Plugged in" : "Not charging"
-        }
-    }
-
     static func duration(_ minutes: Double) -> String {
         let m = Int(minutes.rounded())
         return m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(m) min"
-    }
-
-    func tyreLow(_ i: Int) -> Bool { Self.tyreLevel(car.tyres[i]) != .ok }
-
-    var tyreNote: String {
-        let names = ["FL", "FR", "RL", "RR"]
-        if car.tyres.allSatisfy({ $0 == nil }) { return "No reading yet" }
-        let notes = (0..<4).compactMap { i -> String? in
-            switch Self.tyreLevel(car.tyres[i]) {
-            case .ok: return nil
-            case .low: return names[i] + " low"
-            case .flat: return names[i] + " very low"
-            case .high: return names[i] + " high"
-            }
-        }
-        return notes.isEmpty ? "All OK" : notes.joined(separator: " · ")
     }
 
     var updatedText: String {

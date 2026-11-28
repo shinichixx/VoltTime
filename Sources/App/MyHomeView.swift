@@ -40,71 +40,20 @@ struct ChargingMode: Identifiable {
 
 // MARK: - Scenario photos
 
-/// The 9 scenario photos are built into the app (Sources/Photos, ~1 MB in total).
-/// Backup only: if one is missing, it is downloaded once from Home Assistant /local/ and kept on the iPhone.
+/// The 9 scenario numbers from Home Assistant. Photos come from the sky set (HomeSky); the old
+/// scenario photos were dropped in build 146.
 enum ScenarioPhotos {
     static let numbers = Array(1...9)
 
-    static func fileName(_ n: Int) -> String {
-        numbers.contains(n) ? "tesla_home_scenario\(n).png" : "tesla_home.png"
-    }
-
-    /// Can be downloaded again, so it lives in Caches (iOS may clear it; left out of iCloud backups).
-    static var folder: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ScenarioPhotos", isDirectory: true)
-    }
-
-    /// Builds up to 29 kept the downloaded copies in Application Support; move them to Caches.
+    /// Older builds kept downloaded scenario photos on the phone; clear them.
     static func moveOldFolder() {
         let fm = FileManager.default
-        let old = AppData.support.appendingPathComponent("ScenarioPhotos", isDirectory: true)
-        guard fm.fileExists(atPath: old.path) else { return }
-        if !fm.fileExists(atPath: folder.path) {
-            try? fm.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if (try? fm.moveItem(at: old, to: folder)) != nil { return }
+        for base in [AppData.support, fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]] {
+            try? fm.removeItem(at: base.appendingPathComponent("ScenarioPhotos", isDirectory: true))
         }
-        try? fm.removeItem(at: old)
     }
 
-    private static func localURL(_ name: String) -> URL? {
-        // Built into the app: Sources/Photos/tesla_home_scenarioN.jpg (shrunk to iPhone width).
-        let base = (name as NSString).deletingPathExtension
-        if let u = Bundle.main.url(forResource: base, withExtension: "jpg") { return u }
-        if let u = Bundle.main.url(forResource: name, withExtension: nil) { return u }
-        let u = folder.appendingPathComponent(name)
-        return FileManager.default.fileExists(atPath: u.path) ? u : nil
-    }
-
-    static var savedCount: Int { numbers.filter { localURL(fileName($0)) != nil }.count }
-
-    static func load(_ n: Int) -> UIImage? {
-        guard let u = localURL(fileName(n)), let d = try? Data(contentsOf: u) else { return nil }
-        return decode(d)
-    }
-
-    /// Downloads one photo from Home Assistant and keeps it.
-    @discardableResult
-    static func download(_ n: Int, ha: HAClient) async throws -> Data {
-        let name = fileName(n)
-        let d = try await ha.data("/local/\(name)")
-        guard decode(d, maxPixels: 64) != nil else { throw APIError(message: "\(name) in /config/www isn't a picture") }
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try d.write(to: folder.appendingPathComponent(name), options: .atomic)
-        return d
-    }
-
-    /// Fetches any photo not yet on the phone. Returns how many of the 9 are saved.
-    static func fetchMissing(ha: HAClient) async -> Int {
-        for n in numbers where localURL(fileName(n)) == nil {
-            _ = try? await download(n, ha: ha)
-        }
-        return savedCount
-    }
-
-    static func clear() { try? FileManager.default.removeItem(at: folder) }
-
-    /// Decodes at screen size (the originals are 1792×2400).
+    /// Decodes at screen size.
     static func decode(_ data: Data, maxPixels: Int = 1800) -> UIImage? {
         guard let src = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
         let opts: [CFString: Any] = [
@@ -160,8 +109,6 @@ final class MyHomeModel: ObservableObject {
     static let fadeSeconds = 1.0
     @Published var loaded = false
 
-    private var downloading = Set<Int>()
-    private var prefetched = false
 
     func refresh() async {
         guard let ha = HAClient.configured() else {
@@ -233,7 +180,7 @@ final class MyHomeModel: ObservableObject {
             }
         }
         loaded = true
-        await showPhoto(scenario, ha: ha)
+        showPhoto(scenario)
     }
 
     /// Same formula as the "Tesla Home Scenario" template sensor, used only if that sensor is missing.
@@ -251,26 +198,14 @@ final class MyHomeModel: ObservableObject {
         return load > 0 ? min(100, max(0, 100 * (1 - i / load))).rounded() : 0
     }
 
-    private func showPhoto(_ n: Int, ha: HAClient) async {
+    private func showPhoto(_ n: Int) {
         let k = HomeSky.carState(scenario: n)
-        if let sky, (sky.rawValue * 10 + k) != photoKey || photo == nil, let img = sky.photo(carState: k) {
-            let d = (sky.rawValue != photoKey / 10 && photo != nil) ? nextFade : Self.fadeSeconds
-            crossFade(to: img, number: n, key: sky.rawValue * 10 + k, seconds: d)
-        } else if sky == nil, n != photoNumber || photo == nil {
-            if let img = ScenarioPhotos.load(n) {
-                crossFade(to: img, number: n)
-            } else if !downloading.contains(n) {
-                downloading.insert(n)
-                defer { downloading.remove(n) }
-                if let d = try? await ScenarioPhotos.download(n, ha: ha), let img = ScenarioPhotos.decode(d), n == scenario {
-                    crossFade(to: img, number: n)
-                }
-            }
-        }
-        if !prefetched {
-            prefetched = true
-            Task { _ = await ScenarioPhotos.fetchMissing(ha: ha) }
-        }
+        // No sky reading yet: night photo when there's no solar, else partly cloudy.
+        let sk = sky ?? ((7...9).contains(n) ? .night : .partlyCloudy)
+        let key = sk.rawValue * 10 + k
+        guard key != photoKey || photo == nil, let img = sk.photo(carState: k) else { return }
+        let d = (sk.rawValue != photoKey / 10 && photo != nil) ? nextFade : Self.fadeSeconds
+        crossFade(to: img, number: n, key: key, seconds: d)
     }
 
     /// New photo fades in on top of the old one, then the old one is dropped.
@@ -287,13 +222,6 @@ final class MyHomeModel: ObservableObject {
             guard let self, self.photoKey == key else { return }
             self.previousPhoto = nil
         }
-    }
-
-    func reloadPhoto() {
-        photoNumber = -1
-        photoKey = -1
-        photo = nil
-        prefetched = false
     }
 
     func setMode(_ option: String) async {
@@ -522,7 +450,7 @@ struct MyHomeView: View {
         let labelY = Self.photoY + w * 0.2812
         return ZStack(alignment: .topLeading) {
             Color.clear
-            if model.sky != nil, (0..<1000).contains(model.photoKey) {   // the sky photos have no lines of their own
+            if (0..<1000).contains(model.photoKey) {   // the sky photos have no lines of their own
                 HouseGuideLines(width: w).offset(y: Self.photoY)
             }
             anchored(x: w * 0.2901, y: labelY, bottom: true) {
