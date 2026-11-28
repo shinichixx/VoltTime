@@ -498,9 +498,9 @@ struct EnergyView: View {
         let selfPowered = used > 0 ? "\(Int((max(0, min(1, 1 - f.imp / used)) * 100).rounded()))%" : "—"
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
             tile("sun.max.fill", EnergyColor.solar, "Solar", kwh(f.solar), "generated")
-            tile("house.fill", EnergyColor.home, "Home", kwh(f.house), "consumption without car")
+            tile("house.fill", EnergyColor.home, "Home", kwh(f.house), "consumption without vehicle")
             tile("car.side.fill", EnergyColor.vehicle, "Model 3", kwh(f.car), "charged at home")
-            tile("leaf.fill", TeslaDark.exporting, "Self-powered", selfPowered, "of home + car")
+            tile("leaf.fill", TeslaDark.exporting, "Self-powered", selfPowered, "of home + vehicle")
             tile("arrow.down.circle.fill", EnergyColor.grid, "Grid import", kwh(f.imp), "from TNB")
             tile("arrow.up.circle.fill", EnergyColor.grid, "Grid export", kwh(f.exp), "to TNB")
         }

@@ -38,7 +38,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .trunk: return "Rear trunk"
         case .windows: return "Vent / close windows"
         case .keyless: return "Keyless driving"
-        case .wake: return "Wake car"
+        case .wake: return "Wake vehicle"
         case .setTemp: return "Set cabin to 22°C"
         case .defrost: return "Defrost on / off"
         case .seatCool: return "Driver seat cooling"
@@ -162,7 +162,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .gate: return ("Open or close the front gate?", "", "Yes")
         case .lock: return ("Unlock \(s.name)?", "", "Yes")   // only asked when unlocking
         case .climate: return ("Turn on the A/C?", "Low Power Mode will be turned off first.", "Yes")   // only asked when turning on
-        case .frunk: return s.frunkOpen ? ("Close the frunk?", "Only cars with a powered frunk can close it remotely.", "Yes")
+        case .frunk: return s.frunkOpen ? ("Close the frunk?", "Only vehicles with a powered frunk can close it remotely.", "Yes")
                                         : ("Open the frunk?", "It can only be closed by hand.", "Yes")
         case .trunk: return s.trunkOpen ? ("Close the rear trunk?", "Make sure nothing is in the way.", "Close")
                                         : ("Open the rear trunk?", "It opens straight away.", "Open")
@@ -171,7 +171,7 @@ enum CarControl: String, CaseIterable, Identifiable {
         case .keyless: return ("Start keyless driving?", "You can drive without the phone key for the next 2 minutes.", "Start")
         case .sentry: return s.sentry ? ("Turn off Sentry mode?", "", "Yes")
                                       : ("Turn on Sentry mode?", "Low Power Mode will be turned off first.", "Yes")
-        case .valet: return s.valet ? ("Turn off valet mode?", "The car goes back to your normal settings.", "Turn off")
+        case .valet: return s.valet ? ("Turn off valet mode?", "The vehicle goes back to your normal settings.", "Turn off")
                                     : ("Turn on valet mode?", "Speed is limited and the glovebox locks.", "Turn on")
         case .precondition: return s.preconditioning ? ("Stop preconditioning?", "The A/C turns off.", "Stop")
                                                      : ("Precondition the battery?", "A/C on, cabin set to 19°C.", "Start")
@@ -241,7 +241,7 @@ final class CarModel: ObservableObject {
     }
     func setLowPower(_ on: Bool) async {
         choosingLowPower = false
-        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Car settings first")); return }
+        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Vehicle settings first")); return }
         busy = .lowPower
         defer { busy = nil }
         show(Banner(title: on ? "Turning on Low Power Mode…" : "Turning off Low Power Mode…", icon: "leaf", tint: CarColors.muted, spinning: true))
@@ -382,7 +382,7 @@ final class CarModel: ObservableObject {
                 let dist = m < 1000 ? "\(Int((m / 10).rounded() * 10)) m" : String(format: "%.1f km", m / 1000)
                 return ("You're not at home", "\(ProductNames.car(car.name)) is \(dist) away.\nOpen the front gate anyway?", "Open Gate", true)
             }
-            return ("Open the front gate?", "Couldn't check where the car is.", "Yes", false)
+            return ("Open the front gate?", "Couldn't check where the vehicle is.", "Yes", false)
         }
         let q = c.question(car)
         return (q.title, q.message, q.action, false)
@@ -431,7 +431,7 @@ final class CarModel: ObservableObject {
     func run(_ c: CarControl) async {
         confirming = nil
         if c == .gate { gateAway = nil; await openGate(); return }
-        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Car settings first")); return }
+        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Vehicle settings first")); return }
         busy = c
         defer { busy = nil }
         let s = car
@@ -556,8 +556,8 @@ final class CarModel: ObservableObject {
         case .precondition: return s.preconditioning ? "Stopping preconditioning…" : "Starting preconditioning…"
         case .sentry: return s.sentry ? "Turning Sentry off…" : "Turning Sentry on…"
         case .valet: return s.valet ? "Turning valet off…" : "Turning valet on…"
-        case .wake: return "Waking the car…"
-        default: return "Sending to the car…"
+        case .wake: return "Waking the vehicle…"
+        default: return "Sending to the vehicle…"
         }
     }
 
@@ -590,7 +590,7 @@ final class CarModel: ObservableObject {
         case .frunk: return .ok(s.frunkOpen ? "Front trunk closing" : "Front trunk open")
         case .trunk: return .ok(s.trunkOpen ? "Rear trunk closing" : "Rear trunk open")
         case .windows: return .ok(s.anyWindowOpen ? "Windows closing" : "Windows vented")
-        case .wake: return .ok("Car is awake")
+        case .wake: return .ok("Vehicle is awake")
         case .lowPower:
             return Banner(title: s.lowPower == true ? "Low Power Mode off" : "Low Power Mode on", icon: "leaf.fill",
                           tint: s.lowPower == true ? grey : TSurface.green)
@@ -626,9 +626,9 @@ final class CarModel: ObservableObject {
 
     /// One Tessie command from the Controls pages. `update` adjusts what the page shows once the car has done it.
     func send(_ name: String, _ params: [String: String] = [:], done: String, update: ((inout CarSnapshot) -> Void)? = nil) async {
-        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Car settings first")); return }
+        guard let t = TessieClient.configured(), let vin else { show(.failed("Set up Tessie in My Vehicle settings first")); return }
         do {
-            show(.sending("Sending to the car…"))
+            show(.sending("Sending to the vehicle…"))
             try await t.command(vin, name, params)
             if let update { var c = car; update(&c); car = c; save() }
             show(.ok(done))
@@ -647,7 +647,7 @@ final class CarModel: ObservableObject {
         if let now = car.limit, abs(p - now) < 0.5 {
             // Same as the car already has: nothing to send.
             pendingLimit = nil
-            show(Banner(title: "Already at \(Int(p))%", detail: "Same as the car · nothing sent", icon: "equal", tint: CarColors.muted))
+            show(Banner(title: "Already at \(Int(p))%", detail: "Same as the vehicle · nothing sent", icon: "equal", tint: CarColors.muted))
             return
         }
         pendingLimit = p

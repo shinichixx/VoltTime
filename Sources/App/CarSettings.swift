@@ -35,7 +35,7 @@ struct TessiePage: View {
                 Button { Task { await saveAndFind() } } label: {
                     HStack(spacing: 8) {
                         if working { ProgressView().tint(.white).scaleEffect(0.8) }
-                        Text("Save & find my car").font(.app(size: 15, weight: .medium))
+                        Text("Save & find my vehicle").font(.app(size: 15, weight: .medium))
                     }
                     .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 13)
                     .background(RoundedRectangle(cornerRadius: 12).fill(TSurface.selected))
@@ -45,7 +45,7 @@ struct TessiePage: View {
                 if let note { TFootnote(text: note, color: TeslaDark.rowLabel) }
 
                 if !vehicles.isEmpty {
-                    TCaption(text: "Car")
+                    TCaption(text: "Vehicle")
                     ForEach(vehicles) { v in
                         Button { vin = v.vin; Task { await car.refresh() } } label: {
                             TRow(v.name, icon: "car", subtitle: v.vin, last: v.vin == vehicles.last?.vin) {
@@ -54,7 +54,7 @@ struct TessiePage: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                Text("Create a token at dash.tessie.com → Settings → Developer API → Generate Access Token. It's kept in the iPhone Keychain and never goes into backups. Reading the car uses Tessie's saved state, so opening Teslar doesn't wake the car; only the buttons do.")
+                Text("Create a token at dash.tessie.com → Settings → Developer API → Generate Access Token. It's kept in the iPhone Keychain and never goes into backups. Reading the vehicle uses Tessie's saved state, so opening Teslar doesn't wake the vehicle; only the buttons do.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20).padding(.top, 14)
@@ -73,7 +73,7 @@ struct TessiePage: View {
         do {
             vehicles = try await TessieClient(token: t).vehicles()
             if vin.isEmpty || !vehicles.contains(where: { $0.vin == vin }), let first = vehicles.first { vin = first.vin }
-            note = vehicles.isEmpty ? "Connected, but no cars on this Tessie account." : "Connected."
+            note = vehicles.isEmpty ? "Connected, but no vehicles on this Tessie account." : "Connected."
             await car.refresh()
         } catch {
             note = error.localizedDescription
@@ -261,7 +261,7 @@ struct AutogatePage: View {
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(RoundedRectangle(cornerRadius: 8).fill(TSurface.field))
                 }
-                TFootnote(text: "The Gate button turns this switch on for 1 second, then off: one RF pulse, the same as your autogate script. With Ask before sending on, you confirm it first. If the car is outside the home zone, it always asks, and says how far away the car is. Uses the Home Assistant address and token from Menu › Connection › Home Assistant.")
+                TFootnote(text: "The Gate button turns this switch on for 1 second, then off: one RF pulse, the same as your autogate script. With Ask before sending on, you confirm it first. If the vehicle is outside the home zone, it always asks, and says how far away the vehicle is. Uses the Home Assistant address and token from Menu › Connection › Home Assistant.")
             }
         }
         .teslaPage("Autogate", black: true)
@@ -304,7 +304,7 @@ struct S3XYPage: View {
                     navRow("How to connect", "list.number", "ScanMyTesla support, join \(ssid)")
                 }.buttonStyle(.plain)
                 NavigationLink { S3XYDailyHelp(ssid: ssid) } label: {
-                    navRow("Daily reading", "arrow.clockwise", "Shortcuts opens Teslar in the car")
+                    navRow("Daily reading", "arrow.clockwise", "Shortcuts opens Teslar in the vehicle")
                 }.buttonStyle(.plain)
                 NavigationLink { S3XYDetailsPage() } label: {
                     navRow("Connection details", "info.circle",
@@ -363,7 +363,7 @@ struct S3XYPage: View {
     private var hint: String {
         switch link.state {
         case .receiving: return "Reading the cells over \(ssid)."
-        case .waiting: return "Join \(ssid) in the car, then tap Connect now."
+        case .waiting: return "Join \(ssid) in the vehicle, then tap Connect now."
         case .off: return "Turn on Read cell balance below."
         }
     }
@@ -416,12 +416,12 @@ struct S3XYConnectHelp: View {
                 TCaption(text: "Steps")
                 s3xySteps([
                     "In the S3XY app › Commander, turn on ScanMyTesla support.",
-                    "In the car, join \(ssid) in iPhone Settings › Wi-Fi (password 12345678 unless you changed it).",
+                    "In the vehicle, join \(ssid) in iPhone Settings › Wi-Fi (password 12345678 unless you changed it).",
                     "Open Teslar. Cell balance updates by itself while it's open.",
                 ])
                 TCaption(text: "If it's unreliable")
                 s3xySteps([
-                    "In the S3XY app › Commander, also turn on ScanMyTesla Always ON, or the Commander's Wi-Fi switches off when the car sleeps.",
+                    "In the S3XY app › Commander, also turn on ScanMyTesla Always ON, or the Commander's Wi-Fi switches off when the vehicle sleeps.",
                     "In iPhone Settings › Wi-Fi › (i) next to \(ssid), turn off Use Connectivity Assist.",
                 ])
                 TFootnote(text: "The first time, iOS asks to let Teslar find devices on your local network. Tap Allow.")
@@ -451,7 +451,7 @@ struct S3XYDailyHelp: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 20).padding(.top, 14)
-                TFootnote(text: "Getting in the car then opens Teslar, which takes the day's parked reading by itself.")
+                TFootnote(text: "Getting in the vehicle then opens Teslar, which takes the day's parked reading by itself.")
             }
         }
         .teslaPage("Daily reading", black: true)

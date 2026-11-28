@@ -81,7 +81,7 @@ struct ImpactView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
-            .padding(.bottom, 8)
+            .padding(.bottom, 40)   // the last card can scroll clear of the bottom fade
         }
         .scrollIndicators(.hidden)
         .pinnedTop {
@@ -93,6 +93,18 @@ struct ImpactView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 6)
+        }
+        // Fade to black at the bottom edge, like the Energy page but lower (there's no tab bar here).
+        .overlay {
+            LinearGradient(stops: [.init(color: TeslaDark.bg.opacity(0), location: 0),
+                                   .init(color: TeslaDark.bg.opacity(0.55), location: 0.34),
+                                   .init(color: TeslaDark.bg, location: 0.68),
+                                   .init(color: TeslaDark.bg, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 64)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(false)
         }
         .teslaPage("Impact")
         .task { await model.refresh() }
@@ -270,8 +282,8 @@ struct ImpactView: View {
             }
             if showTouInfo {
                 Text(touPeak
-                     ? "Peak: Monday to Friday, 2pm to 10pm · RM\(String(format: "%.4f", Tariff.peak))/kWh. Home use includes the car."
-                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday and Sunday · RM\(String(format: "%.4f", Tariff.offPeak))/kWh. Home use includes the car.")
+                     ? "Peak: Monday to Friday, 2pm to 10pm · RM\(String(format: "%.4f", Tariff.peak))/kWh. Home use includes the vehicle."
+                     : "Off-Peak: Monday to Friday 10pm to 2pm, and all day Saturday and Sunday · RM\(String(format: "%.4f", Tariff.offPeak))/kWh. Home use includes the vehicle.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 14)
             }

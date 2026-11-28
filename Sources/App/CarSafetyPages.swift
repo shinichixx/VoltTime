@@ -42,7 +42,7 @@ struct CarSecurityPage: View {
     private var statusCard: some View {
         let locked = c.locked == true
         let secure = locked && issues.isEmpty
-        let title = secure ? "Secure" : (locked ? "Check the car" : "Unlocked")
+        let title = secure ? "Secure" : (locked ? "Check the vehicle" : "Unlocked")
         let line = secure ? "Locked · everything closed"
             : (issues.isEmpty ? "Everything closed" : issues.prefix(2).joined(separator: " · ") + (issues.count > 2 ? " · +\(issues.count - 2)" : ""))
         return HStack(spacing: 14) {
@@ -118,7 +118,7 @@ struct CarSecurityPage: View {
     private var modesCard: some View {
         VStack(spacing: 0) {
             modeRow(icon: AnyView(SentryGlyph(on: c.sentry, size: 22, color: K.grey)),
-                    title: "Sentry", sub: "Cameras watch the car when parked", on: c.sentry, control: .sentry)
+                    title: "Sentry", sub: "Cameras watch the vehicle when parked", on: c.sentry, control: .sentry)
             Rectangle().fill(K.track).frame(height: 1).padding(.leading, 52)
             modeRow(icon: AnyView(Image(systemName: "person.badge.key").font(.system(size: 19)).foregroundStyle(K.grey)),
                     title: "Valet", sub: "Limits speed, locks the glovebox", on: c.valet, control: .valet)
@@ -369,7 +369,7 @@ struct CarLocationPage: View {
     private var shareText: String {
         var t = ProductNames.car(c.name) + " · " + title + "\n" + addressLines.joined(separator: "\n")
         if let la = c.lat, let lo = c.lon {
-            t += "\n" + gpsText + "\nhttps://maps.apple.com/?ll=\(String(format: "%.5f,%.5f", la, lo))&q=\(ProductNames.car(c.name).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Car")"
+            t += "\n" + gpsText + "\nhttps://maps.apple.com/?ll=\(String(format: "%.5f,%.5f", la, lo))&q=\(ProductNames.car(c.name).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Vehicle")"
         }
         return t
     }

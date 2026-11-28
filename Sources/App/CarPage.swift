@@ -304,7 +304,7 @@ struct CarView2: View {
                     Spacer()
                     Button { path.append(.menu) } label: { MenuGlyph() }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("My Car settings")
+                        .accessibilityLabel("My Vehicle settings")
                 }
                 .padding(.top, 24 + 16 - 23)
                 .padding(.trailing, 17.5)   // centred where the Tesla app's ☰ is
@@ -1030,7 +1030,7 @@ struct CarDetailPage: View {
                 } else {
                     Text(live.state == .receiving ? "Reading the cells…" : "No reading yet")
                         .font(.app(size: 15, weight: .medium)).foregroundStyle(K.title)
-                    Text("In the car, join the S3XY_OBD Wi-Fi and open Teslar. Menu › Connection › S3XY Commander shows how.")
+                    Text("In the vehicle, join the S3XY_OBD Wi-Fi and open Teslar. Menu › Connection › S3XY Commander shows how.")
                         .font(.app(size: 12)).foregroundStyle(K.grey).padding(.top, 4).padding(.bottom, 6)
                 }
                 if let road = history.road {

@@ -107,7 +107,7 @@ struct TessieClient {
         q["wait_for_completion"] = "true"
         let obj = json(try await get("/\(vin)/command/\(name)", query: q, timeout: 90))
         if let ok = obj["result"] as? Bool, !ok {
-            throw APIError(message: (obj["reason"] as? String).map { "Car said: \($0)" } ?? "The car didn't do it")
+            throw APIError(message: (obj["reason"] as? String).map { "Vehicle said: \($0)" } ?? "The vehicle didn't do it")
         }
     }
 
@@ -121,7 +121,7 @@ struct TessieClient {
         guard let s = sites.first, let loc = s["location"] as? [String: Any],
               let lat = (loc["lat"] as? Double) ?? (loc["latitude"] as? Double),
               let lon = (loc["long"] as? Double) ?? (loc["longitude"] as? Double) else {
-            throw APIError(message: "No Supercharger found near the car")
+            throw APIError(message: "No Supercharger found near the vehicle")
         }
         return ((s["name"] as? String) ?? "Supercharger", lat, lon)
     }

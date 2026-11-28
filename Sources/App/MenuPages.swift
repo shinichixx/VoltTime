@@ -275,7 +275,7 @@ enum ProductNames {
     static let homeKey = "home.customName"
     static let homeDefault = "Home IM2 Kuantan"
     static func shown(_ custom: String, or fallback: String) -> String {
-        custom.isEmpty ? (fallback.isEmpty ? "My Car" : fallback) : custom
+        custom.isEmpty ? (fallback.isEmpty ? "My Vehicle" : fallback) : custom
     }
     static func car(_ fromTesla: String) -> String { shown(UserDefaults.standard.string(forKey: carKey) ?? "", or: fromTesla) }
 }

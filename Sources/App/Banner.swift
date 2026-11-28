@@ -19,7 +19,7 @@ struct Banner: Equatable {
     static func failed(_ text: String) -> Banner {
         let t = text.lowercased()
         if t.contains("timed out") || t.contains("timeout") || t.contains("asleep") || t.contains("408") || t.contains("offline") {
-            return Banner(title: "Car didn't respond", detail: "It may be asleep. Try again.", icon: "exclamationmark", tint: CarColors.red)
+            return Banner(title: "Vehicle didn't respond", detail: "It may be asleep. Try again.", icon: "exclamationmark", tint: CarColors.red)
         }
         if t.contains("token") || t.contains("set up") {
             return Banner(title: text, icon: "exclamationmark", tint: CarColors.amber)

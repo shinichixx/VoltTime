@@ -16,7 +16,7 @@ struct SimulationPage: View {
                     .foregroundStyle(.white)
                     .frame(height: 32)
                     .padding(.top, PageTitle.top)
-                Text("Nothing is sent to the car")
+                Text("Nothing is sent to the vehicle")
                     .font(.app(size: 15))
                     .foregroundStyle(TeslaDark.rowLabel)
                     .padding(.top, 54)

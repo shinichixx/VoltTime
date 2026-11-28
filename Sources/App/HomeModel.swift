@@ -241,12 +241,12 @@ final class HomeModel: ObservableObject {
             }
             if let got, abs(got - want) <= 1 || abs(got - want) >= 1439 {
                 startSync = .live
-                toast = Banner(title: "Charge start set · \(clock)", detail: "Checked in the car")
+                toast = Banner(title: "Charge start set · \(clock)", detail: "Checked in the vehicle")
                 await clearToastLater(); return
             }
         }
         startSync = .pending
-        toast = Banner(title: "The car shows a different start", detail: "Tap the trip again to resend", icon: "exclamationmark", tint: CarColors.amber)
+        toast = Banner(title: "The vehicle shows a different start", detail: "Tap the trip again to resend", icon: "exclamationmark", tint: CarColors.amber)
         await clearToastLater()
     }
 

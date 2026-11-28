@@ -88,7 +88,7 @@ struct SimulateView: View {
             Button { model.simStartSoc = nil } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.counterclockwise").font(.system(size: 10, weight: .semibold))
-                    Text("Use car \(Int(live.rounded()))%").font(.app(size: 12, weight: .semibold))
+                    Text("Use vehicle \(Int(live.rounded()))%").font(.app(size: 12, weight: .semibold))
                 }
                 .foregroundStyle(TeslaDark.labelGrey)
                 .padding(.horizontal, 9).padding(.vertical, 4)

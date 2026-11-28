@@ -592,7 +592,7 @@ struct BackupPage: View {
         }
         if !p.contents.carPhotos.isEmpty {
             for (name, data) in p.contents.carPhotos { try? data.write(to: CarArt.folder.appendingPathComponent(name), options: .atomic) }
-            parts.append("car photo back")
+            parts.append("vehicle photo back")
         }
         if let b = p.contents.battery {
             let n = BatteryHistory.shared.merge(b)
@@ -615,7 +615,7 @@ struct BackupPage: View {
     private func restoreMessage(_ c: BackupContents) -> String {
         var m = "\(c.curves.count) days of energy data"
         if c.settings != nil { m += " and your settings" }
-        if !c.carPhotos.isEmpty { m += ", plus your car photo" }
+        if !c.carPhotos.isEmpty { m += ", plus your vehicle photo" }
         return m + ". A copy of what's on the iPhone now is kept first. Days already here keep whichever copy has more detail."
     }
 

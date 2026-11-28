@@ -33,7 +33,7 @@ struct ControlsPage: View {
                     TRow("Security & modes", icon: "lock.shield", subtitle: modesLine) { chevron }
                 }
                 .buttonStyle(.plain)
-                TRow("Wake car", icon: "sun.max", subtitle: "Asleep cars take about 30 s to answer", last: true) {
+                TRow("Wake vehicle", icon: "sun.max", subtitle: "Asleep vehicles take about 30 s to answer", last: true) {
                     pillButton(model.busy == .wake ? "…" : "Wake") { model.tap(.wake) }
                 }
                 Spacer(minLength: 40)
@@ -189,7 +189,7 @@ struct ClimateControlsPage: View {
                 seatRow("Passenger seat cooling", "carseat.right.fan", seat: "passenger", index: 1, last: true)
 
                 TCaption(text: "Modes")
-                TRow("Keep climate on", icon: "fanblades", subtitle: "After you leave the car") { EmptyView() } below: {
+                TRow("Keep climate on", icon: "fanblades", subtitle: "After you leave the vehicle") { EmptyView() } below: {
                     TSegment(items: ["Off", "Keep", "Pet", "Camp"], selected: keepIndex) { i in
                         Task { await model.send("set_climate_keeper_mode", ["mode": String(i)], done: ["Keep climate off", "Keep climate on", "Pet mode on", "Camp mode on"][i]) {
                             $0.keeperMode = ["off", "on", "dog", "camp"][i] } }
@@ -288,7 +288,7 @@ struct SecurityModesPage: View {
                     toggle(c.accessoryPower == true) { _ in Task { await model.run(.accessoryPower) } }
                 }
 
-                TCaption(text: "Find the car")
+                TCaption(text: "Find the vehicle")
                 HStack(spacing: 8) {
                     big("Flash") { model.tap(.flash) }
                     big("Honk") { model.tap(.honk) }
@@ -376,7 +376,7 @@ struct TyresPage: View {
                     TSegment(items: ["bar", "psi"], selected: unit == "psi" ? 1 : 0) { unit = $0 == 1 ? "psi" : "bar" }
                         .frame(width: 104)
                 }
-                TFootnote(text: "Readings come from the car through Tessie. Tyres read about 0.2–0.3 bar higher when warm, so compare them in the morning.")
+                TFootnote(text: "Readings come from the vehicle through Tessie. Tyres read about 0.2–0.3 bar higher when warm, so compare them in the morning.")
                 Spacer(minLength: 40)
             }
             .frame(maxWidth: .infinity)

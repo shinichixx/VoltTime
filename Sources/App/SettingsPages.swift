@@ -258,7 +258,7 @@ private struct ChargeHowSheet: View {
                 VStack(spacing: 0) {
                     row("bell", "Plugged in after 7pm, Sat–Wed", "Asked at your reminder times and when you plug in")
                     row("mappin.and.ellipse", "GPS 73% · TSET 63% · Others", "No answer by 10pm means GPS 73%")
-                    row("clock", "The car's schedule is set for you", "Mon–Wed never before 10:15pm. Backup start after 5 min")
+                    row("clock", "The vehicle's schedule is set for you", "Mon–Wed never before 10:15pm. Backup start after 5 min")
                     row("slider.horizontal.3", "Routine mode only", "Change it with the mode buttons above", last: true)
                 }
                 .padding(.bottom, 20)
@@ -289,7 +289,7 @@ struct SettingsPage: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                TCaption(text: "Car charging mode")
+                TCaption(text: "Vehicle charging mode")
                     .padding(.top, 0)            // close under the slim top bar
                 modeTiles
                     .padding(.horizontal, 20)
@@ -413,7 +413,7 @@ struct SettingsPage: View {
             .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(CarColors.amber, lineWidth: 1.2)
                 .opacity(unsent ? 1 : 0))
             .padding(.horizontal, 20)
-            Text(unsent ? "Tap tomorrow's trip to send \(Fmt.clock(home.plannedStart(), calendar: .current)) to the car"
+            Text(unsent ? "Tap tomorrow's trip to send \(Fmt.clock(home.plannedStart(), calendar: .current)) to the vehicle"
                         : "Where you're going tomorrow")
                 .font(.app(size: 11)).foregroundStyle(unsent ? CarColors.amber : TeslaDark.dim)
                 .padding(.top, 7)
@@ -480,9 +480,9 @@ struct SettingsPage: View {
             return "\(dayLabel(home.plannedStart()))" + (b > 0 ? " · \(b) min buffer" : "")
         }
         if home.active, let st = home.scheduledStart {
-            return "\(dayLabel(st)) · set in the car"
+            return "\(dayLabel(st)) · set in the vehicle"
         }
-        return "\(dayLabel(home.plannedStart())). Set in the car when you plug in after 7pm"
+        return "\(dayLabel(home.plannedStart())). Set in the vehicle when you plug in after 7pm"
     }
 
     private var unsent: Bool {
@@ -494,7 +494,7 @@ struct SettingsPage: View {
         if routine && home.active && home.charging != true && home.result.minutes > 0 {
             let (text, col): (String, Color) = switch home.startSync {
                 case .pending: ("Not sent yet", CarColors.amber)
-                case .checking: ("Checking in car…", TeslaDark.labelGrey)
+                case .checking: ("Checking in vehicle…", TeslaDark.labelGrey)
                 case .live: ("Live", TSurface.green)
             }
             HStack(spacing: 5) {
@@ -736,7 +736,7 @@ struct ChargerBatteryPage: View {
         if model.socIsLive { return AnyView(Badge(text: "LIVE", color: TSurface.green)) }
         if let live = model.liveSoc {
             return AnyView(
-                Button("Use car \(Int(live.rounded()))%") { model.startSoc = live.rounded() }
+                Button("Use vehicle \(Int(live.rounded()))%") { model.startSoc = live.rounded() }
                     .font(.app(size: 12, weight: .medium)).foregroundStyle(TeslaDark.labelGrey)
                     .buttonStyle(.plain)
             )

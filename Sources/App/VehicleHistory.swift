@@ -224,7 +224,7 @@ final class VehicleHistory: ObservableObject {
     func ensure(_ period: ImpactPeriod, _ range: PeriodRange) async {
         guard let t = TessieClient.configured(),
               let vin = UserDefaults.standard.string(forKey: TessieClient.vinKey), !vin.isEmpty else {
-            message = "Add your Tessie token in Settings to see the car's use."
+            message = "Add your Tessie token in Settings to see the vehicle's use."
             return
         }
         message = nil
@@ -546,7 +546,7 @@ struct ChargeLevelGraph: View {
         }
         .overlay {
             if p.isEmpty {
-                Text(vehicle.loading ? "Reading the car's history…" : (vehicle.message ?? "No battery data for this period"))
+                Text(vehicle.loading ? "Reading the vehicle's history…" : (vehicle.message ?? "No battery data for this period"))
                     .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
             }
         }

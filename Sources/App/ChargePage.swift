@@ -127,7 +127,7 @@ struct ChargePage: View {
                 Text("32 A")
             }
             .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-            Text("Set right away in the car. The Solar Excess automation may change it at its next run.")
+            Text("Set right away in the vehicle. The Solar Excess automation may change it at its next run.")
                 .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
                 .padding(.top, 4)
         }
@@ -195,8 +195,8 @@ struct ChargePage: View {
             }
             wantCharging = nil
             if model.charging != start {
-                error = start ? "The car hasn't started charging yet. Check the charge limit or try again."
-                              : "The car hasn't stopped yet. Try again."
+                error = start ? "The vehicle hasn't started charging yet. Check the charge limit or try again."
+                              : "The vehicle hasn't stopped yet. Try again."
             }
         } catch {
             wantCharging = nil
