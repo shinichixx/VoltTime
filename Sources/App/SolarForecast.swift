@@ -129,9 +129,9 @@ final class SolarForecastLog: ObservableObject {
     }
 }
 
-// MARK: - Forecast vs actual page
+// MARK: - Solar Forecast card (Impact)
 
-private struct FBucket: Identifiable {
+struct FBucket: Identifiable {
     let date: Date
     let forecast: Double?      // sum over days with a forecast
     let actual: Double?        // sum over every day
@@ -144,6 +144,12 @@ private struct FBucket: Identifiable {
     }
 }
 
+/// A period's bars and totals, added up once and kept until the saved energy or forecasts change.
+struct ForecastNumbers {
+    var buckets: [FBucket] = []
+    var typicalMiss: Double? = nil   // average size of the daily difference (finished days only)
+}
+
 /// Grey within ±10 %, green when the sun beat the forecast, amber 10–30 % short, red beyond.
 func forecastDiffColor(_ p: Double) -> Color {
     if abs(p) <= 10 { return TeslaDark.rowLabel }
@@ -151,591 +157,343 @@ func forecastDiffColor(_ p: Double) -> Color {
     return p < -30 ? CarColors.red : CarColors.amber
 }
 
-struct ForecastVsActualView: View {
-    @ObservedObject var model: EnergyStore
-    @ObservedObject private var log = SolarForecastLog.shared
-    @AppStorage("forecast.period") private var periodRaw = ImpactPeriod.month.rawValue
-    @State private var offset = 0
-    @State private var picked: Date?
-    @State private var forward = false
-
-    private let cal = Calendar.current
-    private var period: ImpactPeriod { ImpactPeriod(stored: periodRaw) ?? .month }
-    private var byMonth: Bool { period == .year || period == .lifetime }
-    private static let yellow = Color(red: 1, green: 0.8, blue: 0.2)
-
-    private var first: Date { log.firstDay ?? cal.startOfDay(for: Date()) }
-
-    var body: some View {
-        let r = PeriodRange.make(period, offset: offset, firstDay: first, stored: periodRaw)
-        let bs = buckets(r)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header(r, bs).padding(.horizontal, 20)
-                if period == .day {
-                    dayCard(r.start).padding(.horizontal, 16).padding(.top, 14)
-                        .gesture(DragGesture(minimumDistance: 18).onEnded { d in
-                            let w = d.translation.width
-                            guard abs(w) > 50, abs(w) > abs(d.translation.height) * 1.4 else { return }
-                            step(w < 0 ? 1 : -1, r)
-                        })
-                } else {
-                    ZStack {
-                        chart(r, bs)
-                            .id("\(periodRaw)|\(offset)")
-                            .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
-                                                    removal: .move(edge: forward ? .leading : .trailing)))
-                    }
-                    .frame(height: 270)
-                    .clipShape(OpenTopClip())
-                    .padding(.top, 18)
-                    Group {
-                        legend.padding(.horizontal, 20).padding(.top, 8)
-                        Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5).padding(.top, 14)
-                        summaryLines(r, bs).padding(.horizontal, 20).padding(.top, 16)
-                        table(bs).padding(.horizontal, 20).padding(.top, 22)
-                    }
-                    .opacity(picked == nil ? 1 : 0.25)
-                    .animation(.easeOut(duration: 0.15), value: picked == nil)
-                }
-            }
-            .padding(.bottom, 24)
-        }
-        .scrollIndicators(.hidden)
-        .pinnedTop { titleRow(r).padding(.horizontal, 20) }
-        .teslaPage("Forecast vs actual")
-        .onChange(of: periodRaw) { _, _ in picked = nil }
-        .onChange(of: offset) { _, _ in picked = nil }
-    }
-
-    /// One swipe, one period (the graph slides in from that side).
-    private func step(_ by: Int, _ r: PeriodRange) {
-        if by < 0 { guard period.steps, r.start > first else { return } }
-        else { guard period.steps, offset < 0 else { return } }
-        forward = by > 0
-        picked = nil
-        DispatchQueue.main.async { withAnimation(.easeInOut(duration: 0.28)) { offset += by } }
-    }
-
-    // MARK: Header (Energy page style)
-
-    private func header(_ r: PeriodRange, _ bs: [FBucket]) -> some View {
-        let f = bs.compactMap(\.forecast).reduce(0, +)
-        let a = bs.compactMap(\.actual).reduce(0, +)
-        let m = bs.compactMap(\.matchedActual).reduce(0, +)
-        return VStack(alignment: .leading, spacing: 0) {
-            if period != .day {
-                HStack(alignment: .top, spacing: 0) {
-                    figure("Generated", a)
-                    figure("Forecast", f)
-                    figure("Actual", m)
-                }
-                .padding(.top, 14)
-                .opacity(picked == nil ? 1 : 0)
-            }
-        }
-    }
-
-    /// Pinned under the top bar; the page scrolls beneath it.
-    private func titleRow(_ r: PeriodRange) -> some View {
-        HStack {
-            Text(headerLabel(r)).font(.app(size: 17, weight: .semibold))
-            Spacer()
-            PeriodMenu(periodRaw: $periodRaw, offset: $offset, boxed: true, firstDay: log.firstDay)
-                .opacity(picked == nil ? 1 : 0)
-                .allowsHitTesting(picked == nil)
-        }
-        .padding(.top, 6)
-    }
-
-    private func headerLabel(_ r: PeriodRange) -> String {
-        guard let p = picked else { return r.label }
-        return byMonth ? p.formatted(.dateTime.month(.wide).year())
-                       : (cal.isDateInToday(p) ? "Today" : p.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
-    }
-
-    private func figure(_ title: String, _ v: Double) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(k(v)).font(.app(size: 24, weight: .semibold))
-                Text("kWh").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var legend: some View {
-        HStack(spacing: 14) {
-            HStack(spacing: 5) { Circle().fill(Self.yellow).frame(width: 8, height: 8); Text("Actual") }
-            HStack(spacing: 5) { Capsule().fill(.white).frame(width: 14, height: 2.5); Text("Forecast") }
-        }
-        .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-    }
-
-    private func summaryLines(_ r: PeriodRange, _ bs: [FBucket]) -> some View {
-        let f = bs.compactMap(\.forecast).reduce(0, +)
-        let m = bs.compactMap(\.matchedActual).reduce(0, +)
-        let p = f > 0 ? (m - f) / f * 100 : 0
-        let (have, _) = dayCounts(r)
-        return VStack(alignment: .leading, spacing: 6) {
-            if f > 0 {
-                Text("Actual came \(String(format: "%.0f", abs(p)))% \(p < 0 ? "lower" : "higher") than forecast")
-                    .font(.app(size: 14, weight: .semibold))
-                Text("On the \(have) \(have == 1 ? "day" : "days") with a forecast"
-                     + (typicalMiss(r).map { " · typical miss ±" + String(format: "%.0f", $0) + "%" } ?? ""))
-                    .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            } else {
-                Text("No forecast saved for these days yet").font(.app(size: 14, weight: .semibold))
-            }
-        }
-    }
-
-    // MARK: Data
-
-    private func actual(_ day: Date) -> Double? { model.flow(day)?.solar }
-
-    /// One bucket per day (Week, Month) or per month (Year, Lifetime). Only days with a saved forecast count.
-    private func buckets(_ r: PeriodRange) -> [FBucket] {
-        var out: [FBucket] = []
+extension EnergyStore {
+    /// One bucket per day (Week, Month) or per month (Year, Lifetime).
+    func forecastNumbers(_ r: PeriodRange, byMonth: Bool) -> ForecastNumbers {
+        let cal = Calendar.current
+        let log = SolarForecastLog.shared
         let todayStart = cal.startOfDay(for: Date())
+        let key = "\(byMonth)|\(r.start.timeIntervalSince1970)|\(r.end.timeIntervalSince1970)|\(todayStart.timeIntervalSince1970)|\(log.days.count)"
+        if let n = forecastCache[key] { return n }
+        var out = ForecastNumbers()
+        var miss = 0.0, missDays = 0
         let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) ?? Date()
         var d = byMonth ? (cal.dateInterval(of: .month, for: r.start)?.start ?? r.start) : r.start
         while d < r.end {
-            let next = cal.date(byAdding: byMonth ? .month : .day, value: 1, to: d) ?? r.end
+            guard let next = cal.date(byAdding: byMonth ? .month : .day, value: 1, to: d) else { break }
             var f = 0.0, a = 0.0, m = 0.0, anyF = false, anyA = false
-            var x = max(d, byMonth ? cal.startOfDay(for: r.start) : d)
+            var x = max(d, cal.startOfDay(for: r.start))
             while x < min(next, r.end, todayEnd) {
-                let ax = actual(x)
+                let ax = flow(x)?.solar
                 if let ax { a += ax; anyA = true }
-                if let fx = log.forecast(x) { f += fx; m += ax ?? 0; anyF = true }
-                x = cal.date(byAdding: .day, value: 1, to: x) ?? next
+                if let fx = log.forecast(x) {
+                    f += fx; m += ax ?? 0; anyF = true
+                    if x < todayStart, fx > 0, let ax { miss += abs(ax - fx) / fx * 100; missDays += 1 }
+                }
+                guard let n = cal.date(byAdding: .day, value: 1, to: x) else { break }
+                x = n
             }
             var b = FBucket(date: d, forecast: anyF ? f : nil, actual: anyA ? a : nil)
             b.matchedActual = anyF ? m : nil
             b.isToday = !byMonth && cal.isDate(d, inSameDayAs: todayStart)
-            out.append(b)
+            out.buckets.append(b)
             d = next
         }
+        out.typicalMiss = missDays > 0 ? miss / Double(missDays) : nil
+        forecastCache[key] = out
         return out
     }
+}
 
-    /// Days in the period up to today, and how many of them have a forecast.
-    private func dayCounts(_ r: PeriodRange) -> (Int, Int) {
-        var have = 0, total = 0
-        var x = cal.startOfDay(for: r.start)
-        let end = min(r.end, cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? r.end)
-        while x < end {
-            total += 1
-            if log.forecast(x) != nil { have += 1 }
-            x = cal.date(byAdding: .day, value: 1, to: x) ?? end
-        }
-        return (have, total)
+/// Follows the Impact page's period: today shows the forecast curve, a past day two bars, longer periods
+/// the actual bars with white forecast marks.
+struct SolarForecastCard: View {
+    @ObservedObject var model: EnergyStore
+    let period: ImpactPeriod
+    let range: PeriodRange
+    @ObservedObject private var log = SolarForecastLog.shared
+    @State private var picked: Int?
+
+    private let cal = Calendar.current
+    private static let yellow = Color(red: 1, green: 0.8, blue: 0.2)
+
+    private var singleDay: Bool {
+        period == .day || (period == .custom && range.end.timeIntervalSince(range.start) <= 90_000)
+    }
+    private var byMonth: Bool {
+        period == .year || period == .lifetime || (period == .custom && range.end.timeIntervalSince(range.start) > 62 * 86_400)
+    }
+    private var isToday: Bool { singleDay && cal.isDateInToday(range.start) }
+
+    private var source: String {
+        let solcastNow = SolarSensors.current.isSolcast
+        if isToday { return solcastNow ? "Solcast" : "Forecast.Solar" }
+        guard let since = log.solcastSince else { return "Forecast.Solar" }
+        return (singleDay ? range.start >= since : range.end > since) ? "Solcast" : "Forecast.Solar"
     }
 
-    /// Typical miss: the average size of the daily difference (finished days only).
-    private func typicalMiss(_ r: PeriodRange) -> Double? {
-        var sum = 0.0, n = 0
-        var x = r.start
-        let today = cal.startOfDay(for: Date())
-        while x < min(r.end, today) {
-            if let f = log.forecast(x), f > 0, let a = actual(x) { sum += abs(a - f) / f * 100; n += 1 }
-            x = cal.date(byAdding: .day, value: 1, to: x) ?? r.end
-        }
-        return n > 0 ? sum / Double(n) : nil
-    }
-
-    // MARK: Views
-
-    private func cardBox<C: View>(@ViewBuilder _ c: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 0, content: c)
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(TeslaDark.card)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func k(_ v: Double) -> String { Num.kwh(v, whole: byMonth) }
-
-    private func summaryLabel(_ r: PeriodRange) -> String {
-        let current = offset == 0
-        switch period {
-        case .week: return current ? "THIS WEEK SO FAR" : "THAT WEEK"
-        case .month: return current ? "THIS MONTH SO FAR" : r.label.uppercased()
-        case .year: return current ? "THIS YEAR SO FAR" : r.label
-        default: return r.label.uppercased()
-        }
-    }
-
-    private func summary(_ r: PeriodRange, _ bs: [FBucket]) -> some View {
-        let f = bs.compactMap(\.forecast).reduce(0, +)
-        let a = bs.compactMap(\.actual).reduce(0, +)
-        let m = bs.compactMap(\.matchedActual).reduce(0, +)
-        let p = f > 0 ? (m - f) / f * 100 : 0
-        let (have, total) = dayCounts(r)
-        return cardBox {
-            Text(summaryLabel(r)).font(.app(size: 10, weight: .medium)).kerning(0.6).foregroundStyle(TeslaDark.rowLabel)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(k(a)).font(.app(size: 32, weight: .semibold)).foregroundStyle(Self.yellow)
-                Text("kWh generated").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Solar Forecast").font(.app(size: 14, weight: .semibold))
+                Text(source).font(.app(size: 10, weight: .medium)).foregroundStyle(Color(white: 0.8))
+                    .padding(.horizontal, 9).padding(.vertical, 3)
+                    .background(Capsule().fill(Color(white: 0.22)))
+                Spacer(minLength: 0)
             }
-            .padding(.top, 4)
-            Rectangle().fill(Color(white: 0.22)).frame(height: 0.5).padding(.vertical, 12)
-            if f > 0 {
-                Text(have < total ? "ON THE \(have) \(have == 1 ? "DAY" : "DAYS") WITH A FORECAST" : "FORECAST VS ACTUAL")
-                    .font(.app(size: 9, weight: .medium)).kerning(0.6).foregroundStyle(TeslaDark.rowLabel)
-                HStack(alignment: .top, spacing: 0) {
-                    stat("Forecast", k(f), "kWh")
-                    stat("Actual", k(m), "kWh")
-                    stat("Typical miss", typicalMiss(r).map { "±" + String(format: "%.0f", $0) } ?? "—", "%")
-                }
-                .padding(.top, 8)
-                Text("Actual came \(String(format: "%.0f", abs(p)))% \(p < 0 ? "lower" : "higher") than forecast")
-                    .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 8)
-            } else {
-                Text("No forecast saved for these days yet").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            }
+            if isToday { today }
+            else if singleDay { pastDay(range.start) }
+            else { longer }
         }
-    }
-
-    private func stat(_ label: String, _ value: String, _ unit: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value).font(.app(size: 19, weight: .semibold))
-                Text(unit).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
-            }
-        }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(TeslaDark.card)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private var unit: Calendar.Component { byMonth ? .month : .day }
+    // MARK: Today
 
-    /// Edge to edge, the scale inside at the right (Energy page style); tap and hold to read a day.
-    private func chart(_ r: PeriodRange, _ bs: [FBucket]) -> some View {
-        let sel = picked.flatMap { p in bs.first { cal.isDate($0.date, equalTo: p, toGranularity: unit) } }
-        let top = bs.map { max($0.actual ?? 0, $0.forecast ?? 0) }.max() ?? 0
-        let scale = EnergyScale(lo: 0, hi: top)
-        let domain = chartDomain(r)
-        return Chart {
-            ForEach(bs) { b in
-                if let a = b.actual {
-                    BarMark(x: .value("Date", b.date, unit: unit), y: .value("Actual", a), width: bs.count <= 3 ? .fixed(28) : .ratio(0.62))
-                        .foregroundStyle(Self.yellow.opacity(sel == nil || sel?.id == b.id ? 1 : 0.35))
-                        .cornerRadius(3)
-                }
-                if let f = b.forecast {
-                    RectangleMark(x: .value("Date", b.date, unit: unit), y: .value("Forecast", f), width: bs.count <= 3 ? .fixed(38) : .ratio(0.8), height: 2.5)
-                        .foregroundStyle(.white.opacity(sel == nil || sel?.id == b.id ? 1 : 0.4))
-                }
+    private var today: some View {
+        let morning = log.forecast(range.start)
+        return VStack(alignment: .leading, spacing: 0) {
+            bigNumber(model.forecastToday.map { Num.one($0) } ?? "—").padding(.top, 8)
+            if SolarSensors.current.isSolcast, !readLine.isEmpty {
+                Text(readLine).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 2)
             }
-            if let s = sel {
-                RuleMark(x: .value("Date", s.date, unit: unit))
-                    .foregroundStyle(Color.white.opacity(0.85))
-                    .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: .top, alignment: .center, spacing: 6,
-                                overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                        readingBox(s)
-                    }
-            }
-        }
-        .chartXScale(domain: domain)
-        .chartYScale(domain: scale.domain)
-        .chartYAxis(.hidden)
-        .chartXAxis {
-            AxisMarks(values: .stride(by: unit, count: xStride(bs.count))) { _ in
-                AxisValueLabel { Text("0").font(.app(size: 11)).foregroundStyle(Color.clear) }   // keeps the room
-            }
-        }
-        .chartBackground { proxy in
-            GeometryReader { g in Canvas { ctx, size in drawScale(proxy, g, scale, r, &ctx, size, lines: true) } }
-        }
-        .chartOverlay { proxy in
-            GeometryReader { g in
-                ZStack {
-                    Canvas { ctx, size in drawScale(proxy, g, scale, r, &ctx, size, lines: false) }
-                        .allowsHitTesting(false)
-                    Rectangle().fill(Color.clear).contentShape(Rectangle())
-                        .simultaneousGesture(gestures(proxy, g, r, bs))
-                }
-            }
-        }
-    }
-
-    private func readingBox(_ b: FBucket) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(b.isToday ? (b.forecast.flatMap { f in b.actual.map { a in String(format: "%.0f%% of forecast so far", a / max(f, 0.01) * 100) } } ?? "Today")
-                           : (b.diff.map { String(format: "%+.0f%% vs forecast", $0) } ?? "No forecast"))
-                .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            HStack(alignment: .bottom, spacing: 14) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Forecast").font(.app(size: 10.5)).foregroundStyle(TeslaDark.rowLabel)
-                    Text(b.forecast.map(k) ?? "—").font(.app(size: 12.5, weight: .semibold).monospacedDigit()).fixedSize()
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Actual").font(.app(size: 10.5)).foregroundStyle(Self.yellow)
-                    Text(b.actual.map(k) ?? "—").font(.app(size: 12.5, weight: .semibold).monospacedDigit()).fixedSize()
-                }
-                Text("kWh").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-            }
-        }
-        .foregroundStyle(.white)
-        .lineLimit(1)
-        .fixedSize(horizontal: true, vertical: true)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(white: 0.21)))
-    }
-
-    /// Lines full width; each number just under its line at the right, none on the bottom line; bar labels
-    /// centred under their bars.
-    private func drawScale(_ proxy: ChartProxy, _ g: GeometryProxy, _ scale: EnergyScale, _ r: PeriodRange,
-                           _ ctx: inout GraphicsContext, _ size: CGSize, lines: Bool) {
-        guard let anchor = proxy.plotFrame else { return }
-        let plot = g[anchor]
-        if !lines {
-            for (d, label) in barLabels(r) {
-                guard let px = proxy.position(forX: d) else { continue }
-                let t = ctx.resolve(Text(label).font(.app(size: 11)).foregroundColor(TeslaDark.rowLabel))
-                ctx.draw(t, at: CGPoint(x: plot.minX + px, y: plot.maxY + 6), anchor: .top)
-            }
-        }
-        var v = scale.domain.lowerBound
-        while v <= scale.domain.upperBound + 0.0001 {
-            defer { v += scale.step }
-            guard let py = proxy.position(forY: v) else { continue }
-            let y = plot.minY + py
-            let isTop = abs(v - scale.domain.upperBound) < 0.0001
-            let isBottom = abs(v - scale.domain.lowerBound) < 0.0001
-            if lines {
-                var p = Path()
-                p.move(to: CGPoint(x: plot.minX, y: y)); p.addLine(to: CGPoint(x: plot.maxX, y: y))
-                ctx.stroke(p, with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
-            } else if !isBottom {
-                let t = ctx.resolve(Text(scale.label(v, top: isTop, unit: "kWh")).font(.app(size: 10.5)).foregroundColor(TeslaDark.rowLabel))
-                ctx.drawGlowing(t, at: CGPoint(x: plot.maxX - 4, y: y + 2), anchor: .topTrailing)
-            }
-        }
-    }
-
-    private func barLabels(_ r: PeriodRange) -> [(Date, String)] {
-        var out: [(Date, String)] = []
-        let dom = chartDomain(r)
-        var d = dom.lowerBound
-        var i = 0
-        let months = cal.dateComponents([.month], from: dom.lowerBound, to: dom.upperBound).month ?? 0
-        while d < dom.upperBound {
-            guard let next = cal.date(byAdding: unit, value: 1, to: d) else { break }
-            let mid = d.addingTimeInterval(next.timeIntervalSince(d) / 2)
-            switch period {
-            case .week: out.append((mid, d.formatted(.dateTime.weekday(.narrow))))
-            case .month:
-                let day = cal.component(.day, from: d)
-                if [1, 8, 15, 22, 29].contains(day) { out.append((mid, "\(day)")) }
-            case .year: out.append((mid, d.formatted(.dateTime.month(.narrow))))
-            case .lifetime:
-                let every = months > 24 ? 6 : (months > 12 ? 3 : 1)
-                if i % every == 0 { out.append((mid, d.formatted(months > 12 ? .dateTime.month(.abbreviated).year(.twoDigits) : .dateTime.month(.narrow)))) }
-            case .custom:
-                let n = cal.dateComponents([.day], from: dom.lowerBound, to: dom.upperBound).day ?? 0
-                if n <= 7 || i % 7 == 0 { out.append((mid, "\(cal.component(.day, from: d))")) }
-            case .day: break
-            }
-            d = next
-            i += 1
-        }
-        return out
-    }
-
-    /// Tap and hold (then move) reads a day; a sideways flick turns the page.
-    private func gestures(_ proxy: ChartProxy, _ g: GeometryProxy, _ r: PeriodRange, _ bs: [FBucket]) -> some Gesture {
-        let hold = LongPressGesture(minimumDuration: 0.25, maximumDistance: 12).sequenced(before: DragGesture(minimumDistance: 0))
-        let flick = DragGesture(minimumDistance: 18)
-        return hold.exclusively(before: flick)
-            .onChanged { v in
-                if case .first(let s) = v, case .second(true, let d?) = s {
-                    let x = d.location.x - (proxy.plotFrame.map { g[$0].minX } ?? 0)
-                    if let raw = proxy.value(atX: x, as: Date.self),
-                       let b = bs.first(where: { cal.isDate($0.date, equalTo: raw, toGranularity: unit) }) {
-                        if picked != b.date { picked = b.date }
-                    }
-                }
-            }
-            .onEnded { v in
-                switch v {
-                case .first: picked = nil
-                case .second(let d):
-                    let w = d.translation.width, h = d.translation.height
-                    guard abs(w) > 50, abs(w) > abs(h) * 1.4 else { return }
-                    step(w < 0 ? 1 : -1, r)
-                }
-            }
-    }
-
-    /// Whole months for Year and Lifetime, so a month's bar sits inside the chart.
-    private func chartDomain(_ r: PeriodRange) -> ClosedRange<Date> {
-        guard byMonth else { return r.start...r.end }
-        let s = cal.dateInterval(of: .month, for: r.start)?.start ?? r.start
-        let e = cal.dateInterval(of: .month, for: r.end.addingTimeInterval(-1))?.end ?? r.end
-        return s...e
-    }
-
-    private func xStride(_ n: Int) -> Int {
-        switch period {
-        case .month, .custom: return n > 7 ? 7 : 1
-        case .lifetime: return n > 12 ? 3 : 1
-        default: return 1
-        }
-    }
-
-    /// Bordered table like the Energy Flow tables.
-    private func table(_ bs: [FBucket]) -> some View {
-        let rows = Array(bs.filter { $0.forecast != nil || $0.actual != nil }.reversed())
-        let border = Color(white: 0.24)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(byMonth ? "Every Month" : "Every Day").font(.app(size: 14, weight: .semibold))
-                Spacer()
-                Text("FORECAST").frame(width: 70, alignment: .trailing)
-                Text("ACTUAL").frame(width: 62, alignment: .trailing)
-                Color.clear.frame(width: 84)
-            }
-            .font(.app(size: 9.5, weight: .medium))
-            .foregroundStyle(TeslaDark.rowLabel)
-            VStack(spacing: 0) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { i, b in
-                    if i > 0 { Rectangle().fill(border).frame(height: 1) }
-                    HStack {
-                        Text(rowTitle(b.date)).font(.app(size: 14.5))
-                        Spacer()
-                        Text(b.forecast.map(k) ?? "—").foregroundStyle(TeslaDark.rowLabel).frame(width: 70, alignment: .trailing)
-                        Text(b.actual.map(k) ?? "—").frame(width: 62, alignment: .trailing)
-                        Group {
-                            if b.isToday, let f = b.forecast, let a = b.actual, f > 0 {
-                                pill("\(String(format: "%.0f", a / f * 100))% so far", TeslaDark.rowLabel)
-                            } else if let p = b.diff {
-                                pill(String(format: "%+.0f%%", p), forecastDiffColor(p), bold: true)
-                            } else {
-                                Text("—").foregroundStyle(TeslaDark.rowLabel)
-                            }
-                        }
-                        .frame(width: 84, alignment: .trailing)
-                    }
-                    .font(.app(size: 14.5))
-                    .padding(.horizontal, 12)
-                    .frame(height: 44)
-                }
-            }
-            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(border, lineWidth: 1))
-        }
-    }
-
-    private func pill(_ t: String, _ c: Color, bold: Bool = false) -> some View {
-        Text(t).font(.app(size: 12, weight: bold ? .semibold : .regular)).foregroundStyle(c)
-            .lineLimit(1).minimumScaleFactor(0.8)
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Capsule().fill(c == TeslaDark.rowLabel ? Color(white: 0.2) : c.opacity(0.16)))
-    }
-
-    private func rowTitle(_ d: Date) -> String {
-        if byMonth {
-            let s = d.formatted(.dateTime.month(.abbreviated).year())
-            return cal.isDate(d, equalTo: Date(), toGranularity: .month) ? s + " (so far)" : s
-        }
-        if cal.isDateInToday(d) { return "Today" }
-        return d.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-    }
-
-    private func dayCard(_ day: Date) -> some View {
-        let f = log.forecast(day) ?? (cal.isDateInToday(day) ? model.forecastToday : nil)
-        let a = actual(day)
-        let scale = max(f ?? 0, a ?? 0, 1) * 1.1
-        return cardBox {
-            Text(day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)).uppercased())
-                .font(.app(size: 10, weight: .medium)).kerning(0.6).foregroundStyle(TeslaDark.rowLabel)
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
-                        Text("Forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-                        if log.forecast(day) != nil, log.isSolcast(day) {
-                            Text("Solcast").font(.app(size: 10, weight: .medium)).foregroundStyle(TeslaDark.rowLabel)
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(Capsule().fill(Color(white: 0.22)))
-                        }
-                    }
-                    Text(f.map { "\(k($0)) kWh" } ?? "—").font(.app(size: 28, weight: .semibold))
-                    if log.forecast(day) != nil {
-                        Text(sourceLine(day)).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
-                    }
-                }
-                Spacer()
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(cal.isDateInToday(day) ? "Actual so far" : "Actual").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-                    Text(a.map { "\(k($0)) kWh" } ?? "—").font(.app(size: 28, weight: .semibold)).foregroundStyle(Self.yellow)
-                }
-                Spacer()
-            }
-            .padding(.top, 12)
-            if cal.isDateInToday(day), let f, let a, f > 0 {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(String(format: "%.0f%%", a / f * 100)).font(.app(size: 22, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
-                    Text("of today's forecast so far").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-                }
+            ForecastCurveView(today: model.forecastCurveToday, tomorrow: model.forecastCurveTomorrow,
+                              todayKWh: model.forecastToday, tomorrowKWh: model.forecastTomorrow,
+                              peakToday: model.peakToday, peakTomorrow: model.peakTomorrow)
+                .frame(height: 150)
                 .padding(.top, 14)
-            } else if let f, let a, f > 0 {
-                let p = (a - f) / f * 100
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(String(format: "%+.0f%%", p)).font(.app(size: 22, weight: .semibold)).foregroundStyle(forecastDiffColor(p))
-                    Text("actual came \(k(abs(a - f))) kWh \(a < f ? "lower" : "higher")").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+            HStack(spacing: 16) {
+                HStack(spacing: 6) {
+                    Capsule().fill(Self.yellow).frame(width: 14, height: 2)
+                    Text(SolarSensors.current.isSolcast ? "Today, hourly Solcast" : "Today")
                 }
-                .padding(.top, 14)
-            }
-            VStack(spacing: 8) {
-                bar(f ?? 0, scale, .white)
-                bar(a ?? 0, scale, Self.yellow)
-            }
-            .padding(.top, 14)
-            if cal.isDateInToday(day), SolarSensors.current.isSolcast, let latest = model.forecastToday {
-                Rectangle().fill(Color(white: 0.22)).frame(height: 0.7).padding(.top, 14)
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Latest forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-                        Text(latestLine).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(k(latest)) kWh").font(.app(size: 15, weight: .semibold))
-                        Text("for today").font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
-                    }
+                HStack(spacing: 6) {
+                    HStack(spacing: 2) { ForEach(0..<3, id: \.self) { _ in Capsule().fill(Color(white: 0.45)).frame(width: 3, height: 1.5) } }
+                    Text("Tomorrow")
                 }
-                .padding(.top, 10)
             }
+            .font(.app(size: 9)).foregroundStyle(TeslaDark.rowLabel)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 10)
+            divider.padding(.top, 14)
+            footRow("Morning forecast",
+                    morning == nil ? "Not saved yet" : (log.isSolcast(range.start) ? log.readTime(range.start).map { "Set \(hm($0))" } : nil),
+                    morning)
+            divider.padding(.top, 12)
+            footRow("Tomorrow", model.peakTomorrow.map { "Peak \(hm($0))" }, model.forecastTomorrow)
         }
     }
 
-    private func hm(_ d: Date) -> String { d.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) }
-
-    private func sourceLine(_ day: Date) -> String {
-        guard log.isSolcast(day) else { return "Forecast.Solar" }
-        return log.readTime(day).map { "Set \(hm($0))" } ?? "Solcast"
-    }
-
-    private var latestLine: String {
+    private var readLine: String {
         var parts: [String] = []
         if let r = model.forecastReadAt { parts.append("Read \(hm(r))") }
-        if let n = model.forecastNextRead {
-            parts.append("next \(hm(n))")
-        }
+        if let n = model.forecastNextRead { parts.append("next \(hm(n))") }
         return parts.joined(separator: " · ")
     }
 
-    private func bar(_ v: Double, _ scale: Double, _ c: Color) -> some View {
-        GeometryReader { g in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color(white: 0.22))
-                Capsule().fill(c).frame(width: g.size.width * min(v / scale, 1))
+    private func footRow(_ name: String, _ note: String?, _ v: Double?) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.app(size: 12))
+                if let note { Text(note).font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel) }
+            }
+            Spacer()
+            Text(v.map { Num.one($0) + " kWh" } ?? "—").font(.app(size: 13, weight: .semibold))
+        }
+        .padding(.top, 12)
+    }
+
+    // MARK: A past day
+
+    private func pastDay(_ day: Date) -> some View {
+        let f = log.forecast(day)
+        let a = model.flow(day)?.solar
+        let top = max(f ?? 0, a ?? 0, 1) * 1.1
+        return VStack(alignment: .leading, spacing: 0) {
+            bigNumber(a.map { Num.one($0) } ?? "—").padding(.top, 8)
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Forecast").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    Text(f.map { Num.one($0) + " kWh" } ?? "—").font(.app(size: 24, weight: .semibold))
+                    if f != nil, log.isSolcast(day), let t = log.readTime(day) {
+                        Text("Set \(hm(t))").font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Actual").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                    Text(a.map { Num.one($0) + " kWh" } ?? "—").font(.app(size: 24, weight: .semibold)).foregroundStyle(Self.yellow)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.top, 14)
+            if let f, let a, f > 0 {
+                let p = (a - f) / f * 100
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(String(format: "%+.0f%%", p)).font(.app(size: 22, weight: .semibold)).foregroundStyle(forecastDiffColor(p))
+                    Text("actual came \(Num.one(abs(a - f))) kWh \(a < f ? "lower" : "higher")")
+                        .font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
+                }
+                .padding(.top, 14)
+            } else if f == nil {
+                Text("No forecast saved for this day").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 14)
+            }
+            bar("Forecast", f, top, .white).padding(.top, 16)
+            bar("Actual", a, top, Self.yellow).padding(.top, 12)
+        }
+    }
+
+    private func bar(_ name: String, _ v: Double?, _ top: Double, _ c: Color) -> some View {
+        VStack(spacing: 5) {
+            HStack {
+                Text(name).foregroundStyle(TeslaDark.rowLabel)
+                Spacer()
+                Text(v.map { Num.one($0) } ?? "—")
+            }
+            .font(.app(size: 11))
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color(white: 0.22))
+                    if let v, v > 0 { Capsule().fill(c).frame(width: g.size.width * min(v / top, 1)) }
+                }
+            }
+            .frame(height: 12)
+        }
+    }
+
+    // MARK: Week, Month, Year, Lifetime
+
+    private var longer: some View {
+        let n = model.forecastNumbers(range, byMonth: byMonth)
+        let bs = n.buckets
+        let sel = picked.flatMap { bs.indices.contains($0) ? bs[$0] : nil }
+        let f = bs.compactMap(\.forecast).reduce(0, +)
+        let a = bs.compactMap(\.actual).reduce(0, +)
+        let m = bs.compactMap(\.matchedActual).reduce(0, +)
+        let big: Double? = sel.map { $0.actual } ?? (bs.contains { $0.actual != nil } ? a : nil)
+        let line: String
+        if let s = sel {
+            let name = byMonth ? s.date.formatted(.dateTime.month(.abbreviated).year())
+                : (s.isToday ? "Today" : s.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+            let diff = s.isToday
+                ? (s.forecast.flatMap { x in s.actual.map { String(format: "%.0f%% so far", $0 / max(x, 0.01) * 100) } })
+                : s.diff.map { String(format: "%+.0f%%", $0) }
+            line = [name, s.forecast.map { "Forecast \(k($0)) kWh" } ?? "No forecast", diff].compactMap { $0 }.joined(separator: " · ")
+        } else if f > 0 {
+            let p = (m - f) / f * 100
+            line = "Forecast \(k(f)) kWh · \(String(format: "%.0f", abs(p)))% \(p < 0 ? "lower" : "higher") than forecast"
+        } else {
+            line = "No forecast saved for these days yet"
+        }
+        return VStack(alignment: .leading, spacing: 0) {
+            bigNumber(big.map { k($0) } ?? "—").padding(.top, 8)
+            Text(line).font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                .lineLimit(1).minimumScaleFactor(0.75)
+                .padding(.top, 2)
+            ForecastBars(buckets: bs, labels: labels(bs), picked: picked)
+                .equatable()
+                .frame(height: 176)
+                .overlay {
+                    GeometryReader { g in
+                        Color.clear.contentShape(Rectangle())
+                            .holdToRead { x in
+                                guard let x, !bs.isEmpty else { picked = nil; return }
+                                let i = min(max(Int(x / max(g.size.width, 1) * CGFloat(bs.count)), 0), bs.count - 1)
+                                if picked != i { picked = i }
+                            }
+                    }
+                }
+                .padding(.top, 16)
+            HStack(spacing: 18) {
+                HStack(spacing: 5) { Circle().fill(Self.yellow).frame(width: 8, height: 8); Text("Actual") }
+                HStack(spacing: 5) { Capsule().fill(.white).frame(width: 14, height: 2.5); Text("Forecast") }
+            }
+            .font(.app(size: 10)).foregroundStyle(TeslaDark.rowLabel)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
+            if let miss = n.typicalMiss {
+                Text("Typical miss ±\(String(format: "%.0f", miss))%")
+                    .font(.app(size: 11)).foregroundStyle(TeslaDark.rowLabel)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 10)
             }
         }
-        .frame(height: 12)
+    }
+
+    /// Which bars are named underneath.
+    private func labels(_ bs: [FBucket]) -> [String?] {
+        let n = bs.count
+        return bs.enumerated().map { i, b in
+            if byMonth {
+                if n <= 12 { return String(b.date.formatted(.dateTime.month(.narrow))) }
+                return i % max(n / 4, 1) == 0 ? b.date.formatted(.dateTime.month(.abbreviated).year(.twoDigits)) : nil
+            }
+            if period == .week { return String(b.date.formatted(.dateTime.weekday(.narrow))) }
+            return n <= 7 || i % 7 == 0 ? "\(cal.component(.day, from: b.date))" : nil
+        }
+    }
+
+    // MARK: Pieces
+
+    private func k(_ v: Double) -> String { Num.kwh(v, whole: v >= 100) }
+    private func hm(_ d: Date) -> String { d.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) }
+    private var divider: some View { Rectangle().fill(Color.white.opacity(0.09)).frame(height: 0.5) }
+
+    private func bigNumber(_ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(value).font(.app(size: 38, weight: .medium)).foregroundStyle(Self.yellow)
+            Text("kWh").font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
+        }
+    }
+}
+
+/// Actual as yellow bars, the forecast as a white mark over each; drawn in one pass so scrolling stays light.
+private struct ForecastBars: View, Equatable {
+    let buckets: [FBucket]
+    let labels: [String?]
+    let picked: Int?
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.picked == b.picked && a.labels == b.labels && a.buckets.count == b.buckets.count
+            && zip(a.buckets, b.buckets).allSatisfy { $0.date == $1.date && $0.actual == $1.actual && $0.forecast == $1.forecast }
+    }
+
+    var body: some View {
+        Canvas { ctx, size in
+            let n = buckets.count
+            guard n > 0 else { return }
+            let top = buckets.map { max($0.actual ?? 0, $0.forecast ?? 0) }.max() ?? 0
+            let scale = EnergyScale(lo: 0, hi: top)
+            let lo = scale.domain.lowerBound, hi = scale.domain.upperBound
+            let plotH = size.height - 18
+            func y(_ v: Double) -> CGFloat { plotH * CGFloat(1 - (v - lo) / max(hi - lo, 0.0001)) + 1 }
+            var v = lo
+            while v <= hi + 0.0001 {
+                ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y(v))); $0.addLine(to: CGPoint(x: size.width, y: y(v))) },
+                           with: .color(Color.white.opacity(0.09)), lineWidth: 0.7)
+                v += scale.step
+            }
+            let slot = size.width / CGFloat(n)
+            let w = min(slot * 0.66, 26)
+            for (i, b) in buckets.enumerated() {
+                let x = slot * (CGFloat(i) + 0.5)
+                let dim = picked != nil && picked != i
+                if let a = b.actual, a > 0 {
+                    let h = max(y(lo) - y(a), 1.5)
+                    ctx.fill(Path(roundedRect: CGRect(x: x - w / 2, y: y(lo) - h, width: w, height: h), cornerRadius: min(w / 2, 3)),
+                             with: .color(Color(red: 1, green: 0.8, blue: 0.2).opacity(dim ? 0.35 : 1)))
+                }
+                if let f = b.forecast {
+                    let fw = min(slot * 0.86, 34)
+                    ctx.fill(Path(CGRect(x: x - fw / 2, y: y(f) - 1.25, width: fw, height: 2.5)),
+                             with: .color(.white.opacity(dim ? 0.4 : 1)))
+                }
+                if i < labels.count, let l = labels[i] {
+                    let t = ctx.resolve(Text(l).font(.app(size: 10)).foregroundColor(TeslaDark.rowLabel))
+                    let half = t.measure(in: size).width / 2
+                    ctx.draw(t, at: CGPoint(x: min(max(x, half), size.width - half), y: plotH + 6), anchor: .top)
+                }
+            }
+            v = lo + scale.step
+            while v <= hi + 0.0001 {
+                let t = ctx.resolve(Text(scale.label(v, top: v + scale.step > hi + 0.0001, unit: "kWh"))
+                    .font(.app(size: 9.5)).foregroundColor(TeslaDark.rowLabel))
+                ctx.drawGlowing(t, at: CGPoint(x: size.width - 2, y: y(v) + 2), anchor: .topTrailing)
+                v += scale.step
+            }
+        }
     }
 }

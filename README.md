@@ -15,7 +15,8 @@ Dark, Tesla-app style. Three pages, swiped left and right (no tab bar):
     stacked areas for a day (tap and hold to scrub), bars for longer periods, Energy Flow rows. The eye shows one total in the view's colour, fading to black at 0. Day graphs use
     5-minute steps where saved (older days 15-minute or hourly). Curves come from the same shared store as Impact.
   - **Impact** – Tesla-style cards for Day / Week / Month / Year / Lifetime: Self-Powered, Model 3 on solar (+ km on
-    sunshine), CO₂ avoided (0.740 kg/kWh, Peninsular 2024) and tomorrow's solar forecast. Energy is kept on the phone in one
+    sunshine), CO₂ avoided (0.740 kg/kWh, Peninsular 2024) and Solar Forecast (follows the period: today's curve, a past day's forecast and
+    actual bars, longer periods actual bars with forecast marks; touch and hold to read one). Energy is kept on the phone in one
     file (energy.plist, ~280 KB a year: one curve per day, 5-minute for recent days, 15-minute or hourly for older ones) shared with the
     Energy page; each refresh only fetches today, yesterday and anything missing.
   - Energy and Impact always open on **Day / Today** from My Home. Tapping the house photo opens Energy too:

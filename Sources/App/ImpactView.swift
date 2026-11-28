@@ -64,6 +64,7 @@ struct ImpactView: View {
                                 carCard(t)
                                 carbonCard(t)
                             }
+                            SolarForecastCard(model: model, period: period, range: r)
                         }
                         .id("\(periodRaw)|\(offset)")
                         .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
@@ -73,8 +74,6 @@ struct ImpactView: View {
                     .contentShape(Rectangle())
                     .sidewaysSwipe { step($0, r) }
                 }
-                NavigationLink { ForecastVsActualView(model: model) } label: { forecastCard }
-                    .buttonStyle(.plain)
                 if let msg = model.message {
                     Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
@@ -442,39 +441,6 @@ struct ImpactView: View {
             Text("\(kwh(t.solar)) solar × \(String(format: "%.3f", ImpactStat.gridKgPerKWh)) kg/kWh")
                 .font(.app(size: 10)).foregroundStyle(TeslaDark.labelGrey)
                 .padding(.top, 10)
-        }
-    }
-
-    // Solar Forecast: today's curve (filled up to now), tomorrow faint behind it.
-    private var forecastCard: some View {
-        card("Solar Forecast", trailing: "chevron.right") {
-            bigNumber(model.forecastToday.map { Num.one($0) } ?? "—", "kWh today", Self.solarColor)
-                .padding(.top, 8)
-            ForecastCurveView(today: model.forecastCurveToday, tomorrow: model.forecastCurveTomorrow,
-                              todayKWh: model.forecastToday, tomorrowKWh: model.forecastTomorrow,
-                              peakToday: model.peakToday, peakTomorrow: model.peakTomorrow)
-                .frame(height: 150)
-                .padding(.top, 14)
-            HStack(spacing: 16) {
-                HStack(spacing: 6) {
-                    Capsule().fill(Self.solarColor).frame(width: 14, height: 2)
-                    Text("Today, hourly Solcast")
-                }
-                HStack(spacing: 6) {
-                    HStack(spacing: 2) { ForEach(0..<3, id: \.self) { _ in Capsule().fill(Color(white: 0.45)).frame(width: 3, height: 1.5) } }
-                    Text("Tomorrow forecast")
-                }
-            }
-            .font(.app(size: 9)).foregroundStyle(TeslaDark.rowLabel)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 10)
-            divider().padding(.top, 14)
-            HStack {
-                Text("Tomorrow").font(.app(size: 12)).foregroundStyle(TeslaDark.rowLabel)
-                Spacer()
-                Text(model.forecastTomorrow.map { Num.one($0) + " kWh" } ?? "—").font(.app(size: 13, weight: .semibold))
-            }
-            .padding(.top, 12)
         }
     }
 }

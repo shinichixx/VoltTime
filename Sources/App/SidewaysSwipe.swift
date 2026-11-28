@@ -16,6 +16,44 @@ extension View {
     }
 }
 
+extension View {
+    /// Touch and hold, then slide: calls `read` with the finger's x, and nil on release. A finger that moves
+    /// before the hold takes effect scrolls the page as usual.
+    @ViewBuilder func holdToRead(_ read: @escaping (CGFloat?) -> Void) -> some View {
+        if #available(iOS 18.0, *) {
+            gesture(HoldRead(read: read))
+        } else {
+            simultaneousGesture(LongPressGesture(minimumDuration: 0.25, maximumDistance: 10)
+                .sequenced(before: DragGesture(minimumDistance: 0))
+                .onChanged { v in if case .second(true, let d?) = v { read(d.location.x) } }
+                .onEnded { _ in read(nil) })
+        }
+    }
+}
+
+private let holdReadName = "holdToRead"
+
+@available(iOS 18.0, *)
+private struct HoldRead: UIGestureRecognizerRepresentable {
+    let read: (CGFloat?) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let g = UILongPressGestureRecognizer()
+        g.minimumPressDuration = 0.25
+        g.allowableMovement = 10
+        g.name = holdReadName
+        return g
+    }
+
+    func handleUIGestureRecognizerAction(_ g: UILongPressGestureRecognizer, context: Context) {
+        switch g.state {
+        case .began, .changed: read(context.converter.localLocation.x)
+        case .ended, .cancelled, .failed: read(nil)
+        default: break
+        }
+    }
+}
+
 /// A UIKit pan that only starts when the finger is clearly moving sideways.
 @available(iOS 18.0, *)
 private struct SidewaysPan: UIGestureRecognizerRepresentable {
@@ -29,7 +67,9 @@ private struct SidewaysPan: UIGestureRecognizerRepresentable {
         }
 
         func gestureRecognizer(_ g: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            other.name != holdReadName   // reading a bar never turns the page
+        }
     }
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
