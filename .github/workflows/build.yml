@@ -66,13 +66,13 @@ jobs:
           ls -l Payload/VoltTime.app/VoltTime
           xcrun strip -rSTx Payload/VoltTime.app/VoltTime
           ls -l Payload/VoltTime.app/VoltTime
-          zip -qry "VoltTime_build${{ steps.ver.outputs.build }}.ipa" Payload
+          zip -qry "Teslar_build${{ steps.ver.outputs.build }}.ipa" Payload
           ls -lh *.ipa
 
       - uses: actions/upload-artifact@v4
         with:
-          name: VoltTime_build${{ steps.ver.outputs.build }}
-          path: VoltTime_build${{ steps.ver.outputs.build }}.ipa
+          name: Teslar_build${{ steps.ver.outputs.build }}
+          path: Teslar_build${{ steps.ver.outputs.build }}.ipa
 
       - name: Publish release with the IPA
         env:
@@ -80,6 +80,6 @@ jobs:
         run: |
           TAG="build-${{ steps.ver.outputs.build }}"
           gh release delete "$TAG" -y --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" "VoltTime_build${{ steps.ver.outputs.build }}.ipa" \
-            --title "VoltTime build ${{ steps.ver.outputs.build }}" \
+          gh release create "$TAG" "Teslar_build${{ steps.ver.outputs.build }}.ipa" \
+            --title "Teslar build ${{ steps.ver.outputs.build }}" \
             --notes "Unsigned IPA for sideloading (AltStore / Sideloadly)."

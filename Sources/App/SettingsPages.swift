@@ -648,7 +648,7 @@ struct RemindersPage: View {
                 TFootnote(text: model.remindersAvailable
                           ? "Sent by Home Assistant Sat–Wed, only while Ultra Rouge is plugged in at home and you haven't answered. Between 5 pm and 9:59 pm. No answer by 10 pm = GPS 73%."
                             + (model.remindersOn && model.reminderTimes.count > 1 ? " Swipe left on a reminder to delete it." : "")
-                          : "Update the VoltTime package in Home Assistant to use reminders.",
+                          : "Update Teslar's Home Assistant package (volttime.yaml) to use reminders.",
                           color: model.remindersAvailable ? TeslaDark.dim : TeslaDark.importing)
                 Spacer(minLength: 40)
             }

@@ -150,7 +150,7 @@ final class BatteryHistory: ObservableObject {
 
 // MARK: - S3XY Commander (Panda over Wi-Fi)
 
-/// Listens to the S3XY Commander's Panda feed (UDP 192.168.4.1:1338) while TesLah is open,
+/// Listens to the S3XY Commander's Panda feed (UDP 192.168.4.1:1338) while Teslar is open,
 /// and works out the highest and lowest cell voltage.
 @MainActor
 final class S3XYLink: ObservableObject {
@@ -211,7 +211,7 @@ final class S3XYLink: ObservableObject {
                 case .waiting(let e):
                     self.link = "waiting"; self.lastError = e.localizedDescription
                     if "\(e)".contains("PolicyDenied") || "\(e)".lowercased().contains("local network") {
-                        self.problem = "Local Network access is off for TesLah (iPhone Settings › TesLah)."
+                        self.problem = "Local Network access is off for Teslar (iPhone Settings › Teslar)."
                     }
                 case .failed(let e): self.link = "failed"; self.lastError = e.localizedDescription; self.restart()
                 case .preparing: self.link = "preparing"

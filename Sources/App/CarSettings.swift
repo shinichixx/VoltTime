@@ -54,7 +54,7 @@ struct TessiePage: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                Text("Create a token at dash.tessie.com → Settings → Developer API → Generate Access Token. It's kept in the iPhone Keychain and never goes into backups. Reading the car uses Tessie's saved state, so opening VoltTime doesn't wake the car; only the buttons do.")
+                Text("Create a token at dash.tessie.com → Settings → Developer API → Generate Access Token. It's kept in the iPhone Keychain and never goes into backups. Reading the car uses Tessie's saved state, so opening Teslar doesn't wake the car; only the buttons do.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20).padding(.top, 14)
@@ -137,7 +137,7 @@ struct QuickControlsPage: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                TFootnote(text: "Green = TesLah asks \"Are you sure?\" first. Number = slot in the row. The autogate's own setting is in Menu › Autogate.")
+                TFootnote(text: "Green = Teslar asks \"Are you sure?\" first. Number = slot in the row. The autogate's own setting is in Menu › Autogate.")
                 Button("Reset to default") { CarControl.save(CarControl.defaults); car.reloadControls() }
                     .font(.app(size: 14)).foregroundStyle(CarColors.red).padding(.top, 16)
                 Spacer(minLength: 40)
@@ -269,7 +269,7 @@ struct AutogatePage: View {
     }
 }
 
-/// "VoltTime · Version 1.0 (36)" and the release date, at the foot of the ☰ pages.
+/// "Teslar · Version 1.0 (36)" and the release date, at the foot of the ☰ pages.
 // MARK: S3XY Commander (cell balance)
 
 struct S3XYPage: View {
@@ -304,14 +304,14 @@ struct S3XYPage: View {
                     navRow("How to connect", "list.number", "ScanMyTesla support, join \(ssid)")
                 }.buttonStyle(.plain)
                 NavigationLink { S3XYDailyHelp(ssid: ssid) } label: {
-                    navRow("Daily reading", "arrow.clockwise", "Shortcuts opens TesLah in the car")
+                    navRow("Daily reading", "arrow.clockwise", "Shortcuts opens Teslar in the car")
                 }.buttonStyle(.plain)
                 NavigationLink { S3XYDetailsPage() } label: {
                     navRow("Connection details", "info.circle",
                            "Wi-Fi \(link.onWifi ? "on" : "off") · \(link.sent) sent · \(link.frames) received", last: true)
                 }.buttonStyle(.plain)
 
-                TFootnote(text: "Only one app can use the Commander's Wi-Fi at a time. While TesLah reads it, the S3XY app may lose its gadgets.")
+                TFootnote(text: "Only one app can use the Commander's Wi-Fi at a time. While Teslar reads it, the S3XY app may lose its gadgets.")
             }
             .padding(.bottom, 30)
         }
@@ -417,14 +417,14 @@ struct S3XYConnectHelp: View {
                 s3xySteps([
                     "In the S3XY app › Commander, turn on ScanMyTesla support.",
                     "In the car, join \(ssid) in iPhone Settings › Wi-Fi (password 12345678 unless you changed it).",
-                    "Open TesLah. Cell balance updates by itself while it's open.",
+                    "Open Teslar. Cell balance updates by itself while it's open.",
                 ])
                 TCaption(text: "If it's unreliable")
                 s3xySteps([
                     "In the S3XY app › Commander, also turn on ScanMyTesla Always ON, or the Commander's Wi-Fi switches off when the car sleeps.",
                     "In iPhone Settings › Wi-Fi › (i) next to \(ssid), turn off Use Connectivity Assist.",
                 ])
-                TFootnote(text: "The first time, iOS asks to let TesLah find devices on your local network. Tap Allow.")
+                TFootnote(text: "The first time, iOS asks to let Teslar find devices on your local network. Tap Allow.")
             }
         }
         .teslaPage("How to connect", black: true)
@@ -442,7 +442,7 @@ struct S3XYDailyHelp: View {
                     "Shortcuts › Automation › New.",
                     "Choose Wi-Fi › \(ssid) › When joining.",
                     "Choose Run Immediately.",
-                    "Add the action Open App › TesLah.",
+                    "Add the action Open App › Teslar.",
                 ])
                 Button { if let u = URL(string: "shortcuts://") { openURL(u) } } label: {
                     Text("Open Shortcuts").font(.app(size: 15, weight: .medium))
@@ -451,7 +451,7 @@ struct S3XYDailyHelp: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 20).padding(.top, 14)
-                TFootnote(text: "Getting in the car then opens TesLah, which takes the day's parked reading by itself.")
+                TFootnote(text: "Getting in the car then opens Teslar, which takes the day's parked reading by itself.")
             }
         }
         .teslaPage("Daily reading", black: true)
@@ -509,7 +509,7 @@ struct NotificationsPage: View {
                 TRow("Tell me when it's back to normal", icon: "checkmark.circle", last: true) {
                     Toggle("", isOn: $back).labelsHidden().tint(TSurface.green)
                 }
-                TFootnote(text: "Each alert comes once per change: grey → amber, amber → red. TesLah checks when it's open (the cell gap is only read then anyway). Tyre alerts come from the Tessie app.")
+                TFootnote(text: "Each alert comes once per change: grey → amber, amber → red. Teslar checks when it's open (the cell gap is only read then anyway). Tyre alerts come from the Tessie app.")
             }
         }
         .teslaPage("Notifications", black: true)

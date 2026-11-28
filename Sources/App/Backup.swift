@@ -239,7 +239,7 @@ enum BackupReminder {
         guard d.bool(forKey: enabledKey) else { return }
         guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Back up TesLah"
+        content.title = "Back up Teslar"
         content.body = "Save this week's energy data to iCloud Drive."
         content.sound = .default
         var when = DateComponents()
@@ -490,7 +490,7 @@ struct BackupPage: View {
                          last: true) { chevron }
                 }
                 .buttonStyle(.plain)
-                TFootnote(text: "One small file with every energy day and your settings. In the save screen pick your backup folder in iCloud Drive. Restore also reads older VoltTime backups.")
+                TFootnote(text: "One small file with every energy day and your settings. In the save screen pick your backup folder in iCloud Drive. Restore also reads your older backups.")
 
                 TCaption(text: "On this iPhone", trailing: snapshotTotal)
                 if snapshots.isEmpty {

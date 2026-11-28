@@ -870,7 +870,7 @@ struct CarDetailPage: View {
     }
 
     /// Half-width toggle box: icon, name, and On / Off under it. Goes through the same send path as the quick controls.
-    /// Tesla doesn't share Low Power Mode, so: "Unknown", or what TesLah last set ("Off · set 09:30") for 3 hours.
+    /// Tesla doesn't share Low Power Mode, so: "Unknown", or what Teslar last set ("Off · set 09:30") for 3 hours.
     private var lowPowerTile: some View {
         let K = TeslaApp.self
         let green = TSurface.green
@@ -1030,7 +1030,7 @@ struct CarDetailPage: View {
                 } else {
                     Text(live.state == .receiving ? "Reading the cells…" : "No reading yet")
                         .font(.app(size: 15, weight: .medium)).foregroundStyle(K.title)
-                    Text("In the car, join the S3XY_OBD Wi-Fi and open TesLah. Menu › Connection › S3XY Commander shows how.")
+                    Text("In the car, join the S3XY_OBD Wi-Fi and open Teslar. Menu › Connection › S3XY Commander shows how.")
                         .font(.app(size: 12)).foregroundStyle(K.grey).padding(.top, 4).padding(.bottom, 6)
                 }
                 if let road = history.road {

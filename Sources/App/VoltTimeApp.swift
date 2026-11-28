@@ -177,7 +177,7 @@ struct ContentView: View {
         }
         .task {
             S3XYLink.shared.context = { [weak c = car] in (c?.car.soc, !(c?.driving ?? false)) }
-            S3XYLink.shared.start()   // cell balance from the S3XY Commander while TesLah is open
+            S3XYLink.shared.start()   // cell balance from the S3XY Commander while Teslar is open
             await home.refresh()
             await energy.refresh()   // tops up the saved energy so Impact / Energy open instantly
             await VehicleHistory.shared.refreshToday()   // today's Charge Level and the latest charge limit
@@ -400,8 +400,8 @@ struct HomeAssistantPage: View {
             usingHome = isHome
             let helpers = try? await ha.state(Entity.readyTime)
             testResult = helpers == nil
-                ? "Connected, but the VoltTime package isn't installed in Home Assistant yet."
-                : (quiet ? nil : "Connected – VoltTime package found.")
+                ? "Connected, but Teslar's package (volttime.yaml) isn't in Home Assistant yet."
+                : (quiet ? nil : "Connected – Teslar's package found.")
         } else {
             testResult = (isHome ? home?.error : away?.error) ?? "Can't reach Home Assistant."
         }

@@ -8,7 +8,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "126"
+    CURRENT_PROJECT_VERSION: "127"
 targets:
   VoltTime:
     type: application
@@ -28,9 +28,9 @@ targets:
           - CFBundleURLName: com.ridhuan.volttime
             CFBundleURLSchemes:
               - volttime
-        UIFileSharingEnabled: true               # On My iPhone › VoltTime (old CSV backups are cleared from here)
+        UIFileSharingEnabled: true               # On My iPhone › Teslar (old CSV backups are cleared from here)
         LSSupportsOpeningDocumentsInPlace: true  # open picked backup files in place
-        VTReleaseDate: 27 Nov 2026
+        VTReleaseDate: 28 Nov 2026
         UIAppFonts:                              # Albert Sans (SIL OFL), closest free match to the Tesla app's Universal Sans
           - AlbertSans-Light.ttf
           - AlbertSans-Regular.ttf

@@ -222,7 +222,7 @@ final class CarModel: ObservableObject {
     @Published var toast: Banner?
     @Published var controls = CarControl.load()
     @Published var confirming: CarControl?
-    /// Low Power Mode: Tesla doesn't report it, so TesLah shows what it last set (for 3 hours), else "Unknown".
+    /// Low Power Mode: Tesla doesn't report it, so Teslar shows what it last set (for 3 hours), else "Unknown".
     struct LowPowerNote: Codable, Equatable { var on: Bool; var at: Date }
     @Published var lowPowerNote: LowPowerNote? = {
         guard let d = UserDefaults.standard.data(forKey: "car.lowPowerNote") else { return nil }

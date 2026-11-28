@@ -153,7 +153,7 @@ final class HomeModel: ObservableObject {
             message = "Can't reach Home Assistant. Check the address and token in Menu › Connection (and Tailscale)."
             return
         }
-        message = s[Entity.readyTime] == nil ? "VoltTime helpers not found in Home Assistant – install homeassistant/volttime.yaml." : nil
+        message = s[Entity.readyTime] == nil ? "Teslar's helpers aren't in Home Assistant yet. Install the package volttime.yaml." : nil
 
         applying = true
         if let v = s[Entity.battery]?.number { liveSoc = v; startSoc = v.rounded() }

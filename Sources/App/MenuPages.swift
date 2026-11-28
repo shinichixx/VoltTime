@@ -401,7 +401,7 @@ struct ProductPage: View {
     }
 }
 
-/// A product's name as TesLah shows it. Saving it empty (or unchanged from the original) goes back to the original.
+/// A product's name as Teslar shows it. Saving it empty (or unchanged from the original) goes back to the original.
 struct EditNamePage: View {
     let key: String
     let fallback: String
@@ -431,7 +431,7 @@ struct EditNamePage: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 24)
-                Text("Changes the name in TesLah only. Save it empty to go back to the original.")
+                Text("Changes the name in Teslar only. Save it empty to go back to the original.")
                     .font(.app(size: 11)).foregroundStyle(TeslaDark.dim)
                     .padding(.top, 10)
             }
