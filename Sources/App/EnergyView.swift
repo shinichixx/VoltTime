@@ -59,13 +59,13 @@ enum EnergyColor {
     static let muted = Color(white: 0.45)
 }
 
-/// How the graph is filtered: a tapped table row (its layer keeps colour and fill, the rest go grey lines)
+/// How the graph is filtered: tapped table rows (each tapped layer keeps colour and fill, the rest go grey lines)
 /// and the eye (one total in the view's own colour, fading to black at 0).
 struct EnergyLook: Equatable {
-    var focus: String? = nil
+    var focus: Set<String> = []
     var outline = false
     func style(_ key: String, _ c: Color) -> (line: Color, fill: Bool) {
-        if let f = focus { return f == key ? (c, true) : (outline ? EnergyColor.focus : EnergyColor.muted, false) }
+        if !focus.isEmpty { return focus.contains(key) ? (c, true) : (outline ? EnergyColor.focus : EnergyColor.muted, false) }
         return outline ? (EnergyColor.focus, false) : (c, true)
     }
 }
@@ -192,7 +192,7 @@ struct EnergyView: View {
                                 HStack(spacing: 18) {
                                     Text("Energy Flow").font(.app(size: 14, weight: .semibold))
                                     Spacer()
-                                    Button { look.outline.toggle(); if !look.outline { look.focus = nil } } label: {
+                                    Button { look.outline.toggle(); if !look.outline { look.focus = [] } } label: {
                                         Image(systemName: look.outline ? "eye.slash" : "eye").font(.system(size: 15, weight: .medium))
                                             .frame(width: 26, height: 26)
                                     }
@@ -246,9 +246,9 @@ struct EnergyView: View {
                 .padding(.bottom, 6)
         }
         .teslaPage(comp.pageTitle)
-        .onChange(of: compRaw) { _, _ in look.focus = nil; showUsed = false }   // back to charging only from another view
-        .onChange(of: periodRaw) { _, _ in look.focus = nil }
-        .onChange(of: offset) { _, _ in look.focus = nil }
+        .onChange(of: compRaw) { _, _ in look.focus = []; showUsed = false }   // back to charging only from another view
+        .onChange(of: periodRaw) { _, _ in look.focus = [] }
+        .onChange(of: offset) { _, _ in look.focus = [] }
         .task(id: "\(periodRaw)|\(offset)") {
             // Saved days show at once; this only tops up today / missing days (at most once a minute).
             await store.refresh()
@@ -467,12 +467,12 @@ struct EnergyView: View {
                     .frame(height: 44)
                     .contentShape(Rectangle())
                     .overlay {
-                        if look.focus == p.layer {
+                        if look.focus.contains(p.layer) {
                             RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(EnergyColor.focus, lineWidth: 2)
                         }
                     }
-                    // Tap: only this layer keeps its colour on the graph; tap again to cancel.
-                    .onTapGesture { look.focus = look.focus == p.layer ? nil : p.layer }
+                    // Tap: add this layer to the ones keeping their colour on the graph; tap again to remove it.
+                    .onTapGesture { look.focus.formSymmetricDifference([p.layer]) }
                 }
             }
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(border, lineWidth: 1))
@@ -748,7 +748,7 @@ private struct EnergyChartView: View {
                 // Edge lines from the top layer down, so a lower layer's line wins where they meet
                 // (a 0 kW layer never paints over the one beneath it).
                 ForEach(Array(template.enumerated()).reversed(), id: \.offset) { i, t in
-                    ForEach(Self.runs(pts, has: { (!look.outline || t.0 == look.focus) && abs(parts($0)[i].2) > 0.001 },
+                    ForEach(Self.runs(pts, has: { (!look.outline || look.focus.contains(t.0)) && abs(parts($0)[i].2) > 0.001 },
                                       edge: { let b = bounds($0, i); return negative(i) ? b.lo : b.hi })) { run in
                         ForEach(run.points, id: \.0) { q in
                             LineMark(x: .value("Time", q.0), y: .value("Edge", q.1), series: .value("Line", "\(t.0)\(run.id)"))
@@ -764,7 +764,7 @@ private struct EnergyChartView: View {
             if isDay && look.outline {
                 // Eye: one total in the view's colour, along the top of what's used (and the bottom of export),
                 // filled down to 0 unless a tapped row's own fill is showing.
-                if look.focus == nil {
+                if look.focus.isEmpty {
                     ForEach(pts) { p in
                         AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", usedTop(p)), series: .value("Area", "eyeTop"))
                             .foregroundStyle(fade(comp.color, below: false, scale, weak: 0))
@@ -1061,7 +1061,7 @@ private struct EnergyChartView: View {
             func at(_ r: Double) -> Date { p.date.addingTimeInterval(len * r) }
             let a = dim(p)
             func add(_ key: String, _ c: Color, _ b: (lo: Double, hi: Double), _ from: Double, _ to: Double, _ shade: Double = 1) {
-                if look.outline && look.focus != key { return }   // eye: the total outline stands in for the rest
+                if look.outline && !look.focus.contains(key) { return }   // eye: the total outline stands in for the rest
                 guard let g = gapped(b, scale) else { return }
                 let st = look.style(key, c)
                 out.append(BarSeg(id: "\(p.id)\(key)", x0: at(from), x1: at(to), lo: g.lo, hi: g.hi,
@@ -1086,7 +1086,7 @@ private struct EnergyChartView: View {
             if look.outline {
                 // Eye: one bar for what's used and one for export below 0, in the view's colour; filled unless
                 // a tapped row's own fill is showing.
-                let solid = look.focus == nil
+                let solid = look.focus.isEmpty
                 let (u0, u1) = comp == .all ? (0.14, 0.49) : (0.2, 0.8)
                 let (e0, e1) = comp == .all ? (0.51, 0.86) : (0.2, 0.8)
                 if let g = gapped((0, usedTop(p)), scale) {
@@ -1153,7 +1153,7 @@ private struct EnergyChartView: View {
     private func allLines(_ pts: [FlowPoint]) -> [EdgeLine] {
         var out: [EdgeLine] = []
         func add(_ name: String, _ c: Color, has: @escaping (FlowPoint) -> Bool, edge: @escaping (FlowPoint) -> Double) {
-            if look.outline && look.focus != name { return }   // eye: only the total lines (and a tapped row's own line)
+            if look.outline && !look.focus.contains(name) { return }   // eye: only the total lines (and a tapped row's own line)
             for r in Self.runs(pts, has: has, edge: edge) { out.append(EdgeLine(key: "\(name)\(r.id)", color: c, points: r.points)) }
         }
         add("car", look.style("car", EnergyColor.vehicle).line, has: { $0.flow.car > 0.001 }, edge: { ($0.flow.house + $0.flow.car) * $0.k })
