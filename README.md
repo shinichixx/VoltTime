@@ -14,7 +14,7 @@ Dark, Tesla-app style. Three pages, swiped left and right (no tab bar):
   - **Energy** – opens on **All** (solar, home, Model 3 and grid lines together, with six numbers below). Tesla-style: Day / Week / Month / Year / Lifetime menu, Choose Date (Day / Month / Year / Custom up to 31 days), Home / Solar / Vehicle / Grid bar at the bottom,
     stacked areas for a day (tap and hold to scrub), bars for longer periods, Energy Flow rows. The eye shows one total in the view's colour, fading to black at 0. Day graphs use
     5, 10, 15, 30-minute or 1-hour steps (My Home › Settings › Energy Graph; older days 15-minute or hourly). Curves come from the same shared store as Impact.
-  - **Utility Bill** (every Energy view; Home and Vehicle show their share by grid energy used, Solar and All the savings from solar) – TNB Domestic ToU / NEM 3.0 bill worked out like the real one, with the AFA
+  - **Utility Bill** (All, Home, Vehicle and Grid views; Home and Vehicle show their share by grid energy used, All adds the savings from solar, and the Solar view shows each saving in Energy Flow) – TNB Domestic ToU / NEM 3.0 bill worked out like the real one, with the AFA
     and threshold of each month and public holidays off-peak. Day / Week are shares of the month's bill (estimates),
     Month shows so far and the full-month estimate, Year / Lifetime add the monthly bills. The eye shows the breakdown.
   - **Impact** – Tesla-style cards for Day / Week / Month / Year / Lifetime: Self-Powered, Model 3 on solar (+ km on

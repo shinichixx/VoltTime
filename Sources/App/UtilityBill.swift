@@ -254,7 +254,7 @@ struct UtilityBillSection: View {
         }
     }
 
-    /// Captions of the All and Solar boxes.
+    /// Captions of the All, Home and Vehicle boxes.
     private func titled(_ name: String) -> String {
         switch period {
         case .day, .week, .custom: return "\(name) · estimate"
@@ -272,8 +272,6 @@ struct UtilityBillSection: View {
                 importBox(s, none: none)
                 VStack(alignment: .leading, spacing: 8) { savingsBox(s, none: none) }
                     .padding(.top, 6)
-            } else if share == .solar {
-                savingsBox(s, none: none)
             } else if share == .grid {
                 billBox(s, b, none: none)
             } else {
@@ -284,12 +282,12 @@ struct UtilityBillSection: View {
                     .font(.app(size: 11.5)).foregroundStyle(TeslaDark.rowLabel)
             }
             if showBreakdown && !none {
-                let items = breakdown(s, b)
+                let items = breakdown(b)
                 heading("Breakdown").padding(.top, 4)
                 box {
                     ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                         if i > 0 { line }
-                        row(item.0, money(item.1, rm: share == .solar), tint: item.0 == "NEM credit" ? EnergyColor.solar : .white)
+                        row(item.0, money(item.1), tint: item.0 == "NEM credit" ? EnergyColor.solar : .white)
                     }
                 }
             }
@@ -297,8 +295,7 @@ struct UtilityBillSection: View {
         .padding(.top, 14)
     }
 
-    private func breakdown(_ s: BillSummary, _ b: Bill) -> [(String, Double)] {
-        if share == .solar { return [("Bill without solar", s.without.total), ("Bill with solar", s.bill.total)] }
+    private func breakdown(_ b: Bill) -> [(String, Double)] {
         let all: [(String, Double)] = [
             ("Energy (peak)", b.energyPeak), ("Energy (off-peak)", b.energyOff), ("AFA", b.afa),
             ("Capacity", b.capacity), ("Network", b.network), ("Retail", b.retail),
@@ -311,16 +308,59 @@ struct UtilityBillSection: View {
         Text(text).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
     }
 
-    /// Grid: the bill.
+    /// Grid: import charges, NEM credit and the bill.
     @ViewBuilder private func billBox(_ s: BillSummary, _ b: Bill, none: Bool) -> some View {
         heading(caption)
         box {
-            row(period == .month && current ? "Current bill" : "Bill", none ? "–" : money(b.total, rm: true), strong: true)
+            iconRow(glyph(.grid, EnergyColor.grid), "Import charges", none ? "–" : money(b.total + b.credit, rm: true))
+            line
+            iconRow(glyph(.solar, EnergyColor.solar), "NEM credit", none ? "–" : money(-b.credit, rm: true),
+                    green: !none && b.credit >= 0.005)
+            line
+            iconRow(symbol("doc.text"), period == .month && current ? "Current bill" : "Bill",
+                    none ? "–" : money(b.total, rm: true))
             if let e = s.estimate {
                 line
-                row("Estimated full month", money(e, rm: true), strong: true)
+                iconRow(symbol("calendar"), "Estimated full month", money(e, rm: true))
             }
         }
+    }
+
+    private func glyph(_ kind: FlowGlyph.Kind, _ color: Color) -> AnyView {
+        AnyView(FlowGlyph(kind: kind, color: color, height: 15, maxWidth: 18))
+    }
+
+    private func symbol(_ name: String) -> AnyView {
+        AnyView(Image(systemName: name).font(.system(size: 15)).foregroundStyle(.white))
+    }
+
+    /// Icon, name, value (no percentage).
+    private func iconRow(_ icon: AnyView, _ name: String, _ value: String, green: Bool = false) -> some View {
+        HStack(spacing: 0) {
+            icon.frame(width: 34)
+            Text(name).font(.app(size: 13.5)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+            Spacer(minLength: 8)
+            Text(value).font(.app(size: 13.5, weight: green ? .semibold : .regular))
+                .foregroundStyle(green ? Color.green : Color.white)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 44)
+    }
+
+    /// Estimated full month, in the share-row style; the percentage is how much of the month has passed.
+    private func estimateRow(_ rm: Double) -> some View {
+        let month = Calendar.current.dateInterval(of: .month, for: range.start)
+        let passed = month.map { min(1, max(0, Date().timeIntervalSince($0.start) / $0.duration)) } ?? 0
+        return HStack(spacing: 0) {
+            symbol("calendar").frame(width: 34)
+            Text("\(Int((passed * 100).rounded()))%").font(.app(size: 14, weight: .semibold))
+                .frame(width: 48, alignment: .leading)
+            Text("Estimated full month").font(.app(size: 13.5)).foregroundStyle(TeslaDark.rowLabel).lineLimit(1)
+            Spacer(minLength: 8)
+            Text(money(rm, rm: true)).font(.app(size: 13.5))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 44)
     }
 
     /// Home and Vehicle: its share of the grid import and what that costs.
@@ -333,7 +373,7 @@ struct UtilityBillSection: View {
                      car ? "Vehicle" : "Home", Text(none ? "–" : money(b.total, rm: true)))
             if let e = s.estimate, let c = s.carEstimate {
                 line
-                row("Estimated full month", money(car ? c : e - c, rm: true), strong: true)
+                estimateRow(car ? c : e - c)
             }
         }
     }
@@ -350,12 +390,12 @@ struct UtilityBillSection: View {
                      Text(none ? "–" : money(s.car.total, rm: true)))
             if let e = s.estimate {
                 line
-                row("Estimated full month", money(e, rm: true), strong: true)
+                estimateRow(e)
             }
         }
     }
 
-    /// All and Solar: where the solar energy went and what each part saved.
+    /// All: where the solar energy went and what each part saved.
     @ViewBuilder private func savingsBox(_ s: BillSummary, none: Bool) -> some View {
         let total = s.homeSolar + s.carSolar + s.exported
         heading(titled("Savings from solar"))

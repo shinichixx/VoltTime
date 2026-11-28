@@ -78,6 +78,8 @@ struct EnergyPart: Identifiable {
     /// Which graph layer this row is (defaults to the name).
     var key: String? = nil
     var layer: String { key ?? name }
+    /// Money saved by this row (Solar view).
+    var saved: Double? = nil
     var id: String { name }
 }
 
@@ -221,8 +223,10 @@ struct EnergyView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .clipped()
                                 let _ = tariffRev   // redraw when a rate or holiday changes
-                                UtilityBillSection(store: store, period: period, range: range,
-                                                   showBreakdown: $showBreakdown, folded: $billFolded, share: comp)
+                                if comp != .solar {   // Solar shows its savings in Energy Flow
+                                    UtilityBillSection(store: store, period: period, range: range,
+                                                       showBreakdown: $showBreakdown, folded: $billFolded, share: comp)
+                                }
                             }
                             if let msg = store.message {
                                 Text(msg).font(.app(size: 11)).foregroundStyle(TeslaDark.importing).padding(.top, 8)
@@ -421,10 +425,15 @@ struct EnergyView: View {
                 EnergyPart(name: "Driving", color: EnergyColor.used, kwh: u.drive, glyph: .car),
                 EnergyPart(name: "Standby", color: TeslaDark.rowIcon, kwh: u.idle, glyph: .standby)], missing: carMissing)
         case .solar:
-            table("Used By", arrow: nil, [
-                EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.homeSolar, glyph: .home),
-                EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.carSolar, glyph: .car),
-                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.exp, glyph: .grid)])
+            let s = store.billSummary(period, range)
+            let priced = s.have > 0
+            table("Used By · (savings)", arrow: nil, [
+                EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.homeSolar, glyph: .home,
+                           saved: priced ? s.homeSaved : nil),
+                EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.carSolar, glyph: .car,
+                           saved: priced ? s.carSaved : nil),
+                EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.exp, glyph: .grid,
+                           saved: priced ? s.bill.credit : nil)])
         case .grid:
             table("Used By", arrow: "arrow.up", [
                 EnergyPart(name: "Home", color: EnergyColor.home, kwh: t.homeGrid, glyph: .home),
@@ -440,6 +449,13 @@ struct EnergyView: View {
                 EnergyPart(name: "Vehicle", color: EnergyColor.vehicle, kwh: t.car, glyph: .car, key: "car"),
                 EnergyPart(name: "Grid", color: EnergyColor.grid, kwh: t.exp, glyph: .grid, key: "export")])
         }
+    }
+
+    /// " · (RM 3.64)" after the kWh, in green bold.
+    private func savedText(_ rm: Double?) -> Text {
+        guard let rm else { return Text("") }
+        let amount = abs(rm).formatted(.number.locale(Num.en).precision(.fractionLength(2)))
+        return Text(" · ") + Text("(RM \(amount))").font(.app(size: 13.5, weight: .semibold)).foregroundColor(.green)
     }
 
     /// Share of home + car covered without the grid.
@@ -471,7 +487,8 @@ struct EnergyView: View {
                             .frame(width: 48, alignment: .leading)
                         Text(p.name).font(.app(size: 13.5)).foregroundStyle(TeslaDark.rowLabel)
                         Spacer()
-                        Text(noData ? "–" : Num.kwh(p.kwh, whole: whole) + " kWh").font(.app(size: 13.5))
+                        (Text(noData ? "–" : Num.kwh(p.kwh, whole: whole) + " kWh") + savedText(noData ? nil : p.saved))
+                            .font(.app(size: 13.5)).lineLimit(1).minimumScaleFactor(0.75)
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 44)
