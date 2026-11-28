@@ -80,20 +80,21 @@ struct MenuRow<Icon: View>: View {
     var dot: Color? = nil
     var compact = false   // the Menu page: Tesla app sizes (15.5 pt title, 12 pt line, 64 pt row, smaller icon)
     var product = false   // a product's page: the Tesla app's smaller text and chevron
+    var large = false     // Connection page: the Tesla app's User Access text sizes (15.2 pt title, 12.3 pt line)
     @ViewBuilder let icon: () -> Icon
 
     var body: some View {
         HStack(spacing: 0) {
             icon()
                 .frame(width: 26, height: 26)
-                .scaleEffect(product ? 0.83 : compact ? 0.77 : 1, anchor: .leading)
-                .frame(width: 49, alignment: .leading)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.app(size: product ? 11.8 : compact ? 15 : 17, weight: product ? .medium : .semibold)).foregroundStyle(.white)
+                .scaleEffect(large ? 0.85 : product ? 0.83 : compact ? 0.77 : 1, anchor: large ? .center : .leading)
+                .frame(width: large ? 41.3 : 49, alignment: large ? .leading : .leading)
+            VStack(alignment: .leading, spacing: large ? 4 : 3) {
+                Text(title).font(.app(size: large ? 15.2 : product ? 11.8 : compact ? 15 : 17, weight: product ? .medium : .semibold)).foregroundStyle(.white)
                 if let subtitle {
                     HStack(spacing: 6) {
-                        if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
-                        Text(subtitle).font(.app(size: compact ? 12 : 12.5, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
+                        if let dot { Circle().fill(dot).frame(width: large ? 5.3 : 6, height: large ? 5.3 : 6).padding(.leading, large ? 0.7 : 0) }
+                        Text(subtitle).font(.app(size: large ? 12.3 : compact ? 12 : 12.5, weight: .semibold)).foregroundStyle(TeslaDark.rowLabel)
                             .lineLimit(1)
                     }
                 }
@@ -102,9 +103,9 @@ struct MenuRow<Icon: View>: View {
             if subtitle == nil, let dot { Circle().fill(dot).frame(width: 7, height: 7).padding(.trailing, 20) }
             Image(systemName: "chevron.right").font(.system(size: product ? 11 : 14, weight: .regular)).foregroundStyle(TeslaDark.dim)
         }
-        .padding(.leading, 37)
+        .padding(.leading, large ? 28.7 : 37)
         .padding(.trailing, 33)
-        .frame(height: compact ? 54 : 70)
+        .frame(height: large ? 66.7 : compact ? 54 : 70)
         .contentShape(Rectangle())
     }
 }
@@ -490,26 +491,26 @@ struct ConnectionPage: View {
                 NavigationLink { TessiePage(car: car) } label: {
                     MenuRow(title: "Tessie",
                             subtitle: car.configured ? (car.error == nil ? "Connected · \(ProductNames.car(car.car.name))" : "Can't reach Tessie · tap to check") : "Not set up · add your token",
-                            dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : Color(white: 0.55)) {
+                            dot: car.configured ? (car.error == nil ? TSurface.green : CarColors.amber) : Color(white: 0.55), large: true) {
                         MenuSymbol(name: "bolt.car.fill", size: 19)
                     }
                 }.buttonStyle(.plain)
                 NavigationLink { HomeAssistantPage() } label: {
                     MenuRow(title: "Home Assistant",
                             subtitle: home.haConfigured ? (home.message == nil ? haRoute.map { "Connected · \($0)" } ?? "Connected" : "Can't connect") : "Not set up",
-                            dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : Color(white: 0.55)) {
+                            dot: home.haConfigured ? (home.message == nil ? TSurface.green : TeslaDark.importing) : Color(white: 0.55), large: true) {
                         MenuSymbol(name: "house.fill", size: 19)
                     }
                 }.buttonStyle(.plain)
                 NavigationLink { S3XYPage() } label: {
-                    MenuRow(title: "S3XY Commander", subtitle: s3xyLine, dot: s3xy.statusDot) {
+                    MenuRow(title: "S3XY Commander", subtitle: s3xyLine, dot: s3xy.statusDot, large: true) {
                         MenuSymbol(name: "waveform.path.ecg", size: 19)
                     }
                 }.buttonStyle(.plain)
             }
-            .padding(.top, 8)
+            .padding(.top, 12)
         }
-        .teslaPage("Connection", black: true)
+        .teslaPage("Connection", black: true, drop: 13)
         .task { await refreshHome() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await HARoute.shared.reset(); await refreshHome() } }
