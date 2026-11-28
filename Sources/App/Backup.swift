@@ -54,7 +54,7 @@ enum VoltArchive {
     static let type = UTType(filenameExtension: "aar") ?? .data
 
     struct BadFile: LocalizedError {
-        var errorDescription: String? { "That isn't a TesLah backup." }
+        var errorDescription: String? { "That isn't a Teslar backup." }
     }
 
     /// Packs energy.plist and settings.plist into one compressed file at `out`.
@@ -267,7 +267,7 @@ enum EnergyCSV {
     }
 
     struct BadFile: LocalizedError {
-        var errorDescription: String? { "This isn't a TesLah backup file." }
+        var errorDescription: String? { "This isn't a Teslar backup file." }
     }
 
     static func parse(_ text: String) throws -> [String: DayCurve] {
@@ -339,7 +339,7 @@ final class BackupManager: ObservableObject {
         status = "Packing…"
         Task {
             let out = FileManager.default.temporaryDirectory
-                .appendingPathComponent("TesLah-backup-" + VoltArchive.stamp() + "." + VoltArchive.ext)
+                .appendingPathComponent("Teslar_" + VoltArchive.stamp() + "." + VoltArchive.ext)
             let made: Result<Int64, Error> = await Task.detached(priority: .userInitiated) {
                 do {
                     try VoltArchive.make(at: out)
@@ -486,7 +486,7 @@ struct BackupPage: View {
                 .buttonStyle(.plain)
                 .disabled(backup.working)
                 Button(action: chooseRestore) {
-                    TRow("Restore from backup…", icon: "icloud.and.arrow.down", subtitle: note ?? "Pick a TesLah backup file",
+                    TRow("Restore from backup…", icon: "icloud.and.arrow.down", subtitle: note ?? "Pick a Teslar backup file",
                          last: true) { chevron }
                 }
                 .buttonStyle(.plain)
