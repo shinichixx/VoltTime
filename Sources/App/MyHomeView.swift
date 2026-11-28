@@ -321,8 +321,8 @@ final class MyHomeModel: ObservableObject {
 
     var status: (text: String, color: Color) {
         let g = gridW ?? 0
-        if g < -100 { return ("Exporting", TeslaDark.exporting) }
-        if g > 100 { return ("Importing", TeslaDark.importing) }
+        if g < -50 { return ("Exporting", TeslaDark.exporting) }   // same ±50 W as the grid cable flow
+        if g > 50 { return ("Importing", TeslaDark.importing) }
         return ("Self-powered", TeslaDark.selfPowered)
     }
 
