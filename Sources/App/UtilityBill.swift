@@ -38,8 +38,25 @@ struct BillUse {
     }
 }
 
+/// The kWh behind a bill's per-kWh lines.
+struct BillUnits {
+    var peak = 0.0, off = 0.0, imp = 0.0, exp = 0.0   // exp: the export that earned credit
+    /// A whole month, read in whole kWh like its bill.
+    init(_ u: BillUse) {
+        peak = u.peak.rounded(); off = u.off.rounded(); imp = peak + off
+        exp = min(u.exp.rounded(), imp)
+    }
+    init() {}
+    static func + (a: BillUnits, b: BillUnits) -> BillUnits {
+        var o = a
+        o.peak += b.peak; o.off += b.off; o.imp += b.imp; o.exp += b.exp
+        return o
+    }
+}
+
 struct BillSummary {
     var bill = Bill()
+    var units = BillUnits()         // kWh behind `bill`
     var estimate: Double?     // full month, for the month still running
     var missing = 0           // days gone by with nothing recorded
     var have = 0
@@ -49,8 +66,9 @@ struct BillSummary {
     var homeGrid = 0.0, carGrid = 0.0, homeSolar = 0.0, carSolar = 0.0, exported = 0.0   // kWh over the days counted
     private var homeWorth = 0.0, carWorth = 0.0
 
-    mutating func add(_ b: Bill, _ use: BillUse, without w: Bill) {
+    mutating func add(_ b: Bill, _ use: BillUse, without w: Bill, units n: BillUnits) {
         bill = bill + b
+        units = units + n
         car = car + b.carShare(use)
         without = without + w
         homeGrid += use.homeGrid
@@ -131,7 +149,7 @@ extension EnergyStore {
             let current = iv.contains(Date())
             switch period {
             case .month:
-                out.add(u.use.bill(m), u.use, without: u.use.withoutSolar.bill(m))
+                out.add(u.use.bill(m), u.use, without: u.use.withoutSolar.bill(m), units: BillUnits(u.use))
                 out.have = u.have; out.missing = u.missing
                 if current, u.have > 0 {
                     let p = projected(u.use, iv, missing: u.missing)
@@ -141,7 +159,7 @@ extension EnergyStore {
                 }
             case .year, .lifetime:
                 // Months before the first record don't count as missing.
-                if u.have > 0 { out.add(u.use.bill(m), u.use, without: u.use.withoutSolar.bill(m)); out.have += u.have; out.missing += u.missing }
+                if u.have > 0 { out.add(u.use.bill(m), u.use, without: u.use.withoutSolar.bill(m), units: BillUnits(u.use)); out.have += u.have; out.missing += u.missing }
             default:
                 // Day / Week / Custom: each day's share of its month's bill (the expected one while the month runs).
                 let ref = current ? projected(u.use, iv, missing: u.missing) : u.use
@@ -153,10 +171,17 @@ extension EnergyStore {
                 while d < min(iv.end, r.end), d <= Date() {
                     if let x = billUse(d) {
                         let n = x.withoutSolar
+                        let whole = BillUnits(ref)
+                        var units = BillUnits()
+                        units.peak = part(x.peak, ref.peak) * whole.peak
+                        units.off = part(x.off, ref.off) * whole.off
+                        units.imp = part(x.imp, ref.imp) * whole.imp
+                        units.exp = part(x.exp, ref.exp) * whole.exp
                         out.add(b.share(peak: part(x.peak, ref.peak), off: part(x.off, ref.off),
                                         imp: part(x.imp, ref.imp), exp: part(x.exp, ref.exp), day: 1 / days), x,
                                 without: bNo.share(peak: part(n.peak, refNo.peak), off: part(n.off, refNo.off),
-                                                   imp: part(n.imp, refNo.imp), exp: 0, day: 1 / days))
+                                                   imp: part(n.imp, refNo.imp), exp: 0, day: 1 / days),
+                                units: units)
                         out.have += 1
                     } else { out.missing += 1 }
                     guard let n = cal.date(byAdding: .day, value: 1, to: d) else { break }
@@ -282,12 +307,12 @@ struct UtilityBillSection: View {
                     .font(.app(size: 11.5)).foregroundStyle(TeslaDark.rowLabel)
             }
             if showBreakdown && !none {
-                let items = breakdown(b)
+                let items = breakdown(s, b)
                 heading("Breakdown").padding(.top, 4)
                 box {
                     ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                         if i > 0 { line }
-                        row(item.0, money(item.1), tint: item.0 == "NEM credit" ? EnergyColor.solar : .white)
+                        breakdownRow(item)
                     }
                 }
             }
@@ -295,13 +320,47 @@ struct UtilityBillSection: View {
         .padding(.top, 14)
     }
 
-    private func breakdown(_ b: Bill) -> [(String, Double)] {
-        let all: [(String, Double)] = [
-            ("Energy (peak)", b.energyPeak), ("Energy (off-peak)", b.energyOff), ("AFA", b.afa),
-            ("Capacity", b.capacity), ("Network", b.network), ("Retail", b.retail),
-            ("Energy efficiency incentive", b.incentive), ("Service tax", b.serviceTax), ("KWTBB", b.kwtbb),
-            ("NEM credit", -b.credit)]
-        return all.filter { abs($0.1) >= 0.005 }
+    private struct Item {
+        let name: String
+        let amount: Double
+        var rate: Double? = nil   // RM per kWh
+    }
+
+    /// Rates come from the whole bill, so a Home or Vehicle share shows the same ones.
+    private func breakdown(_ s: BillSummary, _ b: Bill) -> [Item] {
+        func per(_ rm: Double, _ kWh: Double) -> Double? { kWh > 0.001 ? rm / kWh : nil }
+        func pct(_ v: Double) -> String { v.formatted(.number.locale(Num.en).precision(.fractionLength(0...2))) + "%" }
+        let w = s.bill, n = s.units, r = Tariff.billRates
+        let all = [
+            Item(name: "Energy (peak)", amount: b.energyPeak, rate: per(w.energyPeak, n.peak)),
+            Item(name: "Energy (off-peak)", amount: b.energyOff, rate: per(w.energyOff, n.off)),
+            Item(name: "AFA", amount: b.afa, rate: per(w.afa, n.imp)),
+            Item(name: "Capacity", amount: b.capacity, rate: per(w.capacity, n.imp)),
+            Item(name: "Network", amount: b.network, rate: per(w.network, n.imp)),
+            Item(name: "Retail", amount: b.retail),
+            Item(name: "Energy efficiency incentive", amount: b.incentive, rate: per(w.incentive, n.imp)),
+            Item(name: "Service tax (\(pct(r.servicePct)))", amount: b.serviceTax),
+            Item(name: "KWTBB (\(pct(r.kwtbbPct)))", amount: b.kwtbb),
+            Item(name: "NEM credit", amount: -b.credit, rate: per(w.credit, n.exp))]
+        return all.filter { abs($0.amount) >= 0.005 }
+    }
+
+    private func breakdownRow(_ item: Item) -> some View {
+        let credit = item.name == "NEM credit"
+        let rate = item.rate.map {
+            ($0 < 0 ? "−" : "") + "RM " + abs($0).formatted(.number.locale(Num.en).precision(.fractionLength(4)))
+        }
+        return HStack(spacing: 8) {
+            (Text(item.name).font(.app(size: 13.5))
+                + Text(rate.map { " (\($0)/kWh)" } ?? "").font(.app(size: 11)))
+                .foregroundStyle(TeslaDark.rowLabel).lineLimit(1).minimumScaleFactor(0.75)
+            Spacer(minLength: 0)
+            Text(credit ? "(" + money(abs(item.amount), rm: true) + ")" : money(item.amount, rm: true))
+                .font(.app(size: 13.5)).foregroundStyle(credit ? Color.green : Color.white)
+                .lineLimit(1).fixedSize()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 38)
     }
 
     private func heading(_ text: String) -> some View {
@@ -414,7 +473,7 @@ struct UtilityBillSection: View {
     private func percent(_ part: Double, _ of: Double) -> String { of > 0 ? "\(Int((part / of * 100).rounded()))%" : "–" }
 
     private func savingText(_ kWh: Double, _ rm: Double, exported: Bool = false) -> Text {
-        Text((exported && kWh >= 0.05 ? "- " : "") + Num.kwh(kWh, whole: period == .year || period == .lifetime) + " kWh · ")
+        Text((exported ? "(" : "") + Num.kwh(kWh, whole: period == .year || period == .lifetime) + (exported ? " kWh) · " : " kWh · "))
             + Text("(" + money(abs(rm), rm: true) + ")")
                 .font(.app(size: 13.5, weight: .semibold)).foregroundColor(.green)
     }
@@ -437,17 +496,6 @@ struct UtilityBillSection: View {
     private func box<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         VStack(spacing: 0, content: content)
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(border, lineWidth: 1))
-    }
-
-    private func row(_ name: String, _ value: String, strong: Bool = false, tint: Color = .white) -> some View {
-        HStack {
-            Text(name).font(.app(size: strong ? 14 : 13.5, weight: strong ? .semibold : .regular))
-                .foregroundStyle(strong ? .white : TeslaDark.rowLabel)
-            Spacer()
-            Text(value).font(.app(size: strong ? 14 : 13.5, weight: strong ? .semibold : .regular)).foregroundStyle(tint)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: strong ? 44 : 38)
     }
 
     private func money(_ v: Double, rm: Bool = false) -> String {
