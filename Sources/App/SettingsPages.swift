@@ -267,6 +267,94 @@ struct PylonGlyph: View {
 }
 
 /// Settings → Utility Rate Plan: this month's rates and each month's AFA.
+/// A month's AFA rate and threshold, with the unit inside each field.
+private struct AFAEditor: View {
+    let title: String
+    @Binding var text: String
+    @Binding var limit: String
+    let cancel: () -> Void
+    let save: () -> Void
+    @FocusState private var focus: Int?
+
+    private let blue = Color(red: 0.24, green: 0.55, blue: 1)
+    private let fill = Color(white: 0.23)
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea()
+            GeometryReader { g in
+                ScrollView {
+                    card.padding(16).frame(maxWidth: .infinity, minHeight: g.size.height)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+        }
+        .onAppear { focus = 0 }
+    }
+
+    private var card: some View {
+        let kWh = Int(Double(limit.trimmingCharacters(in: .whitespaces)) ?? Tariff.standardThreshold)
+        return VStack(alignment: .leading, spacing: 0) {
+            Text(title).font(.app(size: 19, weight: .semibold)).foregroundStyle(.white)
+            label("AFA rate")
+            field($text, unit: "sen/kWh", id: 0, keyboard: .numbersAndPunctuation)
+            VStack(alignment: .leading, spacing: 3) {
+                note("**Surcharge:** 3.60 adds 3.60 sen per kWh.")
+                note("**Rebate:** −3.60 takes 3.60 sen off per kWh.")
+            }
+            .padding(.top, 10)
+            label("AFA threshold")
+            field($limit, unit: "kWh", id: 1, keyboard: .numberPad)
+            VStack(alignment: .leading, spacing: 3) {
+                note("**Imported in the month:**")
+                note("• **\(kWh) kWh or less:** no AFA (surcharge or rebate), retail charge or service tax.")
+                note("• **Above \(kWh) kWh:** AFA on every kWh, RM10 retail charge, and 8% service tax on the part above \(kWh).")
+                note("Default \(Int(Tariff.standardThreshold)) kWh.")
+            }
+            .padding(.top, 10)
+            HStack(spacing: 10) {
+                pill("Cancel", fill, cancel)
+                pill("Save", blue, save)
+            }
+            .padding(.top, 20)
+        }
+        .padding(20)
+        .background(Color(white: 0.14), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+    }
+
+    private func label(_ s: String) -> some View {
+        Text(s).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel).padding(.top, 18).padding(.bottom, 7)
+    }
+
+    private func note(_ s: LocalizedStringKey) -> some View {
+        Text(s).font(.app(size: 12.5)).foregroundStyle(TeslaDark.rowLabel).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func field(_ value: Binding<String>, unit: String, id: Int, keyboard: UIKeyboardType) -> some View {
+        HStack {
+            TextField("", text: value).keyboardType(keyboard).focused($focus, equals: id)
+                .font(.app(size: 17)).foregroundStyle(.white).tint(blue)
+                .accessibilityLabel(id == 0 ? "AFA rate" : "AFA threshold")
+            Text(unit).font(.app(size: 15)).foregroundStyle(TeslaDark.rowLabel)
+        }
+        .padding(.horizontal, 16).frame(height: 50)
+        .background(fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(focus == id ? blue : .clear, lineWidth: 1.5))
+        .contentShape(Rectangle())
+        .onTapGesture { focus = id }
+    }
+
+    private func pill(_ title: String, _ colour: Color, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.app(size: 15, weight: .semibold)).foregroundStyle(.white)
+                .frame(maxWidth: .infinity).frame(height: 44)
+                .background(colour, in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct UtilityRatePlanPage: View {
     let firstDay: Date?
     @AppStorage(Tariff.revKey) private var tariffRev = 0
@@ -350,27 +438,24 @@ struct UtilityRatePlanPage: View {
                     }
                 }
                 .buttonStyle(.plain)
-                TFootnote(text: "Solar used is valued at the import rate. Export offsets the month's off-peak import at the off-peak export rate, then the rest at the peak export rate. Impact leaves out the energy efficiency incentive; Utility Bill (Energy › Grid) includes it.",
+                TFootnote(text: "Solar used is valued at the import rate. Export offsets the month's off-peak import at the off-peak export rate, then the rest at the peak export rate. Impact leaves out the energy efficiency incentive; Utility Bill (Energy › Grid, Home and Vehicle) includes it.",
                           color: TeslaDark.dim)
                 Spacer(minLength: 40)
             }
         }
         .teslaPage("Utility Rate Plan", black: true)
-        .alert(editing.map { name($0) } ?? "AFA", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
-            TextField("AFA (sen/kWh)", text: $text).keyboardType(.numbersAndPunctuation)
-            TextField("AFA threshold (kWh)", text: $limit).keyboardType(.numberPad)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") {
-                if let m = editing, let v = Double(text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)) {
-                    Tariff.setAFA(v, m)
-                }
-                if let m = editing {
+        .overlay {
+            if let m = editing {
+                AFAEditor(title: name(m), text: $text, limit: $limit, cancel: { editing = nil }) {
+                    if let v = Double(text.replacingOccurrences(of: ",", with: ".").replacingOccurrences(of: "−", with: "-")
+                        .trimmingCharacters(in: .whitespaces)) {
+                        Tariff.setAFA(v, m)
+                    }
                     let kWh = Double(limit.trimmingCharacters(in: .whitespaces))
                     Tariff.setThreshold(kWh == Tariff.standardThreshold ? nil : kWh, m)
+                    editing = nil
                 }
             }
-        } message: {
-            Text("AFA in sen/kWh (minus for a rebate), then the threshold in kWh (default 600). At or below it: no AFA, retail charge or service tax.")
         }
     }
 
