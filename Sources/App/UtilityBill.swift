@@ -245,16 +245,6 @@ struct UtilityBillSection: View {
     private var current: Bool { range.start <= Date() && Date() < range.end }
 
     private var caption: String {
-        if share == .home || share == .vehicle {
-            let who = share == .vehicle ? "Vehicle share" : "Home share"
-            switch period {
-            case .day: return "\(current ? "Today" : range.label) · \(who) · estimate"
-            case .week: return "\(current ? "This week" : "Week") · \(who) · estimate"
-            case .month: return "\(range.start.formatted(.dateTime.month(.wide).locale(Num.en))) · \(who)"
-            case .year, .lifetime: return "\(range.label) · \(who)"
-            case .custom: return "Chosen days · \(who) · estimate"
-            }
-        }
         switch period {
         case .day: return current ? "Today · estimate" : "\(range.label) · estimate"
         case .week: return current ? "This week so far · estimate" : "Week · estimate"
@@ -280,11 +270,14 @@ struct UtilityBillSection: View {
         return VStack(alignment: .leading, spacing: 8) {
             if share == .all {
                 importBox(s, none: none)
-                savingsBox(s, none: none).padding(.top, 6)
+                VStack(alignment: .leading, spacing: 8) { savingsBox(s, none: none) }
+                    .padding(.top, 6)
             } else if share == .solar {
                 savingsBox(s, none: none)
-            } else {
+            } else if share == .grid {
                 billBox(s, b, none: none)
+            } else {
+                shareBox(s, b, none: none)
             }
             if s.missing > 0 && !none {
                 Text("\(s.missing) day\(s.missing == 1 ? "" : "s") without data, not counted.")
@@ -318,21 +311,29 @@ struct UtilityBillSection: View {
         Text(text).font(.app(size: 13)).foregroundStyle(TeslaDark.rowLabel)
     }
 
-    /// Grid, Home and Vehicle: the bill, and for Home / Vehicle its share of the grid import.
+    /// Grid: the bill.
     @ViewBuilder private func billBox(_ s: BillSummary, _ b: Bill, none: Bool) -> some View {
-        let estimate = share == .grid ? s.estimate
-            : s.estimate.flatMap { e in s.carEstimate.map { share == .vehicle ? $0 : e - $0 } }
         heading(caption)
         box {
             row(period == .month && current ? "Current bill" : "Bill", none ? "–" : money(b.total, rm: true), strong: true)
-            if let e = estimate {
+            if let e = s.estimate {
                 line
                 row("Estimated full month", money(e, rm: true), strong: true)
             }
-            if share != .grid && !none {
+        }
+    }
+
+    /// Home and Vehicle: its share of the grid import and what that costs.
+    @ViewBuilder private func shareBox(_ s: BillSummary, _ b: Bill, none: Bool) -> some View {
+        let car = share == .vehicle
+        heading(titled("Share of grid import"))
+        box {
+            shareRow(car ? .car : .home, car ? EnergyColor.vehicle : EnergyColor.home,
+                     none ? "–" : percent(car ? s.carGrid : s.homeGrid, s.homeGrid + s.carGrid),
+                     car ? "Vehicle" : "Home", Text(none ? "–" : money(b.total, rm: true)))
+            if let e = s.estimate, let c = s.carEstimate {
                 line
-                row("\(share == .vehicle ? "Vehicle" : "Home")’s share of grid import",
-                    percent(share == .vehicle ? s.carGrid : s.homeGrid, s.homeGrid + s.carGrid))
+                row("Estimated full month", money(car ? c : e - c, rm: true), strong: true)
             }
         }
     }
