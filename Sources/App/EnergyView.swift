@@ -980,6 +980,11 @@ private struct EnergyChartView: View {
     /// fill; export below zero in grey. Each fades toward the 0 line, edges only where there's power.
     @ChartContentBuilder private func allMarks(_ points: [FlowPoint], _ scale: EnergyScale) -> some ChartContent {
         if isDay {
+            // Grid import: on top of solar, or from 0 when there's none (behind the other layers).
+            ForEach(points) { p in
+                AreaMark(x: .value("Time", p.date), yStart: .value("Lo", p.flow.solar * p.k), yEnd: .value("Hi", (p.flow.solar + p.flow.imp) * p.k), series: .value("A", "imp"))
+                    .foregroundStyle(fade(look.style("imp", EnergyColor.grid).fill ? EnergyColor.grid : .clear, below: false, scale)).interpolationMethod(.monotone)
+            }
             ForEach(points) { p in
                 AreaMark(x: .value("Time", p.date), yStart: .value("Lo", 0.0), yEnd: .value("Hi", p.flow.house * p.k), series: .value("A", "home"))
                     .foregroundStyle(fade(look.style("home", EnergyColor.home).fill ? EnergyColor.home : .clear, below: false, scale)).interpolationMethod(.monotone)
@@ -1126,6 +1131,7 @@ private struct EnergyChartView: View {
             if look.outline && !look.focus.contains(name) { return }   // eye: only the total lines (and a tapped row's own line)
             for r in Self.runs(pts, has: has, edge: edge) { out.append(EdgeLine(key: "\(name)\(r.id)", color: c, points: r.points)) }
         }
+        add("imp", look.style("imp", EnergyColor.grid).line, has: { $0.flow.imp > 0.001 }, edge: { ($0.flow.solar + $0.flow.imp) * $0.k })
         add("car", look.style("car", EnergyColor.vehicle).line, has: { $0.flow.car > 0.001 }, edge: { ($0.flow.house + $0.flow.car) * $0.k })
         add("solar", look.style("solar", EnergyColor.solar).line, has: { $0.flow.solar > 0.001 }, edge: { $0.flow.solar * $0.k })
         add("export", look.style("export", EnergyColor.grid).line, has: { $0.flow.exp > 0.001 }, edge: { -$0.flow.exp * $0.k })
